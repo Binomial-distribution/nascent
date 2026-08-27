@@ -1,0 +1,45 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 密钥与本地配置：任何时候都不要提交
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+secrets.json
+**/local_config.h
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+hardware/*/.vscode/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+software/app/android/.gradle/
+software/app/android/local.properties
+software/app/**/*.g.dart
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+!.vscode/extensions.json

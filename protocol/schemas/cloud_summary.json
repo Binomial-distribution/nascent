@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nascent.local/protocol/cloud_summary.json",
+  "title": "CloudSummary",
+  "description": "app -> backend（5-10s 或事件触发） | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "$defs": {
+    "LevelSetting": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "CloudAction": {
+      "type": "object",
+      "properties": {
+        "set_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "set_pattern": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "soft_min",
+                "soft",
+                "shallow_wave",
+                "wave",
+                "pulse",
+                "strong_pulse",
+                "mixed",
+                "peak"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "SessionCurves": {
+      "type": "object",
+      "properties": {
+        "temp_a_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "press_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "hr_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "temp_a_1hz",
+        "press_1hz",
+        "hr_1hz"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "UserTags": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string"
+    },
+    "persona_id": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "free",
+        "scenario",
+        "wild"
+      ]
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "warming",
+        "rising",
+        "plateau",
+        "calm"
+      ]
+    },
+    "temp_state": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "too_cold",
+        "warming",
+        "reaching_comfort",
+        "comfortable",
+        "cooling"
+      ]
+    },
+    "pressure_rhythm": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "steady",
+        "increasing",
+        "decreasing"
+      ]
+    },
+    "hr_trend": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "steady",
+        "increasing",
+        "decreasing"
+      ]
+    },
+    "insert_state": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "not_inserted",
+        "inserted"
+      ]
+    },
+    "user_events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "current": {
+      "$ref": "#/$defs/LevelSetting"
+    }
+  },
+  "required": [
+    "session_id",
+    "persona_id",
+    "mode",
+    "phase",
+    "temp_state",
+    "pressure_rhythm",
+    "hr_trend",
+    "insert_state",
+    "user_events",
+    "current"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+# 统一换行为 LF。队友在 Windows 上克隆时不会把固件和生成物整片改成 CRLF，
+# 否则 protocol/tools/gen.py --check 会永远判定产物过期。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+
+# 生成物：在 PR diff 里折叠，但仍然进版本库
+protocol/generated/** linguist-generated=true
+protocol/schemas/** linguist-generated=true
+
+# vendored 第三方库：不计入语言统计，也不该在 review 里被逐行看。
+# 来源与版本见 hardware/VENDOR.md。
+hardware/*/lib/** linguist-vendored=true

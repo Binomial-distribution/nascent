@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nascent.local/protocol/ble_uplink.json",
+  "title": "BleUplink",
+  "description": "k10-controller -> app（BLE notify，12 Hz 聚合） | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "$defs": {
+    "LevelSetting": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "CloudAction": {
+      "type": "object",
+      "properties": {
+        "set_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "set_pattern": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "soft_min",
+                "soft",
+                "shallow_wave",
+                "wave",
+                "pulse",
+                "strong_pulse",
+                "mixed",
+                "peak"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "SessionCurves": {
+      "type": "object",
+      "properties": {
+        "temp_a_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "press_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "hr_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "temp_a_1hz",
+        "press_1hz",
+        "hr_1hz"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "UserTags": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "ts": {
+      "type": "integer"
+    },
+    "temp_a": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "量产接触 NTC；demo 恒为 null"
+    },
+    "temp_b": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "量产环境 NTC；demo 恒为 null"
+    },
+    "env_temp": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "DHT11 温度，最快 1 Hz，非安全通道"
+    },
+    "env_humidity": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "DHT11 湿度，最快 1 Hz"
+    },
+    "press_l": {
+      "type": "integer"
+    },
+    "press_r": {
+      "type": "integer"
+    },
+    "accel": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "gyro": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "insert_state": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "not_inserted",
+        "inserted"
+      ]
+    },
+    "joy_edge": {
+      "type": "string",
+      "enum": [
+        "none",
+        "up",
+        "down"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "free",
+        "scenario",
+        "wild"
+      ]
+    },
+    "level": {
+      "type": "integer"
+    },
+    "battery": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "demo 恒为 null"
+    },
+    "alert": {
+      "type": "string",
+      "enum": [
+        "none",
+        "over_temp",
+        "low_battery",
+        "safeword",
+        "estop",
+        "bad_cmd",
+        "link_lost"
+      ]
+    }
+  },
+  "required": [
+    "ts",
+    "press_l",
+    "press_r",
+    "accel",
+    "gyro",
+    "insert_state",
+    "joy_edge",
+    "mode",
+    "level",
+    "alert"
+  ],
+  "additionalProperties": false
+}

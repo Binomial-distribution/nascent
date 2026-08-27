@@ -1,0 +1,267 @@
+# Nascent 协议契约 —— 固件 / App / 后端三端的唯一事实来源
+#
+# 改协议的唯一正确姿势：
+#   1. 改本文件
+#   2. python3 tools/gen.py
+#   3. 提交 contract.yaml 与 generated/ + schemas/ 的全部变更
+#
+# 禁止手改 generated/ 与 schemas/，它们会被下一次生成覆盖。
+
+version: "0.1.0-demo"
+
+# ---------------------------------------------------------------------------
+# 常量：三端共享的阈值与上限。固件用宏，App/后端用常量类。
+# ---------------------------------------------------------------------------
+constants:
+  PROTO_MAGIC: 20026
+  VERSION_MAJOR: 0
+  VERSION_MINOR: 1
+
+  LEVEL_MIN: 1
+  LEVEL_MAX: 8
+  DUTY_CAP_PCT: 90
+
+  UPLINK_HZ: 12
+  UPLINK_PERIOD_MS: 83
+
+  LED_COUNT: 8
+
+  # DHT11 物理下限，低于这个间隔读数无效。它不是安全通道。
+  DHT11_MIN_INTERVAL_MS: 1000
+
+  IMU_DECISION_PERIOD_MS: 1000
+  STILL_PAUSE_MS: 30000
+
+  JOY_EDGE_HOLD_MS: 80
+  JOY_HOLD_RAMP_MS: 400
+  JOY_DEADZONE: 900
+
+  WILD_TIMEOUT_MS: 900000
+
+  LINK_TIMEOUT_MS: 1500
+  SESSION_TOKEN_TTL_MS: 3600000
+
+  # int16 哨兵值，表示该通道本帧无效（例如 demo 阶段未焊 NTC）
+  SENTINEL_I16: -32768
+
+# ---------------------------------------------------------------------------
+# BLE GATT 标识。固件与 App 必须用同一组 UUID，
+# 所以它们放在这里而不是只写在 ble_gatt.md 里——文档不会被编译器检查。
+# ---------------------------------------------------------------------------
+ble:
+  device_name: "Nascent-K10"
+  # 低于这个 MTU，12Hz 的上行 JSON 需要分包，App 侧要自己拼。
+  min_mtu: 185
+  service_uuid: "a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10"
+  uplink_uuid: "a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10"
+  downlink_uuid: "a1b2c002-5f3e-4c8a-9b1d-0e7f2a6c9d10"
+  info_uuid: "a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10"
+
+# ---------------------------------------------------------------------------
+# 枚举：序号即线序。0 号一律是"最安全"的取值，
+# 这样一帧全零的坏包解出来是 stop / unknown / none，而不是加档。
+# ---------------------------------------------------------------------------
+enums:
+  frame_type: [pair, ack, heartbeat, telemetry, command]
+  mode: [free, scenario, wild]
+  insert_state: [unknown, not_inserted, inserted]
+  joy_edge: [none, up, down]
+  alert: [none, over_temp, low_battery, safeword, estop, bad_cmd, link_lost]
+  # resume 追加在末尾，前面的线序不变。
+  # 它只由 K10 上的物理双键确认产生，App 永远发不出这条指令。
+  cmd: [stop, set_mode, set_level, set_pattern, set_led, set_joystick, resume]
+  pattern: [soft_min, soft, shallow_wave, wave, pulse, strong_pulse, mixed, peak]
+  led_state: [mode_default, warming, comfort_reached, cleaning, low_battery, safeword]
+  phase: [warming, rising, plateau, calm]
+  scene_ctrl: [advance, stay, end]
+  emotion: [gentle, playful, calm]
+  temp_state: [unknown, too_cold, warming, reaching_comfort, comfortable, cooling]
+  rhythm: [unknown, steady, increasing, decreasing]
+
+# ---------------------------------------------------------------------------
+# 八档表：PWM、波形、LED 颗数与配色。固件本地渲染，云端无权逐帧下发。
+# ---------------------------------------------------------------------------
+levels:
+  - {level: 1, duty_pct: 15, pattern: soft_min,     lit: 1, r: 255, g: 105, b: 150, semantic: "初识预热"}
+  - {level: 2, duty_pct: 25, pattern: soft,         lit: 2, r: 255, g: 105, b: 150, semantic: "轻抚"}
+  - {level: 3, duty_pct: 35, pattern: shallow_wave, lit: 3, r: 255, g: 130, b: 110, semantic: "渐入"}
+  - {level: 4, duty_pct: 45, pattern: wave,         lit: 4, r: 255, g: 130, b: 110, semantic: "升温"}
+  - {level: 5, duty_pct: 55, pattern: pulse,        lit: 5, r: 255, g: 150, b: 60,  semantic: "攀升"}
+  - {level: 6, duty_pct: 65, pattern: strong_pulse, lit: 6, r: 255, g: 110, b: 50,  semantic: "深入"}
+  - {level: 7, duty_pct: 78, pattern: mixed,        lit: 7, r: 255, g: 70,  b: 60,  semantic: "高强度"}
+  - {level: 8, duty_pct: 90, pattern: peak,         lit: 8, r: 255, g: 70,  b: 60,  semantic: "峰值"}
+
+# 模式层配色：换模式才换色，换人不换灯。
+led_modes:
+  - {mode: free,     anim: level_static, r: 255, g: 92,  b: 128, label: "手动暖粉红"}
+  - {mode: scenario, anim: breathe,      r: 150, g: 130, b: 180, label: "情景雾灰紫"}
+  - {mode: wild,     anim: comet,        r: 255, g: 24,  b: 32,  label: "失控红流光"}
+
+# 覆盖层：priority 越大越优先，可抢占模式层。安全词最高。
+led_overrides:
+  - {state: warming,         anim: breathe,      r: 40,  g: 120, b: 255, priority: 20, label: "预热蓝呼吸"}
+  - {state: comfort_reached, anim: solid_3s,     r: 90,  g: 220, b: 120, priority: 20, label: "舒适暖绿"}
+  - {state: cleaning,        anim: slow_blink,   r: 255, g: 176, b: 40,  priority: 20, label: "清洁琥珀慢闪"}
+  - {state: low_battery,     anim: fast_blink3,  r: 255, g: 140, b: 0,   priority: 10, label: "低电橙快闪"}
+  - {state: safeword,        anim: slow_breathe, r: 255, g: 255, b: 255, priority: 100, label: "安全词白呼吸"}
+
+# ---------------------------------------------------------------------------
+# ESP-NOW 板间帧：定长 packed struct，仅生成 C。
+# 单帧上限 250 字节，当前用量远低于上限。
+# ---------------------------------------------------------------------------
+wire_header:
+  fields:
+    - {name: magic,         ctype: uint16_t}
+    - {name: version_major, ctype: uint8_t}
+    - {name: version_minor, ctype: uint8_t}
+    - {name: frame_type,    ctype: uint8_t, enum: frame_type}
+    - {name: seq,           ctype: uint16_t}
+    - {name: reserved,      ctype: uint8_t}
+
+wire_frames:
+  - name: telemetry
+    doc: "toy-sidecar -> k10-controller，12 Hz"
+    fields:
+      - {name: ts_ms,             ctype: uint32_t}
+      - {name: env_temp_c_x10,    ctype: int16_t,  doc: "DHT11 温度 x10；无效为 SENTINEL_I16"}
+      - {name: env_humidity_x10,  ctype: int16_t,  doc: "DHT11 湿度 x10；无效为 SENTINEL_I16"}
+      - {name: temp_a_c_x100,     ctype: int16_t,  doc: "量产接触 NTC；demo 恒为 SENTINEL_I16"}
+      - {name: temp_b_c_x100,     ctype: int16_t,  doc: "量产环境 NTC；demo 恒为 SENTINEL_I16"}
+      - {name: press_l,           ctype: uint16_t, doc: "FSR402 左，原始 ADC 0-4095"}
+      - {name: press_r,           ctype: uint16_t, doc: "FSR402 右，原始 ADC 0-4095"}
+      - {name: press_rhythm_mhz,  ctype: uint16_t, doc: "1-2Hz 带通提取的节律，单位 mHz"}
+      - {name: accel_mg_x,        ctype: int16_t}
+      - {name: accel_mg_y,        ctype: int16_t}
+      - {name: accel_mg_z,        ctype: int16_t}
+      - {name: gyro_dps_x10_x,    ctype: int16_t}
+      - {name: gyro_dps_x10_y,    ctype: int16_t}
+      - {name: gyro_dps_x10_z,    ctype: int16_t}
+      - {name: insert_state,      ctype: uint8_t, enum: insert_state}
+      - {name: alert,             ctype: uint8_t, enum: alert}
+      - {name: applied_level,     ctype: uint8_t, doc: "玩具侧实际生效的档位"}
+      - {name: flags,             ctype: uint8_t, doc: "bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop"}
+
+  - name: command
+    doc: "k10-controller -> toy-sidecar，事件驱动 + 心跳重发"
+    fields:
+      - {name: ts_ms,     ctype: uint32_t}
+      - {name: cmd,       ctype: uint8_t, enum: cmd}
+      - {name: mode,      ctype: uint8_t, enum: mode}
+      - {name: level,     ctype: uint8_t}
+      - {name: pattern,   ctype: uint8_t, enum: pattern}
+      - {name: led_state, ctype: uint8_t, enum: led_state}
+      - {name: flags,     ctype: uint8_t, doc: "bit0 joystick_enabled, bit1 hold_ramp"}
+
+  - name: ack
+    doc: "toy-sidecar -> k10-controller，确认已执行的序号"
+    fields:
+      - {name: ack_seq,  ctype: uint16_t}
+      - {name: accepted, ctype: uint8_t, doc: "0 拒绝，1 接受"}
+      - {name: reason,   ctype: uint8_t, enum: alert}
+
+# ---------------------------------------------------------------------------
+# JSON 报文：BLE（手机 <-> K10）与云端（App <-> 后端）。
+# 生成 JSON Schema + Dart + Pydantic。
+# ---------------------------------------------------------------------------
+json_objects:
+  - name: LevelSetting
+    fields:
+      - {name: level,   type: int}
+      - {name: pattern, type: "enum:pattern"}
+
+  - name: CloudAction
+    fields:
+      - {name: set_level,   type: int, nullable: true}
+      - {name: set_pattern, type: "enum:pattern", nullable: true}
+
+  - name: SessionCurves
+    fields:
+      - {name: temp_a_1hz, type: "list:float"}
+      - {name: press_1hz,  type: "list:float"}
+      - {name: hr_1hz,     type: "list:float"}
+
+  - name: SessionEvent
+    fields:
+      - {name: t,    type: int}
+      - {name: type, type: str}
+
+  - name: UserTags
+    fields:
+      - {name: mood, type: str}
+      - {name: note, type: str}
+
+json_messages:
+  - name: BleUplink
+    file: ble_uplink
+    direction: "k10-controller -> app（BLE notify，12 Hz 聚合）"
+    fields:
+      - {name: ts,            type: int}
+      - {name: temp_a,        type: float, nullable: true, doc: "量产接触 NTC；demo 恒为 null"}
+      - {name: temp_b,        type: float, nullable: true, doc: "量产环境 NTC；demo 恒为 null"}
+      - {name: env_temp,      type: float, nullable: true, doc: "DHT11 温度，最快 1 Hz，非安全通道"}
+      - {name: env_humidity,  type: float, nullable: true, doc: "DHT11 湿度，最快 1 Hz"}
+      - {name: press_l,       type: int}
+      - {name: press_r,       type: int}
+      - {name: accel,         type: "list:float"}
+      - {name: gyro,          type: "list:float"}
+      - {name: insert_state,  type: "enum:insert_state"}
+      - {name: joy_edge,      type: "enum:joy_edge"}
+      - {name: mode,          type: "enum:mode"}
+      - {name: level,         type: int}
+      # demo 没有电量采样电路，K10 恒发 null。
+      # 声明成非空会让 App 一解析就崩，而不是安静地不显示电量。
+      - {name: battery,       type: int, nullable: true, doc: "demo 恒为 null"}
+      - {name: alert,         type: "enum:alert"}
+
+  - name: BleDownlink
+    file: ble_downlink
+    direction: "app -> k10-controller（BLE write）"
+    fields:
+      - {name: cmd,     type: "enum:cmd"}
+      - {name: level,   type: int, nullable: true}
+      - {name: pattern, type: "enum:pattern", nullable: true}
+      - {name: mode,    type: "enum:mode", nullable: true}
+      - {name: led,     type: "enum:led_state", nullable: true}
+      - {name: enabled, type: bool, nullable: true, doc: "set_joystick 用"}
+      - {name: hold_ramp, type: bool, nullable: true, doc: "set_joystick 用"}
+      - {name: auth,    type: str, doc: "session token；缺失或过期整包丢弃"}
+
+  - name: CloudSummary
+    file: cloud_summary
+    direction: "app -> backend（5-10s 或事件触发）"
+    fields:
+      - {name: session_id,      type: str}
+      - {name: persona_id,      type: str}
+      - {name: mode,            type: "enum:mode"}
+      - {name: phase,           type: "enum:phase"}
+      - {name: temp_state,      type: "enum:temp_state"}
+      - {name: pressure_rhythm, type: "enum:rhythm"}
+      - {name: hr_trend,        type: "enum:rhythm"}
+      - {name: insert_state,    type: "enum:insert_state"}
+      - {name: user_events,     type: "list:str"}
+      - {name: current,         type: "obj:LevelSetting"}
+
+  - name: CloudActionEnvelope
+    file: cloud_action
+    direction: "backend -> app"
+    fields:
+      - {name: dialogue,   type: str}
+      - {name: action,     type: "obj:CloudAction", nullable: true}
+      - {name: scene_ctrl, type: "enum:scene_ctrl"}
+      - {name: emotion,    type: "enum:emotion"}
+
+  - name: SessionRecord
+    file: session_record
+    direction: "app 本地 SQLCipher 归档"
+    fields:
+      - {name: session_id,       type: str}
+      - {name: ts_start,         type: int}
+      - {name: duration_s,       type: int}
+      - {name: mode,             type: "enum:mode"}
+      - {name: persona_id,       type: str}
+      - {name: scene_id,         type: str, nullable: true}
+      - {name: max_level,        type: int}
+      - {name: curves,           type: "obj:SessionCurves"}
+      - {name: events,           type: "list:obj:SessionEvent"}
+      - {name: user_tags,        type: "obj:UserTags"}
+      - {name: ai_summary_draft, type: str}

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nascent.local/protocol/session_record.json",
+  "title": "SessionRecord",
+  "description": "app 本地 SQLCipher 归档 | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "$defs": {
+    "LevelSetting": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "CloudAction": {
+      "type": "object",
+      "properties": {
+        "set_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "set_pattern": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "soft_min",
+                "soft",
+                "shallow_wave",
+                "wave",
+                "pulse",
+                "strong_pulse",
+                "mixed",
+                "peak"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "SessionCurves": {
+      "type": "object",
+      "properties": {
+        "temp_a_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "press_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "hr_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "temp_a_1hz",
+        "press_1hz",
+        "hr_1hz"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "UserTags": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string"
+    },
+    "ts_start": {
+      "type": "integer"
+    },
+    "duration_s": {
+      "type": "integer"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "free",
+        "scenario",
+        "wild"
+      ]
+    },
+    "persona_id": {
+      "type": "string"
+    },
+    "scene_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "max_level": {
+      "type": "integer"
+    },
+    "curves": {
+      "$ref": "#/$defs/SessionCurves"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SessionEvent"
+      }
+    },
+    "user_tags": {
+      "$ref": "#/$defs/UserTags"
+    },
+    "ai_summary_draft": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "ts_start",
+    "duration_s",
+    "mode",
+    "persona_id",
+    "max_level",
+    "curves",
+    "events",
+    "user_tags",
+    "ai_summary_draft"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+# 通用能力一律用成熟库，自己只写产品逻辑。
+# 版本锁到次版本，避免队友之间因小版本差异出现"我这能跑"。
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+httpx==0.28.1
+
+# 生成 protocol.py 时用；没装也能跑，gen.py 有内置的受限解析器兜底
+PyYAML==6.0.2
+
+# 开发
+pytest==8.3.4
+ruff==0.8.4

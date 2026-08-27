@@ -1,0 +1,14 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # 生成物由 gen.py 负责，lint 它没有意义
+    - lib/core/protocol/**
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    avoid_print: true

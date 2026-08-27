@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nascent.local/protocol/cloud_action.json",
+  "title": "CloudActionEnvelope",
+  "description": "backend -> app | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "$defs": {
+    "LevelSetting": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "CloudAction": {
+      "type": "object",
+      "properties": {
+        "set_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "set_pattern": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "soft_min",
+                "soft",
+                "shallow_wave",
+                "wave",
+                "pulse",
+                "strong_pulse",
+                "mixed",
+                "peak"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "SessionCurves": {
+      "type": "object",
+      "properties": {
+        "temp_a_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "press_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "hr_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "temp_a_1hz",
+        "press_1hz",
+        "hr_1hz"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "UserTags": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "dialogue": {
+      "type": "string"
+    },
+    "action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CloudAction"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scene_ctrl": {
+      "type": "string",
+      "enum": [
+        "advance",
+        "stay",
+        "end"
+      ]
+    },
+    "emotion": {
+      "type": "string",
+      "enum": [
+        "gentle",
+        "playful",
+        "calm"
+      ]
+    }
+  },
+  "required": [
+    "dialogue",
+    "scene_ctrl",
+    "emotion"
+  ],
+  "additionalProperties": false
+}

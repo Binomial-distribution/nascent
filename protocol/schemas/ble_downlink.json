@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nascent.local/protocol/ble_downlink.json",
+  "title": "BleDownlink",
+  "description": "app -> k10-controller（BLE write） | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "$defs": {
+    "LevelSetting": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "CloudAction": {
+      "type": "object",
+      "properties": {
+        "set_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "set_pattern": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "soft_min",
+                "soft",
+                "shallow_wave",
+                "wave",
+                "pulse",
+                "strong_pulse",
+                "mixed",
+                "peak"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "SessionCurves": {
+      "type": "object",
+      "properties": {
+        "temp_a_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "press_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "hr_1hz": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "temp_a_1hz",
+        "press_1hz",
+        "hr_1hz"
+      ],
+      "additionalProperties": false
+    },
+    "SessionEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "UserTags": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mood",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "cmd": {
+      "type": "string",
+      "enum": [
+        "stop",
+        "set_mode",
+        "set_level",
+        "set_pattern",
+        "set_led",
+        "set_joystick",
+        "resume"
+      ]
+    },
+    "level": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pattern": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "soft_min",
+            "soft",
+            "shallow_wave",
+            "wave",
+            "pulse",
+            "strong_pulse",
+            "mixed",
+            "peak"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "free",
+            "scenario",
+            "wild"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "led": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "mode_default",
+            "warming",
+            "comfort_reached",
+            "cleaning",
+            "low_battery",
+            "safeword"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "set_joystick 用"
+    },
+    "hold_ramp": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "set_joystick 用"
+    },
+    "auth": {
+      "type": "string",
+      "description": "session token；缺失或过期整包丢弃"
+    }
+  },
+  "required": [
+    "cmd",
+    "auth"
+  ],
+  "additionalProperties": false
+}
