@@ -2,7 +2,7 @@
 
 智能情趣按摩玩具的软硬件工程仓库。当前处于**验证期双板 Demo** 阶段。
 
-架构文档（飞书，需权限）：<https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd>
+产品架构（仓库内权威副本）：[`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)。飞书讨论稿：<https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd>（改架构必须同步回仓库）。
 
 ## 三层运行架构
 
@@ -46,10 +46,11 @@ flowchart TB
 | [`software/backend/`](software/backend/) | FastAPI 后端 | 框架骨架 |
 | [`datasheets/`](datasheets/) | 已选型器件的厂商 datasheet | — |
 | [`docs/`](docs/) | 协作与提交规范 | — |
+| [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.2 已归档 |
 
 ## 上手
 
-协作、分支、提交和评审流程见 [`docs/Nascent 开发与代码提交规范.md`](docs/Nascent%20开发与代码提交规范.md)。改任何跨端字段之前，先读 [`protocol/README.md`](protocol/README.md)。
+协作、分支、提交和评审流程见 [`docs/Nascent 开发与代码提交规范.md`](docs/Nascent%20开发与代码提交规范.md)。架构结论写在 [`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)，不要只改飞书。改任何跨端字段之前，先读 [`protocol/README.md`](protocol/README.md)。
 
 ```bash
 # 协议：改完 contract.yaml 后必须重新生成

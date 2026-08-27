@@ -6,7 +6,7 @@
 
 每个小任务使用一个短分支，尽早创建 Draft PR；main 始终保持可集成。不要建立个人长期分支、模块长期分支或整个阶段共用分支。
 
-验证期双板 Demo 的架构与红线见仓库根目录 [`README.md`](../README.md)。飞书架构文档（需权限）：<https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd>
+验证期双板 Demo 的架构与红线见 [`README.md`](../README.md)。产品架构的权威副本在仓库里：[`docs/architecture/产品架构.md`](architecture/产品架构.md)。飞书可以讨论草稿，不能当作唯一出处。
 
 # 1. 仓库与 AI 入口
 
@@ -68,6 +68,7 @@ git switch -c feat/your-small-task
 | `software/backend/` | FastAPI 云端 | 云端只给建议，不控制硬件。密钥只进 `.env`，不进仓库 |
 | `datasheets/` | 已选型器件的厂商 datasheet | 不放视频、超大原稿、临时导出 |
 | `docs/` | 协作规范、决策记录 | 确认结论和开放问题应分开记录 |
+| `docs/architecture/` | 产品架构（权威副本） | 必须进本仓库。飞书只作讨论草稿，改完要同步回这里再提交 |
 
 **跨端字段一律进 `protocol/contract.yaml`。** 不要在固件宏、Dart 常量和 Python 模型里各抄一份 UUID、档位上限或超时。改完契约后必须：
 
@@ -77,7 +78,19 @@ cd protocol && python3 tools/gen.py
 
 并在同一个提交里带上 `contract.yaml`、`protocol/generated/`、`protocol/schemas/`、`software/app/lib/core/protocol/protocol.dart`、`software/backend/app/protocol.py` 以及 `protocol/CHANGELOG.md`。
 
-# 5. 提交前的标准流程
+# 5. 架构文档必须放进本仓库
+
+飞书方便讨论，但不进 PR、不进 git 历史、没有仓库权限的同事也打不开。因此：
+
+- **产品架构的权威副本是** [`docs/architecture/产品架构.md`](architecture/产品架构.md)，不是飞书。
+- 任何人新增或修改架构、分层、硬件分工、安全不变量、接口契约口径，都必须改仓库里的这份文件（或在 `docs/architecture/` 下新增），并走短分支 + Draft PR。
+- 允许先在飞书写草稿，**合并前必须把结论同步进仓库**。只改飞书、不改仓库，等于没改。
+- 飞书链接可以写在文档开头当讨论入口，但不能替代仓库文件。过期的飞书内容以仓库为准。
+- 接口字段一旦要给三端实现，从架构文档落到 `protocol/contract.yaml`，不要让 Markdown 和契约各写一套。
+
+当前仓库里的架构文档由飞书 [Nascent Love 软硬件设计技术架构文档](https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd) revision 63 归档而来，手绘图在 `docs/architecture/assets/`。之后两边若再改，以仓库这份为协作依据。
+
+# 6. 提交前的标准流程
 
 1. 运行本任务相关的检查（见下表）。涉及协议时必须先跑 `python3 tools/gen.py --check`。
 2. 检查全部改动，确认没有混入他人的文件、密钥、本机 MAC、临时文件和超大素材。
@@ -114,12 +127,13 @@ git push -u origin feat/your-small-task
 
 没有 PlatformIO 或 Flutter 时，在 PR 里写明「本机未构建、请 Reviewer 补跑」，不要假装已经验证过。
 
-# 6. Pull Request 与评审
+# 7. Pull Request 与评审
 
 开发开始后尽早创建 Draft PR，不必等整块板或整层 App 做完。PR 应说明改了什么、为什么修改、用户或设备影响、验证结果、明确未包含的工作以及需要谁 Review。完成后由相应 Reviewer 确认，再合并 main。
 
 | 改动类型 | 必须 Review 的角色 | 原因 |
 |---|---|---|
+| `docs/architecture/` 产品架构、分层职责、安全不变量 | 项目负责人 | 全员实现口径；只改飞书不算数 |
 | `protocol/contract.yaml`、GATT / ESP-NOW 帧、枚举线序 | 项目负责人 | 三端同时失效或静默错位 |
 | 安全路径：`safety.*`、`governor.dart`、`resume` / `stop`、CD4066 时序、档位封顶 | 项目负责人 | 停机、封顶、远程恢复都是产品红线 |
 | BLE 鉴权、会话令牌、云端密钥与审核开关 | 项目负责人 | 影响设备被谁控制 |
@@ -129,23 +143,21 @@ git push -u origin feat/your-small-task
 
 项目负责人不需要逐条检查每个 Commit，但需要关注每个 PR，并亲自 Review 上表中的高风险改动。协议和安全相关改动建议在开始实现后尽早建立 Draft PR，以便提前发现方向问题。
 
-# 7. 使用 AI 开发时怎么说
+# 8. 使用 AI 开发时怎么说
 
 在 Cursor 或其他支持仓库指令的 AI 工具中，可以使用下面的开场说明：
 
-> 请先阅读仓库根目录 AGENTS.md 和 docs/Nascent 开发与代码提交规范.md，再开始本任务。只修改本任务负责的文件，保留其他人的改动；使用短分支。改协议只改 protocol/contract.yaml 再运行 python3 protocol/tools/gen.py，禁止手改 generated/ 和投放到 App/后端的协议副本。固件通用驱动用现有 vendored 库，不要自己写 DHT11 / MPU6050 / NeoPixel / JSON / ESP-NOW 底层。先创建 Draft PR，不要自行合并。
+> 请先阅读仓库根目录 AGENTS.md、docs/Nascent 开发与代码提交规范.md，以及 docs/architecture/产品架构.md，再开始本任务。只修改本任务负责的文件，保留其他人的改动；使用短分支。架构结论写进 docs/architecture/，不要只改飞书。改协议只改 protocol/contract.yaml 再运行 python3 protocol/tools/gen.py，禁止手改 generated/ 和投放到 App/后端的协议副本。固件通用驱动用现有 vendored 库，不要自己写 DHT11 / MPU6050 / NeoPixel / JSON / ESP-NOW 底层。先创建 Draft PR，不要自行合并。
 
 如果任务涉及协议、安全路径、停机恢复、档位封顶、入体推断文案或引脚，还应明确告诉 AI：这是需要项目负责人 Review 的高风险改动。
 
-# 8. 本规范覆盖到哪里
+# 9. 本规范覆盖到哪里
 
-已经约定：短分支、显式暂存、Draft PR、文件放置、协议生成流程、提交前检查和高风险评审。
+已经约定：短分支、显式暂存、Draft PR、文件放置、架构文档进仓库、协议生成流程、提交前检查和高风险评审。
 
-尚未具备：自动范围校验器、CI 里的 `gen.py --check`、固件硬件在环测试。没有这些工具时，仍按第 5、6 节人工执行；不要因为没有 CI 就跳过 `gen.py --check`。
+尚未具备：自动范围校验器、CI 里的 `gen.py --check`、固件硬件在环测试。没有这些工具时，仍按第 6、7 节人工执行；不要因为没有 CI 就跳过 `gen.py --check`。
 
 本规范替代不了上板验证和人工 Review。每个涉及执行器或停机路径的任务，最终仍需在真机上确认：停止立刻生效，且不能从 App 远程恢复。
-
-
 
 # 10. 适用边界
 
