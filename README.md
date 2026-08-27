@@ -45,10 +45,11 @@ flowchart TB
 | [`software/app/`](software/app/) | Flutter App（Android） | 框架骨架 |
 | [`software/backend/`](software/backend/) | FastAPI 后端 | 框架骨架 |
 | [`datasheets/`](datasheets/) | 已选型器件的厂商 datasheet | — |
+| [`docs/`](docs/) | 协作与提交规范 | — |
 
 ## 上手
 
-改任何跨端字段之前，先读 [`protocol/README.md`](protocol/README.md)。
+协作、分支、提交和评审流程见 [`docs/Nascent 开发与代码提交规范.md`](docs/Nascent%20开发与代码提交规范.md)。改任何跨端字段之前，先读 [`protocol/README.md`](protocol/README.md)。
 
 ```bash
 # 协议：改完 contract.yaml 后必须重新生成
