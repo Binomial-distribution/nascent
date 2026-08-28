@@ -171,6 +171,13 @@ export class HeartState {
     this._activeCard = 0;
     this._notify();
   }
+
+  prependCard(card) {
+    if (!card?.id || this._cards.some((c) => c.id === card.id)) return;
+    this._cards = [card, ...this._cards];
+    this._activeCard = 0;
+    this._notify();
+  }
 }
 
 export const heart = new HeartState();

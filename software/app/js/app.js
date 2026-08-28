@@ -2,12 +2,34 @@ import { BleDownlink, NlCmd, NlConst, NlInsertState, NlMode } from "./protocol.j
 import { currentShell } from "./ble.js";
 import { ble, getConnected, getUplink, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
+import {
+  isOnboardingDone,
+  mountOnboarding,
+  shouldForceOnboarding,
+  fullGuidePages,
+} from "./onboarding.js";
 
 const SHELL_LABEL = {
   website: "网站",
   pwa: "已安装的 App（PWA）",
   "android-app": "Nascent App",
 };
+
+const PERSONA_PRESETS = [
+  { id: "gentle", name: "温和", tone: "缓慢、克制、多确认" },
+  { id: "playful", name: "俏皮", tone: "轻快、有来有回" },
+  { id: "calm", name: "沉静", tone: "低语、留白多" },
+];
+
+const LLM_OPTIONS = [
+  { id: "gpt-4o-mini", label: "GPT-4o mini" },
+  { id: "claude-sonnet", label: "Claude Sonnet" },
+  { id: "deepseek-chat", label: "DeepSeek Chat" },
+  { id: "local", label: "本地小模型（占位）" },
+];
+
+const PERSONA_KEY = "nascent.persona.settings";
+const DEVICE_KEY = "nascent.devices";
 
 const root = document.getElementById("app");
 const SCENES = [
@@ -24,7 +46,221 @@ const ui = {
   scene: 0,
   personas: [],
   deferredPrompt: null,
+  onboarding: null,
+  gateReady: false,
+  persona: loadPersonaSettings(),
+  guideSheetIndex: 0,
+  devices: loadDevices(),
+  appLock: loadAppLock(),
+  prefs: loadPrefs(),
 };
+
+const PREFS_KEY = "nascent.prefs";
+
+function loadPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    return {
+      safewords: raw.safewords || "红灯",
+      storageMode: raw.storageMode === "cloud" ? "cloud" : "local",
+      notifyEnabled: raw.notifyEnabled !== false,
+      notifyVeiled: raw.notifyVeiled !== false,
+      appearance: ["light", "dark", "default"].includes(raw.appearance)
+        ? raw.appearance
+        : "default",
+      subscribed: Boolean(raw.subscribed),
+    };
+  } catch {
+    return {
+      safewords: "红灯",
+      storageMode: "local",
+      notifyEnabled: true,
+      notifyVeiled: true,
+      appearance: "default",
+      subscribed: false,
+    };
+  }
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(ui.prefs));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadAppLock() {
+  try {
+    return localStorage.getItem("nascent.appLock") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveAppLock() {
+  try {
+    localStorage.setItem("nascent.appLock", ui.appLock ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadDevices() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DEVICE_KEY) || "{}");
+    return {
+      k10Serial: raw.k10Serial || "NL-K10-7F2A",
+      k10Battery: raw.k10Battery ?? 100,
+      bandConnected: Boolean(raw.bandConnected),
+      bandSerial: raw.bandSerial || "MI-WT-9C41",
+      bandName: raw.bandName || "小米手表",
+      bandBattery: raw.bandBattery ?? 100,
+      productId: raw.productId || "",
+    };
+  } catch {
+    return {
+      k10Serial: "NL-K10-7F2A",
+      k10Battery: 100,
+      bandConnected: false,
+      bandSerial: "MI-WT-9C41",
+      bandName: "小米手表",
+      bandBattery: 100,
+      productId: "",
+    };
+  }
+}
+
+function saveDevices() {
+  try {
+    localStorage.setItem(DEVICE_KEY, JSON.stringify(ui.devices));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadPersonaSettings() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PERSONA_KEY) || "{}");
+    return {
+      mode: raw.mode || null, // fixed | custom
+      presetId: raw.presetId || "gentle",
+      customText: raw.customText || "",
+      model: raw.model || "gpt-4o-mini",
+      customs: Array.isArray(raw.customs) ? raw.customs : [],
+      activeCustomId: raw.activeCustomId || null,
+      editingId: null, // session only
+    };
+  } catch {
+    return {
+      mode: null,
+      presetId: "gentle",
+      customText: "",
+      model: "gpt-4o-mini",
+      customs: [],
+      activeCustomId: null,
+      editingId: null,
+    };
+  }
+}
+
+function savePersonaSettings() {
+  try {
+    const { editingId, ...persistable } = ui.persona;
+    localStorage.setItem(PERSONA_KEY, JSON.stringify(persistable));
+  } catch {
+    /* ignore */
+  }
+}
+
+function personaSummary() {
+  if (ui.persona.mode === "custom") {
+    const active = ui.persona.customs.find((c) => c.id === ui.persona.activeCustomId);
+    const model = LLM_OPTIONS.find((m) => m.id === (active?.model || ui.persona.model))?.label
+      || active?.model
+      || ui.persona.model;
+    const n = ui.persona.customs.length;
+    return active
+      ? `自定义 · ${active.name || "未命名"} · ${model}`
+      : n ? `自定义 · ${n} 个人设` : "自定义（尚未保存）";
+  }
+  if (ui.persona.mode === "fixed") {
+    const p = PERSONA_PRESETS.find((x) => x.id === ui.persona.presetId);
+    return p ? `固定 · ${p.name}` : "固定人设";
+  }
+  if (ui.personas.length) {
+    return ui.personas.map((p) => `${p.name}（${p.tone}）`).join("、");
+  }
+  return "尚未设置";
+}
+
+function customPersonaTitle(text, index) {
+  const line = String(text || "").trim().split(/\n/)[0] || "未命名人设";
+  return line.slice(0, 18) + (line.length > 18 ? "…" : "") || `自定义 ${index + 1}`;
+}
+
+function showPersonaCreatedNotice() {
+  document.querySelector(".notice-banner")?.remove();
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "notice-banner";
+  el.textContent = "新的伴侣人格已生成，点击查看";
+  el.addEventListener("click", () => {
+    el.remove();
+    go("#/settings/persona/customs");
+  });
+  document.body.appendChild(el);
+  window.setTimeout(() => el.remove(), 8000);
+}
+
+/** @returns {{ ok: boolean, createdNew?: boolean, id?: string }} */
+function saveCustomPersonaFromForm({ activate = false, createdNotice = false } = {}) {
+  const text = (root.querySelector("#persona-custom-text")?.value || "").trim();
+  const model = root.querySelector("#persona-model")?.value || ui.persona.model;
+  if (!text) {
+    toast("请先填写人设描述");
+    return { ok: false };
+  }
+  const now = new Date().toISOString();
+  let createdNew = false;
+  let id = ui.persona.editingId;
+  if (ui.persona.editingId) {
+    const idx = ui.persona.customs.findIndex((c) => c.id === ui.persona.editingId);
+    if (idx >= 0) {
+      ui.persona.customs[idx] = {
+        ...ui.persona.customs[idx],
+        text,
+        model,
+        name: customPersonaTitle(text, idx),
+        updatedAt: now,
+      };
+      id = ui.persona.customs[idx].id;
+    }
+  } else {
+    id = `custom-${Date.now().toString(36)}`;
+    ui.persona.customs.unshift({
+      id,
+      text,
+      model,
+      name: customPersonaTitle(text, 0),
+      createdAt: now,
+      updatedAt: now,
+    });
+    createdNew = true;
+  }
+  if (activate || createdNew) {
+    ui.persona.activeCustomId = id;
+    ui.persona.mode = "custom";
+  }
+  ui.persona.customText = text;
+  ui.persona.model = model;
+  ui.persona.editingId = null;
+  savePersonaSettings();
+  if (createdNotice && createdNew) {
+    window.setTimeout(() => showPersonaCreatedNotice(), 120);
+  }
+  return { ok: true, createdNew, id };
+}
 
 const ICONS = {
   heart: '<path d="M12 21s-7-4.4-9.5-8.2C.6 9.7 2.2 6 6 6c2 0 3.2 1.1 4 2.2C10.8 7.1 12 6 14 6c3.8 0 5.4 3.7 3.5 6.8C19 16.6 12 21 12 21z"/>',
@@ -49,7 +285,7 @@ function route() {
   const hash = (location.hash || "#/heart").replace(/^#/, "");
   const parts = hash.split("/").filter(Boolean);
   const tab = parts[0] || "heart";
-  return { tab, page: parts[1] || "root" };
+  return { tab, page: parts[1] || "root", sub: parts[2] || null, id: parts[3] || null };
 }
 
 function go(path) {
@@ -86,25 +322,66 @@ function closeSheet() {
 
 function deviceStatusText(connected, uplink) {
   if (!connected) return "设备未连接";
-  if (uplink?.insertState === NlInsertState.INSERTED) return "设备已连接 · 在使用中";
-  if (uplink?.insertState === NlInsertState.NOT_INSERTED) return "设备已连接 · 未在使用";
-  return "设备已连接 · 状态同步中";
+  const serial = ui.devices.k10Serial;
+  const bat = `电量 ${ui.devices.k10Battery}%`;
+  if (uplink?.insertState === NlInsertState.INSERTED) {
+    return `已连接：${serial} · ${bat} · 在使用中`;
+  }
+  return `已连接：${serial} · ${bat}`;
 }
 
-function statusBar({ clickable = false, trailing = "chevron" } = {}) {
+function bandStatusText() {
+  if (!ui.devices.bandConnected) return "健康手环未连接";
+  return `已连接：${ui.devices.bandSerial} · 电量 ${ui.devices.bandBattery}%`;
+}
+
+/** 主设备状态条：心绪/亲密时刻悬浮，或设置页可点连接 */
+function statusBar({
+  clickable = false,
+  floating = false,
+  trailing = "chevron",
+  connectable = false,
+} = {}) {
   const connected = getConnected();
   const uplink = getUplink();
-  const tag = clickable ? "button" : "div";
-  return `<${tag} class="status" data-status ${clickable ? 'data-act="settings"' : ""}>
+  const tag = clickable || connectable ? "button" : "div";
+  const act = connectable ? 'data-act="connect"' : clickable ? 'data-act="settings"' : "";
+  const classes = [
+    "status",
+    floating ? "status-float" : "",
+    connected ? "is-connected" : "",
+  ].filter(Boolean).join(" ");
+  return `<${tag} class="${classes}" data-status ${act}>
     ${icon("bluetooth")}
-    <span data-status-text>${deviceStatusText(connected, uplink)}</span>
+    <span class="status-copy">
+      <span data-status-text>${deviceStatusText(connected, uplink)}</span>
+      ${connectable ? `<small class="status-hint">${connectHint()}</small>` : ""}
+    </span>
     ${icon(trailing)}
   </${tag}>`;
 }
 
-function topbar(title, { back = false, action = "" } = {}) {
+function bandStatusBar({ connectable = true } = {}) {
+  const on = ui.devices.bandConnected;
+  const tag = connectable ? "button" : "div";
+  return `<${tag} class="status ${on ? "is-connected" : ""}" ${connectable ? 'data-act="connect-band"' : ""}>
+    ${icon("bluetooth")}
+    <span class="status-copy">
+      <span>${bandStatusText()}</span>
+      <small class="status-hint">${on ? `${ui.devices.bandName} · 点击断开` : `默认 ${ui.devices.bandName} · 通过蓝牙连接`}</small>
+    </span>
+    ${icon("chevron")}
+  </${tag}>`;
+}
+
+function floatingDeviceBar(opts = {}) {
+  return `<div class="status-float-slot">${statusBar({ floating: true, ...opts })}</div>`;
+}
+
+function topbar(title, { back = false, backTo = "", action = "" } = {}) {
+  const backAttr = backTo ? ` data-to="${backTo}"` : "";
   return `<header class="topbar">
-    ${back ? `<button class="icon-btn" data-act="back" aria-label="返回">${icon("back")}</button>` : ""}
+    ${back ? `<button class="icon-btn" data-act="back"${backAttr} aria-label="返回">${icon("back")}</button>` : ""}
     <h1>${title}</h1>
     ${action}
   </header>`;
@@ -135,7 +412,8 @@ function renderHeart() {
       ${icon("bookmark")}${favorites.size ? `<span class="pill">${favorites.size}</span>` : ""}
     </button>`,
   })}
-  <main class="page">
+  ${floatingDeviceBar()}
+  <main class="page page-with-float">
     <section class="hero">
       <div>
         <h2>你好，今天也来听听自己</h2>
@@ -166,7 +444,6 @@ function renderHeart() {
         return `<div class="cal-day" title="${label}" style="background:${color}"></div>`;
       }).join("")}
     </div>
-    ${statusBar()}
     <p class="disclaimer">内容仅供参考，不能替代医生或专业人士建议。</p>
   </main>
   ${nav("heart")}`;
@@ -300,65 +577,497 @@ function connectHint() {
 }
 
 function renderSettings() {
-  const connected = getConnected();
   const shell = currentShell();
-  const personas = ui.personas.length
-    ? ui.personas.map((p) => `${p.name}（${p.tone}）`).join("、")
-    : "人设只影响说什么，不影响灯与强度";
   const installRow = shell === "website"
     ? `<button class="list-row" data-act="install-pwa">
         <strong>安装为 App</strong>
         <small>与网站同一套 Web UI，装到主屏幕后仍直连行空板。</small>
       </button>`
     : "";
-  return `${topbar("设置")}
+
+  // —— 入口（Web UI demo 暂隐，保留勿删）——
+  // const entrySection = `
+  //   <div class="group">入口</div>
+  //   <div class="list-row">
+  //     <strong>当前是${SHELL_LABEL[shell]}</strong>
+  //     <small>网站和 App 共用这一份页面。连的都是行空板 K10，不是玩具侧那块板。</small>
+  //   </div>
+  //   ${installRow}
+  // `;
+
+  return `${topbar("我的")}
   <main class="page">
-    <div class="group">入口</div>
-    <div class="list-row">
-      <strong>当前是${SHELL_LABEL[shell]}</strong>
-      <small>网站和 App 共用这一份页面。连的都是行空板 K10，不是玩具侧那块板。</small>
-    </div>
-    ${installRow}
     <div class="group">设备</div>
-    ${statusBar()}
-    <button class="list-row" data-act="connect">
-      <strong>${connected ? "已连接，点击断开" : "连接行空板 K10"}</strong>
-      <small>${connectHint()}</small>
+    <div class="device-block">
+      <p class="device-section-label">主设备 · 行空板 K10</p>
+      ${statusBar({ connectable: true })}
+    </div>
+    <div class="device-block">
+      <p class="device-section-label">健康手环 · 默认小米手表</p>
+      ${bandStatusBar()}
+    </div>
+    <button class="list-row" data-act="reread-guide">
+      <strong>重新阅读使用指南</strong>
+      <small>与首次启动中的使用指南正文相同</small>
     </button>
-    <div class="group">安全</div>
-    <div class="list-row">
-      <strong>强度上限</strong>
-      <small>当前 ${NlConst.levelMax} 档封顶，对应原产品九档中的第 ${NlConst.levelMax} 档</small>
-    </div>
-    <div class="list-row">
-      <strong>停止后如何恢复</strong>
-      <small>只能在设备上同时长按 K10 的 A、B 两键两秒。网站和 App 都无法远程恢复，这是刻意的。</small>
-    </div>
-    <div class="group">人设</div>
-    <div class="list-row">
-      <strong>当前人设</strong>
-      <small>${personas}</small>
-    </div>
-    <div class="group">隐私</div>
-    <button class="list-row" data-act="clear-local">
+    <div class="group">安全与隐私</div>
+    <button class="list-row" data-act="safeword-manage">
+      <strong>安全词管理</strong>
+      <small>${safewordSummary()}</small>
+    </button>
+    <button class="list-row" data-act="toggle-app-lock">
+      <strong>打开时需要输入锁屏密码</strong>
+      <small>${ui.appLock ? "已开启" : "已关闭"} · 点击切换</small>
+    </button>
+    <button class="list-row" data-act="local-data">
       <strong>本地数据</strong>
-      <small>清除本次运行中的心绪、收藏和身体笔记</small>
+      <small>管理心绪、身体笔记、AI自定义人设</small>
+    </button>
+    <div class="group">AI 伴侣人设</div>
+    <button class="list-row" data-act="persona-settings">
+      <strong>人设设置</strong>
+      <small>${personaSummary()}</small>
+    </button>
+    <div class="group">通用</div>
+    <button class="list-row" data-act="notify-settings">
+      <strong>通知</strong>
+      <small>${notifySummary()}</small>
+    </button>
+    <button class="list-row" data-act="appearance-settings">
+      <strong>外观</strong>
+      <small>${appearanceSummary()}</small>
+    </button>
+    <button class="list-row" data-act="subscribe-settings">
+      <strong>Nascent Love+</strong>
+      <small>${ui.prefs.subscribed ? "已订阅" : "订阅与会员管理"}</small>
     </button>
     <div class="group">关于</div>
     <div class="list-row">
       <strong>协议版本</strong>
       <small>${NlConst.protoVersion}</small>
     </div>
+    <p class="demo-note">当前为 Web UI demo · 入口 shell：${SHELL_LABEL[shell]}</p>
   </main>
   ${nav("settings")}`;
 }
 
+function safewordSummary() {
+  const words = String(ui.prefs.safewords || "")
+    .split(/[,，]/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+  if (!words.length) return "尚未设置";
+  if (words.length === 1) return words[0];
+  return `${words[0]} 等 ${words.length} 个`;
+}
+
+function notifySummary() {
+  if (!ui.prefs.notifyEnabled) return "已关闭";
+  return ui.prefs.notifyVeiled ? "已开启 · 使用隐晦文案" : "已开启 · 使用普通文案";
+}
+
+function appearanceSummary() {
+  return {
+    light: "全部浅色",
+    dark: "全部深色",
+    default: "默认（亲密时刻深，心绪与我的浅）",
+  }[ui.prefs.appearance] || "默认";
+}
+
+function renderLocalData() {
+  return `${topbar("本地数据", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="sub">心绪记录、身体笔记与 AI 自定义人设默认保存在本机。</p>
+    <button class="list-row" data-act="view-persona-settings">
+      <strong>查看目前的 AI 伴侣设置</strong>
+      <small>${personaSummary()}</small>
+    </button>
+    <button class="list-row" data-act="export-data">
+      <strong>数据导出</strong>
+      <small>导出本机心绪、笔记与自定义人设（demo 复制为文本）</small>
+    </button>
+    <button class="list-row" data-act="storage-settings">
+      <strong>查看（修改）存储位置</strong>
+      <small>当前：${ui.prefs.storageMode === "cloud" ? "云同步" : "本地模式"}</small>
+    </button>
+    <button class="list-row danger-row" data-act="clear-all-local">
+      <strong>清除所有本地数据</strong>
+      <small>包括身体笔记、自定义伴侣人设等</small>
+    </button>
+  </main>`;
+}
+
+function confirmClearLocalData() {
+  closeSheet();
+  const sheet = openSheet(`
+    <h2>清除所有本地数据？</h2>
+    <p class="sub" style="margin:8px 0 18px">将删除本机上的心绪记录、身体笔记、自定义伴侣人设等数据。此操作不可撤销。</p>
+    <div class="ob-actions">
+      <button class="ghost" data-clear-cancel>取消</button>
+      <button class="primary danger-btn" data-clear-confirm>确认清除</button>
+    </div>
+  `);
+  sheet.querySelector("[data-clear-cancel]").onclick = () => closeSheet();
+  sheet.querySelector("[data-clear-confirm]").onclick = () => {
+    heart.clearLocal();
+    ui.persona = {
+      mode: null,
+      presetId: "gentle",
+      customText: "",
+      model: "gpt-4o-mini",
+      customs: [],
+      activeCustomId: null,
+      editingId: null,
+    };
+    savePersonaSettings();
+    closeSheet();
+    toast("已清除所有本地数据");
+    go("#/settings");
+  };
+}
+
+function renderPersonaHub() {
+  const customCount = ui.persona.customs.length;
+  return `${topbar("人设设置", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="lead">选择人设方式</p>
+    <p class="sub">人设只影响说什么，不决定灯色与强度。</p>
+    <button class="ob-choice ${ui.persona.mode === "fixed" ? "selected" : ""}" data-act="persona-mode" data-mode="fixed">
+      <strong>固定人设</strong>
+      <span>从已审核的预设中选择</span>
+    </button>
+    <button class="ob-choice" data-act="persona-customs">
+      <strong>查看自定义人设</strong>
+      <span>${customCount ? `已保存 ${customCount} 个，点此查看或编辑` : "还没有自定义人设"}</span>
+    </button>
+    <button class="ob-choice ${ui.persona.mode === "custom" ? "selected" : ""}" data-act="persona-mode" data-mode="custom">
+      <strong>新建自定义人设</strong>
+      <span>用文字描述陪伴风格，并选择语言模型</span>
+    </button>
+  </main>`;
+}
+
+function renderPersonaFixed() {
+  const list = ui.personas.length ? ui.personas : PERSONA_PRESETS;
+  return `${topbar("固定人设", { back: true, backTo: "#/settings/persona" })}
+  <main class="page">
+    <p class="sub">点选一个人设作为当天陪伴风格。</p>
+    ${list.map((p) => `
+      <button class="ob-choice ${ui.persona.presetId === p.id ? "selected" : ""}" data-act="persona-pick" data-id="${p.id}">
+        <strong>${p.name}</strong>
+        <span>${p.tone}</span>
+      </button>
+    `).join("")}
+    <button class="primary" data-act="persona-save-fixed" style="margin-top:16px">保存</button>
+  </main>`;
+}
+
+function renderPersonaCustom(editId = null) {
+  const editing = editId
+    ? ui.persona.customs.find((c) => c.id === editId)
+    : null;
+  const text = editing?.text ?? "";
+  const model = editing?.model ?? ui.persona.model;
+  ui.persona.editingId = editing?.id || null;
+  return `${topbar(editing ? "编辑自定义人设" : "自定义人设", { back: true, backTo: editing ? "#/settings/persona/customs" : "#/settings/persona" })}
+  <main class="page">
+    <p class="sub">${editing ? "修改后保存，会更新这一条自定义人设。" : "描述你希望 AI 如何陪伴你。"}</p>
+    <label class="ob-label">人设描述</label>
+    <textarea id="persona-custom-text" class="ob-input" rows="5" placeholder="例如：话少一点，先听我说，不要急着给建议……">${escapeHtmlApp(text)}</textarea>
+    <label class="ob-label">语言模型</label>
+    <select id="persona-model" class="ob-field">
+      ${LLM_OPTIONS.map((m) => `
+        <option value="${m.id}" ${model === m.id ? "selected" : ""}>${m.label}</option>
+      `).join("")}
+    </select>
+    <div class="ob-actions" style="margin-top:16px">
+      <button class="ghost" data-act="persona-save-custom">保存</button>
+      <button class="primary" data-act="persona-use-custom">使用</button>
+    </div>
+  </main>`;
+}
+
+function renderCustomPersonaList() {
+  const list = ui.persona.customs;
+  return `${topbar("自定义人设", { back: true, backTo: "#/settings/persona" })}
+  <main class="page">
+    <p class="sub">点选可编辑已保存的自定义人设。</p>
+    ${list.length === 0
+      ? `<div class="empty">还没有自定义人设</div>
+         <button class="primary" data-act="persona-mode" data-mode="custom">去创建</button>`
+      : list.map((c, index) => {
+        const model = LLM_OPTIONS.find((m) => m.id === c.model)?.label || c.model;
+        const active = ui.persona.activeCustomId === c.id;
+        return `<button class="list-row" data-act="persona-edit" data-id="${c.id}">
+          <strong>${escapeHtmlApp(c.name || customPersonaTitle(c.text, index))}${active ? " · 当前" : ""}</strong>
+          <small>${model} · ${escapeHtmlApp((c.text || "").slice(0, 40))}${(c.text || "").length > 40 ? "…" : ""}</small>
+        </button>`;
+      }).join("")}
+  </main>`;
+}
+
+function escapeHtmlApp(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function openUsageGuideSheet() {
+  const pages = fullGuidePages();
+  ui.guideSheetIndex = 0;
+
+  const paintGuide = () => {
+    const page = pages[ui.guideSheetIndex];
+    const last = ui.guideSheetIndex >= pages.length - 1;
+    const sheet = openSheet(`
+      <p class="group" style="margin-top:0">使用指南 · ${ui.guideSheetIndex + 1}/${pages.length}</p>
+      <h2>${page.title}</h2>
+      <div class="ob-placeholder" style="min-height:140px;margin:12px 0 20px">${page.body}</div>
+      <button class="primary" data-guide-next>${last ? "完成" : "下一页"}</button>
+    `);
+    sheet.querySelector("[data-guide-next]").onclick = () => {
+      if (last) {
+        closeSheet();
+        return;
+      }
+      ui.guideSheetIndex += 1;
+      paintGuide();
+    };
+  };
+  paintGuide();
+}
+
+function speechSupported() {
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+function renderSafewordManage() {
+  const canSpeak = speechSupported();
+  return `${topbar("安全词管理", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="sub">可设置多个安全词，用中文或英文逗号分隔。文字与语音任选。</p>
+    <label class="ob-label">文字输入</label>
+    <input id="safeword-input" class="ob-field" type="text" value="${escapeHtmlApp(ui.prefs.safewords)}" placeholder="例如：红灯，暂停，停下" />
+    <label class="ob-label">语音输入</label>
+    <div class="ob-voice-row">
+      <button type="button" class="ghost ob-voice-btn" data-act="safeword-voice" ${canSpeak ? "" : "disabled"}>
+        ${canSpeak ? "点击说出安全词" : "当前浏览器不支持语音"}
+      </button>
+      <span class="ob-hint" id="safeword-voice-hint">${canSpeak ? "说完会追加到上方输入框，可用逗号继续添加。" : "请用文字输入。"}</span>
+    </div>
+    <button class="primary" data-act="safeword-save" style="margin-top:16px">保存</button>
+  </main>`;
+}
+
+function renderNotifySettings() {
+  return `${topbar("通知", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <button class="ob-choice ${ui.prefs.notifyEnabled ? "selected" : ""}" data-act="notify-toggle">
+      <strong>通知总开关</strong>
+      <span>${ui.prefs.notifyEnabled ? "当前：开" : "当前：关"}</span>
+    </button>
+    <button class="ob-choice ${ui.prefs.notifyVeiled ? "selected" : ""}" data-act="notify-veiled" ${ui.prefs.notifyEnabled ? "" : "disabled"}>
+      <strong>使用隐晦文案</strong>
+      <span>${ui.prefs.notifyVeiled ? "推送措辞更含蓄" : "使用普通文案"}</span>
+    </button>
+  </main>`;
+}
+
+function renderAppearanceSettings() {
+  const options = [
+    ["light", "全部浅色", "心绪、亲密时刻、我的都用浅色"],
+    ["dark", "全部深色", "三处 Tab 都用深色低光"],
+    ["default", "默认", "亲密时刻深色；心绪与我的浅色"],
+  ];
+  return `${topbar("外观", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    ${options.map(([id, title, hint]) => `
+      <button class="ob-choice ${ui.prefs.appearance === id ? "selected" : ""}" data-act="appearance-set" data-mode="${id}">
+        <strong>${title}</strong>
+        <span>${hint}</span>
+      </button>
+    `).join("")}
+  </main>`;
+}
+
+function renderSubscribeSettings() {
+  return `${topbar("Nascent Love+", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="lead">${ui.prefs.subscribed ? "会员有效" : "订阅管理"}</p>
+    <p class="sub">安全词、基础笔记、卫生指南、数据导出与删除不会进入付费墙。</p>
+    <button class="primary" data-act="subscribe-toggle">
+      ${ui.prefs.subscribed ? "取消订阅（demo）" : "开通订阅（demo）"}
+    </button>
+  </main>`;
+}
+
+function renderStorageSettings() {
+  return `${topbar("存储位置", { back: true, backTo: "#/settings/data" })}
+  <main class="page">
+    <p class="sub">默认本地。云同步需要再次确认授权。</p>
+    <button class="ob-choice ${ui.prefs.storageMode === "local" ? "selected" : ""}" data-act="storage-set" data-mode="local">
+      <strong>本地模式</strong>
+      <span>记录留在这台设备上（推荐）</span>
+    </button>
+    <button class="ob-choice ${ui.prefs.storageMode === "cloud" ? "selected" : ""}" data-act="storage-set" data-mode="cloud">
+      <strong>云同步</strong>
+      <span>开启后仍可随时撤回与删除</span>
+    </button>
+  </main>`;
+}
+
+function exportLocalData() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    moods: [...heart.moods.entries()].map(([k, v]) => ({ date: k, mood: v.mood, note: v.note })),
+    bodyNotes: heart.bodyNotes,
+    persona: {
+      mode: ui.persona.mode,
+      customs: ui.persona.customs,
+      activeCustomId: ui.persona.activeCustomId,
+    },
+    prefs: {
+      storageMode: ui.prefs.storageMode,
+      safewords: ui.prefs.safewords,
+    },
+  };
+  const text = JSON.stringify(payload, null, 2);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast("已复制导出内容到剪贴板"),
+      () => openExportSheet(text),
+    );
+  } else {
+    openExportSheet(text);
+  }
+}
+
+function openExportSheet(text) {
+  const sheet = openSheet(`
+    <h2>数据导出</h2>
+    <p class="sub">可复制以下内容自行保存。</p>
+    <textarea class="ob-input" rows="10" readonly>${escapeHtmlApp(text)}</textarea>
+    <button class="primary" data-export-close style="margin-top:12px">关闭</button>
+  `);
+  sheet.querySelector("[data-export-close]").onclick = () => closeSheet();
+}
+
+function startSafewordVoice() {
+  const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Speech) return;
+  const rec = new Speech();
+  rec.lang = "zh-CN";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  const btn = root.querySelector('[data-act="safeword-voice"]');
+  const hint = root.querySelector("#safeword-voice-hint");
+  if (btn) {
+    btn.classList.add("listening");
+    btn.textContent = "正在听…";
+  }
+  rec.onresult = (event) => {
+    const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
+    const word = transcript.replace(/[。．！!？?\s]/g, "");
+    if (!word) return;
+    const input = root.querySelector("#safeword-input");
+    if (!input) return;
+    const cur = input.value.trim();
+    input.value = cur ? `${cur}，${word}` : word;
+    if (hint) hint.textContent = `已追加：「${word}」`;
+  };
+  rec.onerror = () => {
+    if (btn) {
+      btn.classList.remove("listening");
+      btn.textContent = "点击说出安全词";
+    }
+    if (hint) hint.textContent = "没听清，可以再试一次。";
+  };
+  rec.onend = () => {
+    if (btn) {
+      btn.classList.remove("listening");
+      btn.textContent = "点击说出安全词";
+    }
+  };
+  try {
+    rec.start();
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyTheme(tab) {
+  const pref = ui.prefs.appearance;
+  let theme = "light";
+  if (pref === "dark") theme = "dark";
+  else if (pref === "light") theme = "light";
+  else theme = tab === "intimacy" ? "dark" : "light";
+  root.dataset.theme = theme;
+  document.documentElement.dataset.theme = theme;
+  document.body.dataset.theme = theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = theme === "dark" ? "#16121c" : "#f8f1f4";
+}
+
+function startOnboardingFlow() {
+  ui.gateReady = false;
+  ui.onboarding?.destroy?.();
+  applyTheme("heart"); // 浅色引导
+  ui.onboarding = mountOnboarding(root, {
+    onComplete({ firstCard, draft }) {
+      ui.onboarding = null;
+      ui.gateReady = true;
+      if (draft?.productId) {
+        ui.devices.productId = draft.productId;
+        saveDevices();
+      }
+      if (draft?.safeword && !draft.safewordSkipped) {
+        ui.prefs.safewords = String(draft.safeword).trim() || ui.prefs.safewords;
+        savePrefs();
+      }
+      if (firstCard) heart.prependCard(firstCard);
+      if (location.hash.startsWith("#/onboarding")) location.hash = "#/heart";
+      else if (!location.hash) location.hash = "#/heart";
+      render();
+      toast("欢迎来到 Nascent");
+    },
+  });
+}
+
 function render() {
-  const { tab, page } = route();
-  const nested = tab === "intimacy" && page !== "root";
+  // Onboarding 进行中：忽略其它重绘，避免打断渐变流程。
+  if (root.classList.contains("onboarding") && !ui.gateReady) return;
+
+  const force = shouldForceOnboarding();
+  if (force || !isOnboardingDone()) {
+    if (!ui.gateReady) {
+      startOnboardingFlow();
+      return;
+    }
+  }
+
+  const { tab, page, sub, id } = route();
+  applyTheme(tab);
+  const nested = (tab === "intimacy" && page !== "root")
+    || (tab === "settings" && page !== "root");
   root.classList.toggle("subpage", nested);
+  root.classList.remove("onboarding");
   if (tab === "heart") root.innerHTML = renderHeart();
-  else if (tab === "settings") root.innerHTML = renderSettings();
+  else if (tab === "settings") {
+    if (page === "persona" && sub === "fixed") root.innerHTML = renderPersonaFixed();
+    else if (page === "persona" && sub === "customs") root.innerHTML = renderCustomPersonaList();
+    else if (page === "persona" && sub === "edit" && id) root.innerHTML = renderPersonaCustom(id);
+    else if (page === "persona" && sub === "custom") root.innerHTML = renderPersonaCustom(null);
+    else if (page === "persona") root.innerHTML = renderPersonaHub();
+    else if (page === "data") root.innerHTML = renderLocalData();
+    else if (page === "safeword") root.innerHTML = renderSafewordManage();
+    else if (page === "notify") root.innerHTML = renderNotifySettings();
+    else if (page === "appearance") root.innerHTML = renderAppearanceSettings();
+    else if (page === "subscribe") root.innerHTML = renderSubscribeSettings();
+    else if (page === "storage") root.innerHTML = renderStorageSettings();
+    else root.innerHTML = renderSettings();
+  }
   else if (page === "control") root.innerHTML = renderControl();
   else if (page === "scenario") root.innerHTML = renderScenario();
   else if (page === "notes") root.innerHTML = renderNotes();
@@ -419,12 +1128,112 @@ async function onClick(event) {
   const act = t.dataset.act;
   if (act === "tab") go(`#/${t.dataset.tab}`);
   else if (act === "back") {
+    if (t.dataset.to) {
+      go(t.dataset.to);
+      return;
+    }
     ui.scenarioStarted = false;
     ui.scene = 0;
     go("#/intimacy");
   }
   else if (act === "sub") go(`#/intimacy/${t.dataset.page}`);
   else if (act === "settings") go("#/settings");
+  else if (act === "persona-settings") go("#/settings/persona");
+  else if (act === "view-persona-settings") go("#/settings/persona");
+  else if (act === "persona-customs") go("#/settings/persona/customs");
+  else if (act === "persona-edit") go(`#/settings/persona/edit/${t.dataset.id}`);
+  else if (act === "persona-mode") {
+    ui.persona.mode = t.dataset.mode;
+    ui.persona.editingId = null;
+    savePersonaSettings();
+    go(t.dataset.mode === "custom" ? "#/settings/persona/custom" : "#/settings/persona/fixed");
+  }
+  else if (act === "persona-pick") {
+    ui.persona.presetId = t.dataset.id;
+    savePersonaSettings();
+    render();
+  }
+  else if (act === "persona-save-fixed") {
+    ui.persona.mode = "fixed";
+    savePersonaSettings();
+    toast("已保存固定人设");
+    go("#/settings");
+  }
+  else if (act === "persona-save-custom") {
+    const result = saveCustomPersonaFromForm({ activate: false, createdNotice: true });
+    if (!result.ok) return;
+    if (result.createdNew) {
+      go("#/settings");
+    } else {
+      toast("已保存");
+      go("#/settings/persona/customs");
+    }
+  }
+  else if (act === "persona-use-custom") {
+    const result = saveCustomPersonaFromForm({ activate: true, createdNotice: false });
+    if (!result.ok) return;
+    toast("已设为当前使用的自定义人设");
+    go("#/settings/persona/customs");
+  }
+  else if (act === "local-data") go("#/settings/data");
+  else if (act === "safeword-manage") go("#/settings/safeword");
+  else if (act === "safeword-voice") startSafewordVoice();
+  else if (act === "safeword-save") {
+    const value = (root.querySelector("#safeword-input")?.value || "").trim();
+    const words = value.split(/[,，]/).map((w) => w.trim()).filter(Boolean);
+    if (!words.length) {
+      toast("请至少填写一个安全词");
+      return;
+    }
+    ui.prefs.safewords = words.join("，");
+    savePrefs();
+    toast("安全词已保存");
+    go("#/settings");
+  }
+  else if (act === "export-data") exportLocalData();
+  else if (act === "storage-settings") go("#/settings/storage");
+  else if (act === "storage-set") {
+    ui.prefs.storageMode = t.dataset.mode === "cloud" ? "cloud" : "local";
+    savePrefs();
+    toast(ui.prefs.storageMode === "cloud" ? "已切换为云同步（demo）" : "已切换为本地模式");
+    render();
+  }
+  else if (act === "notify-settings") go("#/settings/notify");
+  else if (act === "notify-toggle") {
+    ui.prefs.notifyEnabled = !ui.prefs.notifyEnabled;
+    savePrefs();
+    toast(ui.prefs.notifyEnabled ? "已开启通知" : "已关闭通知");
+    render();
+  }
+  else if (act === "notify-veiled") {
+    if (!ui.prefs.notifyEnabled) return;
+    ui.prefs.notifyVeiled = !ui.prefs.notifyVeiled;
+    savePrefs();
+    toast(ui.prefs.notifyVeiled ? "已使用隐晦文案" : "已使用普通文案");
+    render();
+  }
+  else if (act === "appearance-settings") go("#/settings/appearance");
+  else if (act === "appearance-set") {
+    ui.prefs.appearance = t.dataset.mode;
+    savePrefs();
+    toast("外观已更新");
+    render();
+  }
+  else if (act === "subscribe-settings") go("#/settings/subscribe");
+  else if (act === "subscribe-toggle") {
+    ui.prefs.subscribed = !ui.prefs.subscribed;
+    savePrefs();
+    toast(ui.prefs.subscribed ? "已开通 Nascent Love+（demo）" : "已取消订阅（demo）");
+    render();
+  }
+  else if (act === "toggle-app-lock") {
+    ui.appLock = !ui.appLock;
+    saveAppLock();
+    toast(ui.appLock ? "已开启锁屏密码要求" : "已关闭锁屏密码要求");
+    render();
+  }
+  else if (act === "clear-all-local") confirmClearLocalData();
+  else if (act === "reread-guide") openUsageGuideSheet();
   else if (act === "mood") {
     heart.recordMood(t.dataset.mood);
     toast(`今天的心绪已记为${MoodUi[t.dataset.mood].label} ${MoodUi[t.dataset.mood].emoji}`);
@@ -454,10 +1263,11 @@ async function onClick(event) {
   }
   else if (act === "compose-note") composeNote();
   else if (act === "connect") connectOrDisconnect();
+  else if (act === "connect-band") connectOrDisconnectBand();
   else if (act === "install-pwa") installPwa();
   else if (act === "clear-local") {
-    heart.clearLocal();
-    toast("本次运行中的本地记录已清除");
+    // 旧入口已迁至 #/settings/data → clear-all-local
+    go("#/settings/data");
   }
 }
 
@@ -526,13 +1336,15 @@ async function installPwa() {
 async function connectOrDisconnect() {
   if (getConnected()) {
     await ble.disconnect();
-    toast("已断开设备");
+    toast("已断开主设备");
     render();
     return;
   }
   try {
     await ble.connect();
-    toast("已连接");
+    if (!ui.devices.k10Serial) ui.devices.k10Serial = "NL-K10-7F2A";
+    saveDevices();
+    toast(`已连接：${ui.devices.k10Serial}`);
     render();
   } catch (err) {
     if (err?.name === "NotFoundError") return;
@@ -540,14 +1352,28 @@ async function connectOrDisconnect() {
   }
 }
 
+function connectOrDisconnectBand() {
+  ui.devices.bandConnected = !ui.devices.bandConnected;
+  saveDevices();
+  toast(ui.devices.bandConnected
+    ? `已连接：${ui.devices.bandSerial}`
+    : "已断开健康手环");
+  render();
+}
+
 function patchTelemetry() {
+  const connected = getConnected();
+  const uplink = getUplink();
   const { tab, page } = route();
-  const text = root.querySelector("[data-status-text]");
-  if (text) text.textContent = deviceStatusText(getConnected(), getUplink());
+  root.querySelectorAll("[data-status]").forEach((el) => {
+    el.classList.toggle("is-connected", connected);
+    const text = el.querySelector("[data-status-text]");
+    if (text) text.textContent = deviceStatusText(connected, uplink);
+  });
   if (tab === "intimacy" && page === "control") {
     const slider = root.querySelector("#level-slider");
     if (slider && document.activeElement !== slider) {
-      const reported = getUplink()?.level ?? 0;
+      const reported = uplink?.level ?? 0;
       if (ui.draftLevel == null || ui.draftLevel === reported) {
         ui.draftLevel = null;
         slider.value = String(reported);
@@ -555,7 +1381,7 @@ function patchTelemetry() {
         if (label) label.textContent = `档位 ${reported} / ${NlConst.levelMax}`;
       }
     }
-    const mode = getUplink()?.mode ?? NlMode.FREE;
+    const mode = uplink?.mode ?? NlMode.FREE;
     root.querySelectorAll("[data-act=mode]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.mode === mode);
     });
@@ -598,7 +1424,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-if (!location.hash) location.hash = "#/heart";
+if (!location.hash) location.hash = isOnboardingDone() ? "#/heart" : "#/onboarding";
 else render();
 loadPersonas();
 
