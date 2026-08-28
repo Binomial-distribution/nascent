@@ -28,7 +28,8 @@ app/
   routers/session.py      POST /v1/session/summary
   routers/agent.py        B 层对话、模板草稿、记忆删除 API
   routers/persona.py      GET  /v1/persona
-  services/llm.py         Qwen 9B OpenAI-compatible 适配器与安全回退
+  services/llm.py         Chat/Control Prompt、Schema 与安全回退
+  services/providers/     OpenAI 兼容 Chat 与 ASR/TTS，换厂商只改 .env
   services/agent.py       Agent 编排与记忆检索
   services/agent_contract.py  Agent、模板和 Skill 的严格 JSON 契约
   services/memory.py      Mem0 兼容语义的可替换记忆适配器
@@ -81,8 +82,13 @@ NASCENT_CHAT_LLM_MODEL=Qwen/Qwen3.5-9B
 NASCENT_CONTROL_LLM_MODEL=Qwen/Qwen3.5-9B
 NASCENT_CHAT_LLM_TIMEOUT_S=8.0
 NASCENT_CONTROL_LLM_TIMEOUT_S=2.5
+NASCENT_ASR_MODEL=FunAudioLLM/SenseVoiceSmall
+NASCENT_TTS_MODEL=FunAudioLLM/CosyVoice2-0.5B
+NASCENT_TTS_VOICE=FunAudioLLM/CosyVoice2-0.5B:anna
 NASCENT_MODERATION_ENABLED=true
 ```
+
+换厂商时改 `NASCENT_LLM_BASE_URL` 和三个模型 ID。语音密钥/地址可空，空则复用 LLM 配置。PCM 只到 `/v1/speech/transcribe`，不会进入 Chat 9B Prompt。
 
 `moderation_enabled` 默认是 `true`。关掉它需要一个明确动作，
 不该因为忘配环境变量而悄悄失效。
@@ -96,6 +102,8 @@ NASCENT_MODERATION_ENABLED=true
 - `POST /v1/agent/templates/confirm`：用户确认后保存为 `confirmed`。
 - `DELETE /v1/agent/templates/{template_id}`：删除自定义模板。
 - `POST /v1/agent/turn`：在当前模板范围内生成台词、表现和 Skill 建议。
+- `POST /v1/speech/transcribe`：上传一句音频，只返回转写文本。
+- `POST /v1/speech/speak`：把 Chat 9B 台词交给 CosyVoice TTS，返回 `audio/mpeg`。失败时前端回退浏览器朗读。
 - `POST /v1/agent/parallel-turn`：同一回合并行执行 Chat 9B 与 Control 9B，分别降级，并返回可展示的数据走向。
 - `POST /v1/agent/preferences/observe`：计算并记录一次脱敏偏好观察。
 - `GET /v1/agent/preferences`：读取当前用户/人设/模板的偏好快照。
@@ -121,7 +129,7 @@ Skill 建议不能直接控制硬件；共享 Web UI 必须再次检查模板状
 - 生产鉴权、持久化和审计（当前模板/记忆/偏好适配器是进程内实现）
 - 身体笔记数据库、会话归属鉴权和级联删除审计（当前同样是进程内实现）
 - 台词内容审核
-- 本地 ASR/VAD/TTS 和 WebSocket 流式传输
+- 本地 ASR/VAD 与 WebSocket 流式传输（当前通话是短句级联：浏览器 VAD + HTTPS ASR/TTS）
 - 真实部署网关、模型快照和延迟压测
 - 人设 CRUD、版本和资产管理
 - 会话记录归档（`SessionRecord` 模型已生成，还没有落库路径）

@@ -6,6 +6,7 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
 httpx==0.28.1
+python-multipart==0.0.20
 
 # 生成 protocol.py 时用；没装也能跑，gen.py 有内置的受限解析器兜底
 PyYAML==6.0.2

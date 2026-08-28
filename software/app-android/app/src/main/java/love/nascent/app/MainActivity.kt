@@ -1,8 +1,11 @@
 package love.nascent.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -12,6 +15,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 /**
  * 同一份 Web UI 的 Android 壳。
@@ -24,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var setup: LinearLayout
     private lateinit var urlField: EditText
     private lateinit var bridge: BleBridge
+    private var pendingMicRequest: PermissionRequest? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,7 +46,31 @@ class MainActivity : AppCompatActivity() {
         webView.settings.domStorageEnabled = true
         webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
         webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        webView.webChromeClient = WebChromeClient()
+        webView.settings.mediaPlaybackRequiresUserGesture = false
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                runOnUiThread {
+                    if (!request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                        request.deny()
+                        return@runOnUiThread
+                    }
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    } else {
+                        pendingMicRequest = request
+                        ActivityCompat.requestPermissions(
+                            this@MainActivity,
+                            arrayOf(Manifest.permission.RECORD_AUDIO),
+                            REQ_MIC,
+                        )
+                    }
+                }
+            }
+        }
         webView.webViewClient = WebViewClient()
 
         bridge = BleBridge(this, webView)
@@ -74,6 +104,17 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_MIC) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            val pending = pendingMicRequest
+            pendingMicRequest = null
+            if (granted && pending != null) {
+                pending.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            } else {
+                pending?.deny()
+            }
+            return
+        }
         if (requestCode != BleBridge.REQ) return
         bridge.onPermissionResult(grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED })
     }
@@ -116,5 +157,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val KEY_URL = "web_url"
+        private const val REQ_MIC = 42
     }
 }

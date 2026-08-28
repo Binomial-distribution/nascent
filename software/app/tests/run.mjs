@@ -4,7 +4,22 @@ import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
 import { toyWsUrl } from "../js/ws.js";
 import { BodyNotesState } from "../js/body-notes.js";
-import { NAV_TABS, parseHash, legacyNotesTarget } from "../js/routes.js";
+import { NAV_TABS, parseHash, legacyNotesTarget, SCENARIO_FLOW } from "../js/routes.js";
+import {
+  ScenarioChatState,
+  buildSensorContext,
+  ingestUplinkSample,
+  nextExperiencePhase,
+  resetSensorWindow,
+  speakUtterance,
+} from "../js/scenario-session.js";
+import {
+  VAD_DEFAULTS,
+  createVadState,
+  encodeWav,
+  frameRms,
+  pushVadFrame,
+} from "../js/live-call.js";
 
 let failed = 0;
 let passed = 0;
@@ -202,7 +217,10 @@ assert(NAV_TABS.join("/") === "heart/intimacy/records/settings", "bottom nav has
 assert(parseHash("#/intimacy").page === "root", "intimacy root is the two-entry hub");
 assert(parseHash("#/intimacy/scenario").page === "scenario", "scenario list lives under intimacy");
 assert(parseHash("#/intimacy/scenario/new").sessionId === "new", "persona form uses scenario/new");
-assert(parseHash("#/intimacy/scenario/play").sessionId === "play", "roaming play uses scenario/play");
+assert(parseHash("#/intimacy/scenario/play").sessionId === "play", "legacy play hash still parses");
+assert(parseHash("#/intimacy/scenario/call").sessionId === "call", "existing persona dials into the call screen");
+assert(parseHash("#/intimacy/scenario/chat").sessionId === "chat", "text chat remains available as a backup");
+assert(SCENARIO_FLOW.includes("call") && SCENARIO_FLOW.includes("chat"), "scenario flow includes call then chat");
 assert(parseHash("#/intimacy/control").page === "control", "self-control is a nested intimacy page");
 assert(parseHash("#/records").tab === "records" && parseHash("#/records").view == null, "records long page is a root tab");
 assert(
@@ -229,6 +247,55 @@ const readableNotes = new BodyNotesState({ fetchImpl: null });
 assert(readableNotes.getSession("demo-session-01") !== null, "legacy notes data can still be read after the records rename");
 assert(await readableNotes.deleteSession("demo-session-01"), "legacy notes data can still be deleted");
 assert(readableNotes.getSession("demo-session-01") === null, "deleted notes records stay gone");
+
+const scenarioTurns = new ScenarioChatState({ fetchImpl: null });
+const reply = await scenarioTurns.send({ key: "persona:gentle", name: "温和", text: "缓慢、克制" }, "你好");
+assert(Boolean(reply?.dialogue), "scenario chat falls back locally when the agent is offline");
+assert(scenarioTurns.messages("persona:gentle").length === 2, "a scenario turn stores user and assistant lines");
+assert(scenarioTurns.phase("persona:gentle") === "approaching", "a plain hello stays in approaching");
+
+const aftercare = await scenarioTurns.send({ key: "persona:gentle", name: "温和" }, "累了，想被抱一会儿");
+assert(scenarioTurns.phase("persona:gentle") === "aftercare", "user asking to rest enters aftercare");
+assert(aftercare.dialogue.includes("陪"), "aftercare fallback stays with the user");
+
+resetSensorWindow();
+const risingPress = { pressL: 0.2, pressR: 0.2, envTemp: 26, insertState: "inserted", level: 2, ts: 1 };
+ingestUplinkSample(risingPress);
+ingestUplinkSample({ ...risingPress, pressL: 0.5, pressR: 0.5 });
+ingestUplinkSample({ ...risingPress, pressL: 0.7, pressR: 0.7 });
+const sensors = buildSensorContext({ ...risingPress, pressL: 0.7, pressR: 0.7 }, { bandConnected: false });
+assert(sensors.pressure_rhythm === "increasing", "pressure trend is derived locally");
+assert(!("press_l" in sensors) && !("pressL" in sensors), "raw pressure is not sent to the 9B context");
+assert(sensors.hr_trend === "unknown", "heart-rate trend stays unknown without Health Connect");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "" }) === "rising", "sensors or silence do not auto-declare climax");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "要到了" }) === "climax_window", "user language can open the climax window");
+assert(nextExperiencePhase("climax_window", { sceneCtrl: "end", userText: "" }) === "aftercare", "ending the scene always aftercares");
+
+const quiet = new Float32Array(32);
+const loud = new Float32Array(32).fill(0.2);
+assert(frameRms(loud) > frameRms(quiet), "rms rises when the speaker is louder");
+let vad = createVadState();
+let step = pushVadFrame(vad, 0.001, quiet, 0);
+assert(!step.utterance && !step.speaking, "silence does not start an utterance");
+step = pushVadFrame(step.state, VAD_DEFAULTS.startRms + 0.01, loud, 10);
+assert(step.speaking && step.bargeIn, "crossing the start threshold begins listening");
+step = pushVadFrame(step.state, VAD_DEFAULTS.holdRms + 0.01, loud, 200);
+step = pushVadFrame(step.state, 0.001, quiet, 400);
+step = pushVadFrame(step.state, 0.001, quiet, 400 + VAD_DEFAULTS.hangoverMs + 20);
+assert(step.utterance && step.utterance.length > 0, "a pause after speech flushes one utterance");
+assert(!step.speaking, "the vad returns to idle after a completed sentence");
+const wav = encodeWav(step.utterance, 16000);
+assert(wav.type === "audio/wav" && wav.size > 44, "an utterance is encoded as wav for ASR only");
+
+let ttsPath = "";
+await speakUtterance("我在", async (path) => {
+  ttsPath = path;
+  return {
+    ok: true,
+    blob: async () => new Blob([new Uint8Array(64)], { type: "audio/mpeg" }),
+  };
+});
+assert(ttsPath === "/v1/speech/speak", "assistant lines request cloud TTS");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
