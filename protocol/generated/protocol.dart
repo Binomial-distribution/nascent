@@ -1,12 +1,12 @@
 // 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
-// contract version: 0.1.0-demo
+// contract version: 0.2.0-demo
 
 class NlConst {
   NlConst._();
-  static const String protoVersion = '0.1.0-demo';
+  static const String protoVersion = '0.2.0-demo';
   static const int protoMagic = 20026;
   static const int versionMajor = 0;
-  static const int versionMinor = 1;
+  static const int versionMinor = 2;
   static const int levelMin = 1;
   static const int levelMax = 8;
   static const int dutyCapPct = 90;
@@ -167,6 +167,18 @@ enum NlEmotion {
   }
 }
 
+enum NlMoodTone {
+  quiet, open, warm, bright, tired;
+
+  static const List<String> _wire = ['quiet', 'open', 'warm', 'bright', 'tired'];
+  String get wireName => _wire[index];
+  static NlMoodTone fromWire(int i) => (i >= 0 && i < _wire.length) ? NlMoodTone.values[i] : NlMoodTone.values.first;
+  static NlMoodTone fromWireName(String? n) {
+    final i = _wire.indexOf(n ?? '');
+    return i < 0 ? NlMoodTone.values.first : NlMoodTone.values[i];
+  }
+}
+
 enum NlTempState {
   unknown, tooCold, warming, reachingComfort, comfortable, cooling;
 
@@ -290,7 +302,7 @@ class SessionEvent {
 }
 
 class UserTags {
-  final String mood;
+  final NlMoodTone mood;
   final String note;
   const UserTags({
     required this.mood,
@@ -298,12 +310,12 @@ class UserTags {
   });
 
   factory UserTags.fromJson(Map<String, dynamic> j) => UserTags(
-    mood: j['mood'] as String,
+    mood: NlMoodTone.fromWireName(j['mood'] as String),
     note: j['note'] as String,
   );
 
   Map<String, dynamic> toJson() => {
-    'mood': mood,
+    'mood': mood.wireName,
     'note': note,
   };
 }

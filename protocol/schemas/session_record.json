@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nascent.local/protocol/session_record.json",
   "title": "SessionRecord",
-  "description": "app 本地 SQLCipher 归档 | contract 0.1.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "description": "app 本地 SQLCipher 归档 | contract 0.2.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
   "$defs": {
     "LevelSetting": {
       "type": "object",
@@ -116,7 +116,14 @@
       "type": "object",
       "properties": {
         "mood": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "quiet",
+            "open",
+            "warm",
+            "bright",
+            "tired"
+          ]
         },
         "note": {
           "type": "string"

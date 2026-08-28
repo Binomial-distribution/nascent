@@ -1,6 +1,6 @@
 """本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
 
-contract version: 0.1.0-demo
+contract version: 0.2.0-demo
 """
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-PROTO_VERSION = "0.1.0-demo"
+PROTO_VERSION = "0.2.0-demo"
 
 
 class NlConst:
     PROTO_MAGIC = 20026
     VERSION_MAJOR = 0
-    VERSION_MINOR = 1
+    VERSION_MINOR = 2
     LEVEL_MIN = 1
     LEVEL_MAX = 8
     DUTY_CAP_PCT = 90
@@ -229,6 +229,23 @@ class Emotion(str, Enum):
         return members[i] if 0 <= i < len(members) else members[0]
 
 
+class MoodTone(str, Enum):
+    QUIET = "quiet"
+    OPEN = "open"
+    WARM = "warm"
+    BRIGHT = "bright"
+    TIRED = "tired"
+
+    @property
+    def wire(self) -> int:
+        return list(MoodTone).index(self)
+
+    @classmethod
+    def from_wire(cls, i: int) -> "MoodTone":
+        members = list(cls)
+        return members[i] if 0 <= i < len(members) else members[0]
+
+
 class TempState(str, Enum):
     UNKNOWN = "unknown"
     TOO_COLD = "too_cold"
@@ -297,7 +314,7 @@ class SessionEvent(BaseModel):
 
 
 class UserTags(BaseModel):
-    mood: str
+    mood: MoodTone
     note: str
 
 

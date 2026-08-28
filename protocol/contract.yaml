@@ -7,7 +7,7 @@
 #
 # 禁止手改 generated/ 与 schemas/，它们会被下一次生成覆盖。
 
-version: "0.1.0-demo"
+version: "0.2.0-demo"
 
 # ---------------------------------------------------------------------------
 # 常量：三端共享的阈值与上限。固件用宏，App/后端用常量类。
@@ -15,7 +15,7 @@ version: "0.1.0-demo"
 constants:
   PROTO_MAGIC: 20026
   VERSION_MAJOR: 0
-  VERSION_MINOR: 1
+  VERSION_MINOR: 2
 
   LEVEL_MIN: 1
   LEVEL_MAX: 8
@@ -75,6 +75,7 @@ enums:
   phase: [warming, rising, plateau, calm]
   scene_ctrl: [advance, stay, end]
   emotion: [gentle, playful, calm]
+  mood_tone: [quiet, open, warm, bright, tired]
   temp_state: [unknown, too_cold, warming, reaching_comfort, comfortable, cooling]
   rhythm: [unknown, steady, increasing, decreasing]
 
@@ -187,7 +188,7 @@ json_objects:
 
   - name: UserTags
     fields:
-      - {name: mood, type: str}
+      - {name: mood, type: "enum:mood_tone"}
       - {name: note, type: str}
 
 json_messages:
