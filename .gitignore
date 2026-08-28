@@ -18,15 +18,12 @@ secrets.json
 .piolibdeps/
 hardware/*/.vscode/
 
-# Flutter / Dart
+# Flutter / Dart（历史目录，控制端已改为网站）
 .dart_tool/
 .packages
 .flutter-plugins
 .flutter-plugins-dependencies
 build/
-software/app/android/.gradle/
-software/app/android/local.properties
-software/app/**/*.g.dart
 *.iml
 
 # Python
@@ -43,3 +40,9 @@ venv/
 .idea/
 .vscode/
 !.vscode/extensions.json
+
+# Android App 壳
+software/app-android/.gradle/
+software/app-android/build/
+software/app-android/app/build/
+software/app-android/local.properties

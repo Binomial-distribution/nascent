@@ -64,19 +64,20 @@ git switch -c feat/your-small-task
 | `hardware/k10-controller/` | K10 主控：摇杆、屏、BLE、ESP-NOW 网关 | 屏幕/按键 API 对照 `reference/` 下的官方示例，不要凭记忆猜。`lib/ArduinoJson` 是 vendored 库，不要顺手改 |
 | `hardware/toy-sidecar/` | 玩具侧：传感、入体推断、灯语、CD4066、板间链路 | 这块板不驱动电机。`lib/` 下是 vendored 驱动，升级步骤见 `hardware/VENDOR.md` |
 | `hardware/VENDOR.md` | 第三方库来源、版本、裁剪规则 | 升级库必须同步改这个文件 |
-| `software/app/` | Flutter 控制端（Android 优先） | A 层不放调强度的控件。发指令只走 `senderProvider`，不许绕过 `Governor` |
+| `software/app/` | 浏览器控制端（FastAPI 托管的静态网站） | A 层不放调强度的控件。发指令只走 `sendCommand()`，不许绕过 `Governor` |
+| `software/app-android/` | 同一套 Web UI 的 Android 壳 | 只做 WebView + 原生 GATT 桥。不要在 Kotlin 里重写页面或总督 |
 | `software/backend/` | FastAPI 云端 | 云端只给建议，不控制硬件。密钥只进 `.env`，不进仓库 |
 | `datasheets/` | 已选型器件的厂商 datasheet | 不放视频、超大原稿、临时导出 |
 | `docs/` | 协作规范、决策记录 | 确认结论和开放问题应分开记录 |
 | `docs/architecture/` | 产品架构（权威副本） | 必须进本仓库。飞书只作讨论草稿，改完要同步回这里再提交 |
 
-**跨端字段一律进 `protocol/contract.yaml`。** 不要在固件宏、Dart 常量和 Python 模型里各抄一份 UUID、档位上限或超时。改完契约后必须：
+**跨端字段一律进 `protocol/contract.yaml`。** 不要在固件宏、JavaScript 常量和 Python 模型里各抄一份 UUID、档位上限或超时。改完契约后必须：
 
 ```bash
 cd protocol && python3 tools/gen.py
 ```
 
-并在同一个提交里带上 `contract.yaml`、`protocol/generated/`、`protocol/schemas/`、`software/app/lib/core/protocol/protocol.dart`、`software/backend/app/protocol.py` 以及 `protocol/CHANGELOG.md`。
+并在同一个提交里带上 `contract.yaml`、`protocol/generated/`、`protocol/schemas/`、`software/app/js/protocol.js`、`software/backend/app/protocol.py` 以及 `protocol/CHANGELOG.md`。
 
 # 5. 架构文档必须放进本仓库
 
@@ -122,10 +123,11 @@ git push -u origin feat/your-small-task
 | `protocol/contract.yaml` 或生成器 | `python3 protocol/tools/gen.py --check` |
 | `hardware/toy-sidecar/` | `cd hardware/toy-sidecar && pio run`（有板再 `-t upload`） |
 | `hardware/k10-controller/` | `cd hardware/k10-controller && pio run` |
-| `software/app/` | `cd software/app && dart analyze`；有真机再 `flutter run` |
+| `software/app/` | `cd software/app && node tests/run.mjs`；浏览器打开后端托管的网站再点一遍三层入口 |
+| `software/app-android/` | Android Studio 安装到真机后再连一次行空板；没有 SDK 时在 PR 写明未构建 |
 | `software/backend/` | `python3 -m py_compile app/*.py app/routers/*.py app/services/*.py` |
 
-没有 PlatformIO 或 Flutter 时，在 PR 里写明「本机未构建、请 Reviewer 补跑」，不要假装已经验证过。
+没有 PlatformIO 时，在 PR 里写明「本机未构建、请 Reviewer 补跑」，不要假装已经验证过。控制端不再依赖 Flutter。
 
 # 7. Pull Request 与评审
 

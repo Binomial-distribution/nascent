@@ -4,7 +4,7 @@
 
 1. [`docs/Nascent 开发与代码提交规范.md`](docs/Nascent%20开发与代码提交规范.md)
 2. [`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)（产品架构权威副本；不要只改飞书）
-3. 本任务涉及的子目录 README（`protocol/`、`hardware/*/`、`software/app/`、`software/backend/`）
+3. 本任务涉及的子目录 README（`protocol/`、`hardware/*/`、`software/app/`、`software/app-android/`、`software/backend/`）
 
 硬性约束：
 

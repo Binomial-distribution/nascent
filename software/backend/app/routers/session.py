@@ -12,7 +12,7 @@ router = APIRouter(prefix="/v1/session", tags=["session"])
 async def post_summary(summary: CloudSummary) -> CloudActionEnvelope:
     """接收 App 上报的会话摘要，返回下一步建议。
 
-    返回的是**建议**不是命令。App 侧的安全总督会再判一次，
+    返回的是**建议**不是命令。浏览器侧的安全总督会再判一次，
     K10 和玩具侧固件还会各判一次。envelope 里的 action.set_level
     只要越界或与当前状态冲突，下游任何一层都可以直接丢掉。
     """

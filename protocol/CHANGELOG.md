@@ -29,6 +29,6 @@
   让软件能远程解除安全词，等于把最后一道保险交回给软件。
 - `battery` 改为 nullable。demo 没有电量采样电路，K10 恒发 `null`；
   声明成非空会让 App 一解析就崩，而不是安静地不显示电量。
-- 生成器现在把 `protocol.dart` 与 `protocol.py` 直接投放到 App 和后端的包内。
-  Dart 与 Python 的模块解析都不喜欢跳出包根引用文件，与其让两端各写一段路径 hack，
-  不如由生成器负责分发——反正它们都是生成物。
+- 生成器现在把 `protocol.js` 与 `protocol.py` 直接投放到控制端和后端的包内。
+  浏览器与 Python 的模块解析都不喜欢跳出包根引用文件，与其让两端各写一段路径 hack，
+  不如由生成器负责分发——反正它们都是生成物。`generated/protocol.dart` 仍生成，供对照。

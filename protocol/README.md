@@ -28,7 +28,7 @@ python3 tools/gen.py --check   # 产物与契约不一致则退出码 1
 
 ```mermaid
 flowchart LR
-  Phone["Flutter App (Android)"]
+  Phone["浏览器控制端"]
   K10["k10-controller"]
   Toy["toy-sidecar"]
   Board["原产品控制板"]
@@ -51,7 +51,8 @@ flowchart LR
 | 生成物 | 消费方 | 接法 |
 |---|---|---|
 | `generated/nascent_protocol.h` | 两个固件工程 | `build_flags = -I../../protocol/generated` |
-| `generated/protocol.dart` | Flutter App | 构建前拷贝或软链到 `software/app/lib/core/protocol.dart` |
+| `generated/protocol.dart` | 对照用 | 仍生成，控制端不再消费 |
+| `generated/protocol.js` | 浏览器控制端 | 构建前拷贝到 `software/app/js/protocol.js` |
 | `generated/protocol.py` | FastAPI 后端 | 构建前拷贝到 `software/backend/app/protocol.py` |
 | `schemas/*.json` | 联调与契约测试 | 任意 JSON Schema 校验器 |
 

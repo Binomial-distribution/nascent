@@ -4,11 +4,11 @@
 
 ## 它不控制硬件
 
-App 把会话摘要发上来，云端返回的是「建议」——一段台词、一个情景走向、
+浏览器控制端把会话摘要发上来，云端返回的是「建议」——一段台词、一个情景走向、
 一个建议档位。这些建议要依次通过：
 
 ```
-云端审核 → App 安全总督 → K10 拒绝规则 → 玩具侧 SafetyGovernor
+云端审核 → 浏览器安全总督 → K10 拒绝规则 → 玩具侧 SafetyGovernor
 ```
 
 四层里任何一层都可以否决。网络断了、云端挂了、模型胡说八道，
@@ -38,7 +38,7 @@ app/
 ## 协议怎么进来的
 
 `app/protocol.py` 由 `protocol/tools/gen.py` 从 `contract.yaml` 生成后直接投放到位，
-与固件的 `nascent_protocol.h`、App 的 `protocol.dart` 同源。
+与固件的 `nascent_protocol.h`、控制端的 `protocol.js` 同源。
 
 ```bash
 cd protocol && python3 tools/gen.py
@@ -54,7 +54,8 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-文档在 <http://127.0.0.1:8000/docs>。
+网站在 <http://127.0.0.1:8000>，接口文档在 <http://127.0.0.1:8000/docs>。
+后端同时托管 `software/app/` 里的静态页，不另起前端构建。
 
 配置走环境变量，前缀 `NASCENT_`，也可以写在 `.env`（已被 gitignore）：
 

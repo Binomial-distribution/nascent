@@ -6,7 +6,8 @@
 
 产物：
     generated/nascent_protocol.h   固件（Arduino C++）
-    generated/protocol.dart        Flutter App
+    generated/protocol.dart        对照用 Dart（不再投放到控制端）
+    generated/protocol.js          浏览器控制端
     generated/protocol.py          FastAPI 后端（pydantic v2）
     schemas/*.json                 JSON Schema 2020-12
 
@@ -604,6 +605,141 @@ def gen_py(c: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# JavaScript (ES module，浏览器控制端)
+# ---------------------------------------------------------------------------
+def js_enum(name: str) -> str:
+    return "Nl" + pascal(name)
+
+
+def js_lit(value) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def js_from_json(spec: str, expr: str, nullable: bool) -> str:
+    kind, arg = parse_type(spec)
+    if kind in ("int", "float"):
+        core = f"Number({expr})"
+    elif kind == "str":
+        core = f"String({expr})"
+    elif kind == "bool":
+        core = f"Boolean({expr})"
+    elif kind == "enum":
+        core = f"{js_enum(arg)}.fromWireName({expr})"
+    elif kind == "obj":
+        core = f"{arg}.fromJson({expr})"
+    elif kind == "list":
+        inner = "Number(e)" if arg in ("int", "float") else "String(e)"
+        core = f"({expr}).map((e) => {inner})"
+    elif kind == "list_obj":
+        core = f"({expr}).map((e) => {arg}.fromJson(e))"
+    else:
+        raise ValueError(spec)
+    return f"{expr} == null ? null : {core}" if nullable else core
+
+
+def js_to_json(spec: str, expr: str, nullable: bool) -> str:
+    kind, _arg = parse_type(spec)
+    if kind in ("int", "float", "str", "bool", "list", "enum"):
+        return expr
+    if kind == "obj":
+        return f"{expr}{ '?.' if nullable else '.' }toJson()"
+    if kind == "list_obj":
+        mapper = "?.map" if nullable else ".map"
+        return f"{expr}{mapper}((e) => e.toJson())"
+    raise ValueError(spec)
+
+
+def gen_js(c: dict) -> str:
+    L = [
+        "// " + BANNER,
+        f"// contract version: {c['version']}",
+        "",
+        "export const NlConst = Object.freeze({",
+        f"  protoVersion: {js_lit(c['version'])},",
+    ]
+    for k, v in c["constants"].items():
+        L.append(f"  {camel(k.lower())}: {v},")
+    L += ["});", ""]
+
+    if c.get("ble"):
+        L.append("export const NlBle = Object.freeze({")
+        for k, v in c["ble"].items():
+            key = camel(k)
+            L.append(f"  {key}: {js_lit(v) if isinstance(v, str) else v},")
+        L += ["});", ""]
+
+    for ename, values in c["enums"].items():
+        cls = js_enum(ename)
+        L.append(f"export const {cls} = Object.freeze((() => {{")
+        L.append(f"  const values = [{', '.join(js_lit(v) for v in values)}];")
+        L.append("  return {")
+        for v in values:
+            L.append(f"    {v.upper()}: {js_lit(v)},")
+        L += [
+            "    values,",
+            "    fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },",
+            "    fromWireName(n) {",
+            "      const i = values.indexOf(n ?? '');",
+            "      return i < 0 ? values[0] : values[i];",
+            "    },",
+            "  };",
+            "})());",
+            "",
+        ]
+
+    L += ["export const kLevelTable = Object.freeze(["]
+    for row in c["levels"]:
+        L.append(
+            "  Object.freeze({"
+            f" level: {row['level']}, dutyPct: {row['duty_pct']},"
+            f" pattern: {js_enum('pattern')}.{row['pattern'].upper()},"
+            f" lit: {row['lit']}, r: {row['r']}, g: {row['g']}, b: {row['b']},"
+            f" semantic: {js_lit(row['semantic'])} "
+            "}),"
+        )
+    L += ["]);", ""]
+
+    for obj in list(c["json_objects"]) + list(c["json_messages"]):
+        name = obj["name"]
+        fields = obj["fields"]
+        if obj.get("direction"):
+            L.append(f"/** {obj['direction']} */")
+        L.append(f"export class {name} {{")
+        L.append("  constructor({")
+        for f in fields:
+            default = " = null" if f.get("nullable", False) else ""
+            L.append(f"    {camel(f['name'])}{default},")
+        L.append("  }) {")
+        for f in fields:
+            L.append(f"    this.{camel(f['name'])} = {camel(f['name'])};")
+        L.append("  }")
+        L.append("")
+        L.append(f"  static fromJson(j) {{")
+        L.append(f"    return new {name}({{")
+        for f in fields:
+            if f.get("doc"):
+                L.append(f"      // {f['doc']}")
+            L.append(
+                f"      {camel(f['name'])}: {js_from_json(f['type'], f'''j[{js_lit(f['name'])}]''', f.get('nullable', False))},"
+            )
+        L.append("    });")
+        L.append("  }")
+        L.append("")
+        L.append("  toJson() {")
+        L.append("    return {")
+        for f in fields:
+            L.append(
+                f"      {js_lit(f['name'])}: {js_to_json(f['type'], 'this.' + camel(f['name']), f.get('nullable', False))},"
+            )
+        L.append("    };")
+        L.append("  }")
+        L.append("}")
+        L.append("")
+
+    return "\n".join(L).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
 # JSON Schema
 # ---------------------------------------------------------------------------
 JSON_PRIM = {"int": "integer", "float": "number", "str": "string", "bool": "boolean"}
@@ -665,20 +801,21 @@ def main() -> int:
     args = ap.parse_args()
 
     c = load_contract()
-    dart, py = gen_dart(c), gen_py(c)
+    dart, js, py = gen_dart(c), gen_js(c), gen_py(c)
     artifacts = {
         GENERATED / "nascent_protocol.h": gen_c(c),
         GENERATED / "protocol.dart": dart,
+        GENERATED / "protocol.js": js,
         GENERATED / "protocol.py": py,
     }
     for name, body in gen_schemas(c).items():
         artifacts[SCHEMAS / name] = body
 
-    # 固件用 -I 直接吃 generated/，但 Dart 和 Python 的模块解析都不喜欢
+    # 固件用 -I 直接吃 generated/，但浏览器和 Python 的模块解析都不喜欢
     # 跳出各自的包根去引用文件。与其让两端各写一段路径 hack，
     # 不如在这里把同一份内容投放到位——反正它们都是生成物，不是手写代码。
     for dest, body in (
-        (REPO / "software/app/lib/core/protocol/protocol.dart", dart),
+        (REPO / "software/app/js/protocol.js", js),
         (REPO / "software/backend/app/protocol.py", py),
     ):
         artifacts[dest] = body

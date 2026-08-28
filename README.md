@@ -12,10 +12,10 @@ flowchart TB
     LLM["LLM Agent 与剧本引擎"]
     AUD["内容双向审核"]
   end
-  subgraph app [Flutter App 语义层 / Android]
+  subgraph app [浏览器语义层 / Web UI]
     GOV["安全总督"]
     FSM["会话状态机"]
-    DB["SQLCipher 本地归档"]
+    DB["本次运行内存归档"]
   end
   subgraph fw [ESP32 实时层]
     K10["k10-controller: HW504 摇杆 + 屏 + BLE"]
@@ -24,7 +24,7 @@ flowchart TB
   Board["原产品控制板 + 三路振动"]
 
   cloud <-->|"状态摘要 / 动作契约"| app
-  app <-->|"BLE GATT"| K10
+  app <-->|"BLE GATT（网站 Web Bluetooth / App 原生桥）"| K10
   K10 <-->|"ESP-NOW"| Toy
   Toy -->|"CD4066 并联原按键"| Board
 ```
@@ -32,7 +32,7 @@ flowchart TB
 职责边界是硬约束，不是建议：
 
 - **云端**只产出台词与剧本推进，永远看不到原始传感器流与音频。
-- **App** 是安全总督，在 LLM 之外硬编码封顶、过温拒绝加档、安全词后丢弃一切非 stop 动作。
+- **浏览器控制端** 是安全总督，在 LLM 之外硬编码封顶、过温拒绝加档、安全词后丢弃一切非 stop 动作。
 - **固件**负责实时闭环。安全词、急停拉环、过温熔断、90% 强度封顶**不依赖 App 与网络**。
 
 ## 目录
@@ -42,11 +42,12 @@ flowchart TB
 | [`protocol/`](protocol/) | 三端唯一事实来源：契约、生成器、JSON Schema | 已冻结 `0.1.0-demo` |
 | [`hardware/k10-controller/`](hardware/k10-controller/) | 行空板 K10：摇杆、屏、BLE Peripheral、ESP-NOW 网关 | 功能完整 |
 | [`hardware/toy-sidecar/`](hardware/toy-sidecar/) | 玩具侧 ESP32-S3：传感、入体推断、灯效、CD4066 | 功能完整 |
-| [`software/app/`](software/app/) | Flutter App（Android） | 框架骨架 |
-| [`software/backend/`](software/backend/) | FastAPI 后端 | 框架骨架 |
+| [`software/app/`](software/app/) | 浏览器控制端（网站 + PWA） | 框架骨架 |
+| [`software/app-android/`](software/app-android/) | 同一套 Web UI 的 Android 壳 | 框架骨架 |
+| [`software/backend/`](software/backend/) | FastAPI 后端（同时托管网站） | 框架骨架 |
 | [`datasheets/`](datasheets/) | 已选型器件的厂商 datasheet | — |
 | [`docs/`](docs/) | 协作与提交规范 | — |
-| [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.2 已归档 |
+| [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.3 已归档 |
 
 ## 上手
 
@@ -60,15 +61,14 @@ cd protocol && python3 tools/gen.py
 cd hardware/toy-sidecar && pio run
 cd hardware/k10-controller && pio run
 
-# 后端
+# 后端 + 网站
 cd software/backend
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
-
-# App
-cd software/app && flutter pub get && flutter run
+# 打开 http://127.0.0.1:8000
+# Android App：用 Android Studio 打开 software/app-android/，填入同一地址
 ```
 
 Windows 上开发没有额外步骤：仓库全 ASCII 文件名、`.gitattributes` 锁 LF、
