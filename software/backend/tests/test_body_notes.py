@@ -97,6 +97,9 @@ def test_body_insight_rejects_control_and_diagnosis_language():
     with pytest.raises(ValidationError):
         BodyInsightModelOutput(dialogue="这说明你喜欢固定节奏", insight_candidate=None)
 
+    with pytest.raises(ValidationError):
+        BodyInsightModelOutput(dialogue="这是你的固定偏好", insight_candidate=None)
+
     allowed = BodyInsightModelOutput(
         dialogue="这些只是当时的记录，不代表固定偏好。",
         insight_candidate=None,
@@ -124,3 +127,14 @@ async def test_limited_comparison_is_not_sent_to_model():
             store,
         )
     assert exc.value.status_code == 422
+
+
+def test_body_insight_stub_passes_output_contract():
+    from app.services.llm import _body_insight_stub
+
+    dialogue, candidate = _body_insight_stub(
+        "current",
+        [{"temperature_summary": "温感平稳", "pressure_summary": "接触压力变化较少"}],
+    )
+    parsed = BodyInsightModelOutput(dialogue=dialogue, insight_candidate=candidate)
+    assert "不代表固定偏好" in parsed.dialogue

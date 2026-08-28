@@ -385,13 +385,14 @@ AI 可以建议“你似乎更喜欢慢速开始”，但 UI 必须标注“基�
 
 ### 6.3 Skill 白名单
 
-第一版 Skill：
+模板 `HardwareSkill` 和 Chat `SkillProposal` 第一版只允许：
 
 | Skill | 参数 | 执行条件 |
 | --- | --- | --- |
 | `rhythm_segment` | level、pattern、duration_s | 已确认模板、用户已授权、非 wild、Governor 放行 |
 | `set_pattern` | pattern、duration_s | 已确认模板、用户已授权、Governor 放行 |
-| `hold_current` | duration_s | 只保持现状，不改变档位 |
+
+`hold_current` 不是模板可声明 Skill，只出现在 Control 9B 的 `decision=hold`：保持现状、不改变档位。设备协议 `set_level` 是 BLE `cmd`，由 `sendCommand()` 发送，不要写进 Agent 白名单。
 
 禁止 Skill：`resume`、延长失控、修改安全阈值、绕过停止、直接写 BLE、读取原始传感器、删除记忆、改变同意状态。
 

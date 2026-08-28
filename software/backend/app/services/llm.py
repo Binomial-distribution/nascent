@@ -275,7 +275,8 @@ def _body_insight_stub(scope: str, sessions: list[dict[str, object]]) -> tuple[s
             "这些只是当时的记录，不代表固定偏好。哪一段最接近你自己的感受？"
         )
         candidate = "这一次，慢慢开始和清楚地收尾让我更容易听见自己的感受。"
-    return dialogue, candidate
+    output = BodyInsightModelOutput(dialogue=dialogue, insight_candidate=candidate)
+    return output.dialogue, output.insight_candidate
 
 
 def _stub(summary: CloudSummary) -> CloudActionEnvelope:

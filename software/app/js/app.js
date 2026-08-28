@@ -618,7 +618,7 @@ function renderSessionRow(session) {
 }
 
 function notesMutationsLocked() {
-  return bodyNotes.loading || (bodyNotes.backendAvailable === null && Boolean(bodyNotes._fetch));
+  return bodyNotes.mutationsLocked;
 }
 
 function renderNoteDetail(sessionId) {

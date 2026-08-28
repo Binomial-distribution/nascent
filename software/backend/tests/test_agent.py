@@ -249,3 +249,17 @@ async def test_memory_search_clamps_negative_limit():
     assert await provider.search(user_id="u", persona_id="p", query="", limit=-3) == []
     assert len(await provider.search(user_id="u", persona_id="p", query="", limit=1)) == 1
     assert len(await provider.search(user_id="u", persona_id="p", query="", limit=99)) == 2
+
+
+def test_memory_search_http_rejects_out_of_range_limit():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    for limit in (0, -3, 21):
+        response = client.get(
+            "/v1/agent/memory",
+            params={"user_id": "u", "persona_id": "p", "limit": limit},
+        )
+        assert response.status_code == 422, limit

@@ -167,9 +167,31 @@ const loadingNotes = new BodyNotesState({
 const loadingPromise = loadingNotes.load();
 assert(!await loadingNotes.deleteSession("demo-session-03"), "delete is refused while backend probe is in flight");
 assert(loadingNotes.getSession("demo-session-03") !== null, "in-flight load does not locally delete the record");
+assert(!await loadingNotes.sendInsight("demo-session-03", [], "先等等"), "insight is refused while backend probe is in flight");
+assert(loadingNotes.messages("demo-session-03", "current").length === 0, "refused insight does not enqueue a user turn");
 resolveLoad(jsonResponse(localNotes.sessions));
 await loadingPromise;
 assert(loadingNotes.backendAvailable === true, "load completes after the in-flight probe");
+
+const staleList = [
+  { session_id: "demo-session-03", title: "复活检查", started_at: new Date().toISOString(), duration_s: 60, mode: "free", persona_name: null, max_level: 1, data_quality: "complete", temperature: { direction: "stable", label: "温感平稳", quality: "complete", sample_count: 10 }, pressure: { direction: "stable", label: "接触压力变化较少", quality: "complete", sample_count: 10 }, summary: "", user_feedback: "", timeline: [], notes: [] },
+];
+const staleNotes = new BodyNotesState({
+  sessions: staleList,
+  fetchImpl: async (path, options = {}) => {
+    if (path === "/v1/body-notes/sessions" && !options.method) return jsonResponse(staleList);
+    if (String(path).includes("/sessions/demo-session-03") && options.method === "DELETE") {
+      return jsonResponse({ deleted: true });
+    }
+    return jsonResponse({}, { ok: false, status: 404 });
+  },
+});
+await staleNotes.load();
+assert(await staleNotes.deleteSession("demo-session-03"), "loaded backend allows deletion");
+assert(staleNotes.getSession("demo-session-03") === null, "deleted session leaves local state");
+await staleNotes.load();
+assert(staleNotes.getSession("demo-session-03") === null, "a stale backend list does not resurrect a deleted session");
+assert(staleNotes.mutationsLocked === false, "mutations unlock after load finishes");
 
 const offlineDelete = new BodyNotesState({ fetchImpl: null });
 assert(await offlineDelete.deleteSession("demo-session-03"), "offline demo allows local-only deletion");

@@ -118,6 +118,11 @@ export class BodyNotesState {
     this._listeners = new Set();
     this.loading = false;
     this.backendAvailable = null;
+    this._removedSessionIds = new Set();
+  }
+
+  get mutationsLocked() {
+    return this.loading || (Boolean(this._fetch) && this.backendAvailable === null);
   }
 
   subscribe(fn) {
@@ -151,11 +156,14 @@ export class BodyNotesState {
   async load() {
     if (!this._fetch || this.loading) return;
     this.loading = true;
+    this._notify();
     try {
       const response = await this._request("/v1/body-notes/sessions");
       this.backendAvailable = response.ok;
       if (response.ok && Array.isArray(response.data)) {
-        this._sessions = response.data;
+        this._sessions = response.data.filter(
+          (item) => !this._removedSessionIds.has(item.session_id),
+        );
       }
     } finally {
       this.loading = false;
@@ -164,13 +172,14 @@ export class BodyNotesState {
   }
 
   async deleteSession(sessionId) {
-    if (this.loading || (this._fetch && this.backendAvailable === null)) return false;
+    if (this.mutationsLocked) return false;
     if (this.backendAvailable === true) {
       const response = await this._request(`/v1/body-notes/sessions/${encodeURIComponent(sessionId)}`, {
         method: "DELETE",
       });
       if (!response.ok || response.data?.deleted !== true) return false;
     }
+    this._removedSessionIds.add(sessionId);
     this._sessions = this._sessions.filter((item) => item.session_id !== sessionId);
     for (const key of this._messages.keys()) {
       if (key.startsWith(`${sessionId}:`)) this._messages.delete(key);
@@ -180,6 +189,7 @@ export class BodyNotesState {
   }
 
   async addNote(sessionId, text) {
+    if (this.mutationsLocked) return null;
     const trimmed = text.trim();
     if (!trimmed) return null;
     let remote = null;
@@ -207,7 +217,7 @@ export class BodyNotesState {
   }
 
   async deleteNote(noteId) {
-    if (this.loading || (this._fetch && this.backendAvailable === null)) return false;
+    if (this.mutationsLocked) return false;
     if (this.backendAvailable === true) {
       const response = await this._request(`/v1/body-notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
       if (!response.ok || response.data?.deleted !== true) return false;
@@ -220,6 +230,7 @@ export class BodyNotesState {
   }
 
   async sendInsight(sessionId, comparisonSessionIds, message) {
+    if (this.mutationsLocked) return null;
     const scope = comparisonSessionIds.length ? "recent" : "current";
     const key = `${sessionId}:${scope}`;
     const items = this._messages.get(key) || [];
@@ -259,6 +270,7 @@ export class BodyNotesState {
   resetDemo() {
     this._sessions = clone(this._seed);
     this._messages.clear();
+    this._removedSessionIds.clear();
     this._notify();
   }
 

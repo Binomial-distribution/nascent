@@ -76,7 +76,7 @@ Control lane
   -> 使用界面：启动模板，Skill 建议仍经 Governor + sendCommand()
 ```
 
-Skill 是受限能力白名单，不是 Agent 工具权限。第一版只允许声明 `rhythm_segment`、`set_pattern` 和保持现状的 `hold_current`；不能声明 BLE 写入、停止闩锁、恢复、延长失控时间、修改安全阈值或删除数据。设备协议里的 `set_level` 只属于 `sendCommand()`，不是 Agent Skill。Agent 输出的是 `skill_proposal`，执行前必须满足：模板已确认、当前会话已授权、模式不是失控模式、Web UI `Governor` 放行，并由唯一的 `sendCommand()` 入口发送。
+Skill 是受限能力白名单，不是 Agent 工具权限。模板和 Chat 第一版只允许声明 `rhythm_segment`、`set_pattern`；`hold_current` 只属于 Control 9B 的 hold 决策，不能写进模板。不能声明 BLE 写入、停止闩锁、恢复、延长失控时间、修改安全阈值或删除数据。设备协议里的 `set_level` 只属于 `sendCommand()`，不是 Agent Skill。Agent 输出的是 `skill_proposal`，执行前必须满足：模板已确认、当前会话已授权、模式不是失控模式、Web UI `Governor` 放行，并由唯一的 `sendCommand()` 入口发送。
 
 模板删除入口放在模板管理页；删除模板时可选择同时删除该模板的关系记忆。删除必须是后端鉴权 API 的级联操作，删除后不能被检索或重新注入 Prompt。
 

@@ -4,7 +4,7 @@ The routes return dialogue, performance and preference suggestions, never device
 Authentication is intentionally deferred for local integration only.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from ..services import agent, llm, template
 from ..services.agent_contract import (
@@ -58,10 +58,13 @@ async def add_memory(request: MemoryWriteRequest) -> MemoryItem:
 
 @router.get("/memory", response_model=list[MemoryItem])
 async def search_memory(
-    user_id: str, persona_id: str, query: str = "", limit: int = 5
+    user_id: str,
+    persona_id: str,
+    query: str = "",
+    limit: int = Query(default=5, ge=1, le=20),
 ) -> list[MemoryItem]:
     return await memory_provider.search(
-        user_id=user_id, persona_id=persona_id, query=query, limit=max(0, min(limit, 20))
+        user_id=user_id, persona_id=persona_id, query=query, limit=limit
     )
 
 
