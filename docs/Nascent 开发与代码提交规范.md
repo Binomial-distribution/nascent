@@ -62,7 +62,7 @@ git switch -c feat/your-small-task
 |---|---|---|
 | `protocol/` | 三端唯一事实来源：`contract.yaml`、生成器、Schema、链路文档 | 改协议只改契约再跑生成器。禁止手改 `generated/`、`schemas/`，以及投放到 App/后端包内的副本 |
 | `hardware/k10-controller/` | K10 主控：摇杆、屏、BLE、ESP-NOW 网关 | 屏幕/按键 API 对照 `reference/` 下的官方示例，不要凭记忆猜。`lib/ArduinoJson` 是 vendored 库，不要顺手改 |
-| `hardware/toy-sidecar/` | 玩具侧：传感、入体推断、灯语、CD4066、板间链路 | 这块板不驱动电机。`lib/` 下是 vendored 驱动，升级步骤见 `hardware/VENDOR.md` |
+| `hardware/toy-sidecar/` | 玩具侧：传感、入体推断、灯语、原按键模拟、板间链路 | 这块板不驱动电机。`lib/` 下是 vendored 驱动，升级步骤见 `hardware/VENDOR.md` |
 | `hardware/VENDOR.md` | 第三方库来源、版本、裁剪规则 | 升级库必须同步改这个文件 |
 | `software/app/` | 浏览器控制端（FastAPI 托管的静态网站） | A 层不放调强度的控件。发指令只走 `sendCommand()`，不许绕过 `Governor` |
 | `software/app-android/` | 同一套 Web UI 的 Android 壳 | 只做 WebView + 原生 GATT 桥。不要在 Kotlin 里重写页面或总督 |
@@ -137,10 +137,10 @@ git push -u origin feat/your-small-task
 |---|---|---|
 | `docs/architecture/` 产品架构、分层职责、安全不变量 | 项目负责人 | 全员实现口径；只改飞书不算数 |
 | `protocol/contract.yaml`、GATT / ESP-NOW 帧、枚举线序 | 项目负责人 | 三端同时失效或静默错位 |
-| 安全路径：`safety.*`、`governor.dart`、`resume` / `stop`、CD4066 时序、档位封顶 | 项目负责人 | 停机、封顶、远程恢复都是产品红线 |
+| 安全路径：`safety.*`、`governor.dart`、`resume` / `stop`、`ao3400.*` 按键时序、档位封顶 | 项目负责人 | 停机、封顶、远程恢复都是产品红线 |
 | BLE 鉴权、会话令牌、云端密钥与审核开关 | 项目负责人 | 影响设备被谁控制 |
 | 入体推断、对外文案、医疗化表述 | 项目负责人 | 文案和算法承诺受产品红线约束 |
-| 引脚、CD4066 供电方案、vendored 库升级 | 硬件主责 | 焊错脚或重复定义库会让整板不可用 |
+| 引脚、原按键开关器件与限流电阻、vendored 库升级 | 硬件主责 | 焊错脚或重复定义库会让整板不可用；动那颗 10kΩ 等于动安全论证 |
 | 普通 UI、后端桩、模块内测试、文档 | 模块主责，可邀请其他同事 | 由最熟悉该层的人负责质量 |
 
 项目负责人不需要逐条检查每个 Commit，但需要关注每个 PR，并亲自 Review 上表中的高风险改动。协议和安全相关改动建议在开始实现后尽早建立 Draft PR，以便提前发现方向问题。

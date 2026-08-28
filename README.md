@@ -26,7 +26,7 @@ flowchart TB
   cloud <-->|"状态摘要 / 动作契约"| app
   app <-->|"BLE GATT（网站 Web Bluetooth / App 原生桥）"| K10
   K10 <-->|"ESP-NOW"| Toy
-  Toy -->|"CD4066 并联原按键"| Board
+  Toy -->|"AO3400A 并联原按键"| Board
 ```
 
 职责边界是硬约束，不是建议：
@@ -41,7 +41,7 @@ flowchart TB
 |---|---|---|
 | [`protocol/`](protocol/) | 三端唯一事实来源：契约、生成器、JSON Schema | 已冻结 `0.1.0-demo` |
 | [`hardware/k10-controller/`](hardware/k10-controller/) | 行空板 K10：摇杆、屏、BLE Peripheral、ESP-NOW 网关 | 功能完整 |
-| [`hardware/toy-sidecar/`](hardware/toy-sidecar/) | 玩具侧 ESP32-S3：传感、入体推断、灯效、CD4066 | 功能完整 |
+| [`hardware/toy-sidecar/`](hardware/toy-sidecar/) | 玩具侧 ESP32-S3：传感、入体推断、灯效、原按键模拟 | 功能完整 |
 | [`software/app/`](software/app/) | 浏览器控制端（网站 + PWA） | 框架骨架 |
 | [`software/app-android/`](software/app-android/) | 同一套 Web UI 的 Android 壳 | 框架骨架 |
 | [`software/backend/`](software/backend/) | FastAPI 后端（同时托管网站） | 框架骨架 |
@@ -83,7 +83,7 @@ Windows 上开发没有额外步骤：仓库全 ASCII 文件名、`.gitattribute
 | MPU6050 | 玩具侧 | I2C GPIO8/9 @0x68 | 入体状态推断 |
 | FSR402 | 玩具侧 | GPIO1 ADC | 贴合与 1–2 Hz 节律 |
 | WS2812B ×8 | 玩具侧 | GPIO6 RMT | 模式配色 + 档位颗数 |
-| CD4066BE | 玩具侧 | GPIO7 | 并联原按键走原板九档 |
+| AO3400A | 玩具侧 | GPIO7 | 并联原按键走原板九档，漏极串 10kΩ 限流 |
 
 datasheet 与接线摘要见 [`datasheets/README.md`](datasheets/README.md)。
 
@@ -102,7 +102,8 @@ App 与后端不做 vendored——`pubspec.lock` 和 `requirements.txt` 已经�
 - **不做高潮检测。** 压力只用于贴合与节律。
 - **安全功能永不收费。**
 - **原始 12 Hz 传感器流与麦克风音频不出设备与 App。** 上云的只有离散枚举摘要。
-- **CD4066 不驱动电机。** 它只并联原按键，电机始终由原产品控制板驱动。
+- **按键支路不驱动电机。** 它只并联原按键，电机始终由原产品控制板驱动。
+  AO3400A 的漏极串了 10kΩ，支路电流封在 0.37mA，这是物理保证而不只是纪律。
 - **停机不能远程解除。** 安全词或急停之后，恢复的唯一途径是在 K10 上物理双键确认。
   App 与云端都发不出 `resume`。用户喊过停之后设备自己重新动起来，
   是这个产品最坏的失败模式。
