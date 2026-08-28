@@ -1,0 +1,599 @@
+# B 层完整版技术文稿：双 9B Agent、模板 Skill 与偏好闭环
+
+> 版本：B2.0 设计稿
+> 日期：2026-08-28
+> 范围：Nascent Love Android Flutter、FastAPI Agent、Qwen 9B 双模型、温度/压力趋势、情景漫游、我的节奏、身体笔记
+> 关键词：预置模板、用户自定义模板、对话建模、硬件 Skill、角色 Agent、调控 Agent、记忆隔离、可删除、低延迟
+
+## 1. 摘要
+
+B 层不是一个“聊天机器人直接控制硬件”的页面，而是一条受控的亲密体验链路：
+
+```text
+用户选择/创建模板
+  -> 情境会话
+  -> 本地语音输入与脱敏传感器摘要
+  -> Chat 9B 生成台词与角色表现
+  -> Control 9B 生成节奏建议
+  -> 确定性策略引擎 + Governor 审核
+  -> senderProvider 发送允许的协议命令
+  -> TTS / Waifu 表现 + 身体趋势
+  -> 用户反馈 / 会话归档 / 偏好更新
+```
+
+两个 9B 是两个**职责隔离的逻辑模型**，不是两个拥有不同权限的“人格”：
+
+| 模型 | 服务别名 | 负责 | 不负责 |
+| --- | --- | --- | --- |
+| Chat 9B | `nascent-chat-9b` | 对话、情景推进、语气、Waifu 表现、记忆候选 | 调档、停止、计时、恢复、删除、读取原始传感器 |
+| Control 9B | `nascent-control-9b` | 根据已聚合的趋势和已确认模板提出节奏建议 | 直接控制 BLE、绕过 Governor、改变安全上限、延长失控模式 |
+
+两个别名可以在第一阶段指向同一个 `Qwen/Qwen3.5-9B` 模型快照，但必须使用不同的系统 Prompt、输入 Schema、输出 Schema、超时和审计指标。负载上升后可以拆成两个独立副本，不改变客户端契约。
+
+## 2. 产品边界
+
+### 2.1 B 层三个模块
+
+| 模块 | 选择/使用关系 | 主要职责 | 设备权限 |
+| --- | --- | --- | --- |
+| 情境漫游 | 先选模板，再进入独立使用页 | 微信式会话、语音、情景节点、身体趋势、台词和 Skill 建议 | 不能直接发命令；建议需经过确认和 Governor |
+| 我的节奏 | 先选控制方案，再进入独立控制页 | 手动档位、预置/自定义 Skill、失控模式、停止 | 唯一允许发调档命令的 UI；全部走 `senderProvider` |
+| 身体笔记 | 与情境漫游、我的节奏平行，独立查看 | 每次使用记录、单次趋势与总结、主观反馈、了解自己对话、删除 | 只读；不能恢复设备运行，也不能产生设备动作 |
+
+选择页和使用页必须分层：
+
+```text
+亲密时刻
+  ├─ 情境漫游选择页
+  │    ├─ 预置模板
+  │    ├─ 我的模板
+  │    └─ 对话创建模板
+  ├─ 我的节奏选择页
+  │    ├─ 最近使用
+  │    ├─ 我的模板
+  │    └─ 定时失控
+  └─ 身体笔记
+       ├─ 使用记录列表
+       ├─ 单次记录详情
+       └─ 了解自己
+            ├─ 只看这一次
+            └─ 参考近期记录
+
+选择模板 -> 使用页
+```
+
+选择页不放 Slider、档位按钮或失控倒计时；使用页不允许临时修改模板的安全边界。停止按钮在使用页始终固定可见，网络、模型、TTS 和动画都不能成为停止的前置条件。
+
+### 2.2 用户风格标签
+
+UI 可以提供以下标签帮助用户表达偏好：
+
+- `温柔`：低主动性、更多确认、较长停顿、低刺激表达。
+- `强势`：更明确的引导语气，但仍然必须逐步确认、可随时暂停，不能推断“必须服从”。
+- `SM 风格`：只代表用户主动选择的角色叙事风格，不代表可以跳过同意、停止或安全边界；UI 应显示“自愿、可退出、不会改变安全规则”。
+- `安静`：少说话、更多环境和趋势提示。
+- `玩心`：更多轻松问答和情景变化，但不增加设备权限。
+
+这些是 Persona/Template 的表达参数，不是工具权限、强度上限或安全词替代品。用户可以同时选择多个标签，也可以随时关闭。
+
+## 3. 双模型架构
+
+### 3.1 总体拓扑
+
+```text
+Flutter Android
+  ├─ Local VAD / ASR
+  ├─ BLE uplink -> TrendAggregator（约 1 Hz）
+  ├─ Chat WebSocket / HTTP
+  └─ Control event queue
+
+FastAPI
+  ├─ Session Orchestrator
+  │    ├─ Context Builder
+  │    ├─ MemoryProvider
+  │    ├─ Template / Skill Registry
+  │    └─ Consent & Privacy Policy
+  ├─ Chat 9B Adapter
+  ├─ Control 9B Adapter
+  ├─ Deterministic Policy Engine
+  ├─ Moderation / Schema Validator
+  └─ Session Store + Preference Store
+
+App Governor -> senderProvider -> BLE
+K10 / 固件 SafetyGovernor -> 最终裁决
+```
+
+### 3.2 Chat 9B 输入输出
+
+Chat 9B 每轮只接收：
+
+- 当前 Persona 和已确认 Template 的参数化卡片。
+- 最近 6 轮对话和滚动摘要。
+- 当前场景节点、用户同意状态和剩余时间。
+- 已授权且未删除的关系记忆，最多 5 条。
+- `sensor_context` 的趋势枚举和数据质量，不接收原始数组。
+- 当前用户的本轮文字或本地 ASR 意图。
+
+输出：
+
+```json
+{
+  "dialogue": "我听到了，我们慢一点。",
+  "avatar": {
+    "expression": "soft",
+    "motion": "listen",
+    "interruptible": true
+  },
+  "scene_ctrl": "stay",
+  "emotion": "gentle",
+  "skill_proposals": [],
+  "memory_proposals": [],
+  "action": null
+}
+```
+
+`skill_proposals` 只能引用当前已确认模板的 Skill；`memory_proposals` 只能是待用户确认的候选。任何 `action` 字段都在 Pydantic 校验后强制置空。
+
+### 3.3 Control 9B 输入输出
+
+Control 9B 只在以下时机运行：
+
+- 会话开始后的首次设备状态确认。
+- 每 5-10 秒的趋势窗口结束。
+- 用户明确说“慢一点/快一点/保持/暂停”等节奏意图。
+- 温度/压力趋势或数据质量发生状态变化。
+
+它不在每个聊天气泡都运行，避免增加延迟和调用成本。
+
+输入示例：
+
+```json
+{
+  "session_id": "s_01",
+  "mode": "scenario",
+  "template_id": "tpl_01",
+  "template_skill_allowlist": ["rhythm_segment", "set_pattern"],
+  "phase": "warming",
+  "current_level": 2,
+  "remaining_seconds": 420,
+  "consent_state": "confirmed",
+  "sensor_context": {
+    "temperature_state": "warming",
+    "temperature_quality": "valid",
+    "pressure_rhythm": "steady",
+    "pressure_quality": "partial",
+    "pressure_change": "small",
+    "data_age_ms": 1200
+  },
+  "explicit_user_signal": "慢一点",
+  "recent_feedback": "comfortable"
+}
+```
+
+输出必须是建议，不是命令：
+
+```json
+{
+  "decision": "hold",
+  "recommended_skill_id": "rhythm_segment",
+  "recommended_level": 2,
+  "recommended_pattern": "soft",
+  "hold_seconds": 60,
+  "confidence": 0.71,
+  "reason_codes": ["user_requested_slower", "temperature_warming"],
+  "requires_user_confirmation": true,
+  "action": null
+}
+```
+
+当 `sensor_context` 为 `unknown`、数据过期、链路不可信、用户撤回同意、模式为 `wild` 或模板没有对应 Skill 时，Control 9B 必须输出 `decision=hold`、`action=null`。它不能输出 `stop` 指令；停止由用户、App、K10 或固件完成。
+
+### 3.4 调用调度
+
+聊天和调控必须异步隔离：
+
+```text
+用户输入 -> Chat 队列 -> Chat 9B -> TTS/Waifu
+趋势窗口 -> Control 队列 -> Control 9B -> Policy Engine -> App 建议
+停止事件 -> 本地高优先级队列 -> senderProvider -> BLE
+```
+
+停止事件不能等待任何模型队列。Control 9B 超时只保持当前状态；Chat 9B 超时只播放本地回退短句。
+
+## 4. 温度/压力数据链
+
+### 4.1 数据分层
+
+```text
+ESP32 12 Hz 原始采样
+  -> 固件滤波、异常丢弃、安全判断
+  -> App 1 Hz 趋势聚合
+  -> 5-10 秒摘要窗口
+  -> Control 9B / Chat 9B 只读上下文
+  -> 会话归档和偏好特征
+```
+
+原始温度、压力、PCM、设备 MAC、令牌和安全词原文不得进入 LLM Prompt、共享日志或关系记忆。原始数据如需调试，只允许本地短时环形缓存，并必须有单独的调试开关和自动过期。
+
+### 4.2 `sensor_context` 字段
+
+| 字段 | 示例 | 允许用途 | 禁止用途 |
+| --- | --- | --- | --- |
+| `temperature_state` | `warming` / `comfortable` / `cooling` | 语气、节奏、询问是否保持 | 推断疾病、体温异常或性功能结论 |
+| `temperature_quality` | `valid` / `partial` / `unknown` | 决定是否可参考 | 质量不足时猜测 |
+| `pressure_rhythm` | `steady` / `increasing` / `decreasing` | 描述趋势和是否询问 | 推断快感、高潮或意愿 |
+| `pressure_quality` | `valid` / `partial` / `unknown` | 降低决策置信度 | 当成确定生理事实 |
+| `pressure_change` | `small` / `large` | 触发“保持/暂停确认” | 直接调高档位 |
+| `data_age_ms` | `1200` | 判断新鲜度 | 掩盖断连 |
+| `current_level` | `2` | 显示当前状态 | 作为自动升档理由 |
+
+用户明确表达永远高于传感器趋势。传感器只提供“可以询问或保持”的辅助信号，不提供同意信号。
+
+## 5. 非医疗的亲密响应与偏好指数
+
+用户提出“女性性功能指数”的权重链，产品实现采用名称 **IRPI（Intimacy Response & Preference Index，亲密响应与偏好指数）**。它是个性化交互排序指标，不是医学量表，不用于诊断性功能、判断高潮、判断健康或给出治疗建议。
+
+### 5.1 指数目标
+
+IRPI 只回答一个产品问题：
+
+> 在某个用户、某个人设、某个模板和某种上下文下，哪些表达和节奏更接近用户明确反馈的偏好？
+
+IRPI 不回答：
+
+- 用户是否“正常”。
+- 用户是否达到某种生理状态。
+- 传感器是否证明用户愿意继续。
+- 用户是否有疾病或性功能障碍。
+
+### 5.2 权重链
+
+```text
+原始传感器
+  -> 质量门控 Q
+  -> 趋势特征 F_sensor
+  -> 用户明确反馈 F_explicit
+  -> 会话事件 F_behavior
+  -> 会话上下文分层
+  -> 偏好更新
+  -> IRPI 仅用于推荐排序
+```
+
+建议初始权重如下，产品上线后通过脱敏评估数据校准，不能把模型置信度当作事实：
+
+| 来源 | 符号 | 初始权重 | 说明 |
+| --- | --- | ---: | --- |
+| 用户明确反馈 | `F_explicit` | 0.45 | “喜欢/不喜欢/慢一点/保持/暂停”以及会话后评分 |
+| 用户主动行为 | `F_behavior` | 0.25 | 主动降档、主动暂停、主动继续、跳过情景段 |
+| 压力趋势 | `F_pressure` | 0.15 | 只使用节奏/稳定性特征，不标注生理含义 |
+| 温度趋势 | `F_temperature` | 0.10 | 只使用升温/稳定/降温趋势和质量 |
+| 完成上下文 | `F_context` | 0.05 | 时长、时间段、Persona、模板和环境标签 |
+
+单次样本：
+
+```text
+R_session = Q * (
+    0.45 * F_explicit
+  + 0.25 * F_behavior
+  + 0.15 * F_pressure
+  + 0.10 * F_temperature
+  + 0.05 * F_context
+)
+```
+
+其中 `Q` 由数据新鲜度、传感器质量、链路状态和缺失比例共同计算。`Q` 低于门槛时只记录“数据不足”，不更新偏好。任何用户明确的停止、拒绝或不适表达都进入安全事件，不参与“喜欢程度”正向学习。
+
+### 5.3 偏好维度
+
+偏好不是一个总分，而是多个可删除维度：
+
+- `pace_preference`：慢、稳定、变化、留白。
+- `intensity_preference`：用户主动选择的强度区间，不从传感器反推上限。
+- `pattern_preference`：允许的波形/节奏 Skill。
+- `voice_preference`：温柔、强势、安静、玩心等表达风格。
+- `scene_preference`：用户主动收藏的情景类型。
+- `boundary_preference`：不想出现的词、场景、调度方式。
+- `sensor_sharing_preference`：是否允许趋势进入云端 Agent。
+
+所有维度都按 `user_id + persona_id + template_id` 隔离。默认不跨 Persona 合并，跨模板只允许用户手动打开“合并相似偏好”。
+
+### 5.4 形成用户偏好的过程
+
+```text
+会话前：读取已确认偏好（不读失控模式关系记忆）
+会话中：记录趋势窗口、明确反馈、Skill 使用和拒绝事件
+会话后：生成偏好变化草稿
+用户确认：写入 PreferenceSnapshot
+用户删除：级联删除特征、快照和相关记忆
+```
+
+AI 可以建议“你似乎更喜欢慢速开始”，但 UI 必须标注“基于本次/最近几次主动反馈的建议”，并提供“不保存”“删除这条”“以后不再询问”。
+
+## 6. 模板与硬件 Skill
+
+### 6.1 两类模板
+
+1. **预置模板**：审核后随 App 或服务端版本发布，用户只能选择、预览和使用。
+2. **用户自定义模板**：用户可以配置名称、Persona、风格标签、节奏段和 Skill 白名单。
+
+模板生命周期：
+
+```text
+聊天描述 -> Agent 草稿 -> 参数校验 -> 预览 -> 用户确认 -> confirmed -> 使用
+                                       └-> 放弃/删除
+```
+
+### 6.2 对话创建模板
+
+用户点击“帮我设计一个模板”后进入独立聊天页。Agent 先问最多三个澄清问题：
+
+1. 你希望整体更偏温柔、安静、强势还是 SM 风格叙事？
+2. 你想要慢慢开始、稳定保持还是有明显段落变化？
+3. 哪些内容或节奏明确不想出现？
+
+用户说“我不知道”时，点击“帮我选择”进入向导，而不是让模型擅自猜：
+
+```text
+第一步：选择今天的感觉（放松 / 好奇 / 想被引导 / 想自己掌控）
+第二步：选择语气（温柔 / 安静 / 强势但会确认 / SM 风格叙事）
+第三步：选择节奏（慢速 / 稳定 / 分段 / 不自动变化）
+第四步：选择档位上限和最长时长
+第五步：选择传感器趋势是否允许用于本次建议
+预览 -> 确认保存
+```
+
+向导输出的是推荐模板草稿，不自动启动设备，不自动写关系记忆。
+
+### 6.3 Skill 白名单
+
+第一版 Skill：
+
+| Skill | 参数 | 执行条件 |
+| --- | --- | --- |
+| `rhythm_segment` | level、pattern、duration_s | 已确认模板、用户已授权、非 wild、Governor 放行 |
+| `set_pattern` | pattern、duration_s | 已确认模板、用户已授权、Governor 放行 |
+| `hold_current` | duration_s | 只保持现状，不改变档位 |
+
+禁止 Skill：`resume`、延长失控、修改安全阈值、绕过停止、直接写 BLE、读取原始传感器、删除记忆、改变同意状态。
+
+所有自动 Skill 都必须执行：
+
+```text
+Control 9B proposal
+  -> schema validator
+  -> template allowlist
+  -> user consent / mode check
+  -> App Governor(automatic: true)
+  -> senderProvider
+  -> protocol command
+```
+
+## 7. 后端数据与记忆
+
+### 7.1 核心实体
+
+| 实体 | 关键字段 | 删除策略 |
+| --- | --- | --- |
+| `persona` | user_id、persona_id、version、style_tags | 删除 Persona 时可级联关系记忆 |
+| `template` | template_id、source、status、skill_allowlist | 预置不可删；自定义可删 |
+| `session_control` | session_id、mode、timer_owner、consent_state | 用户可删除整次会话 |
+| `session_trend` | 5-10 秒温度/压力趋势、质量、时间 | 随会话级联删除 |
+| `session_event` | stop、pause、slow、keep、skill_confirmed | 随会话级联删除 |
+| `control_decision` | 模型版本、建议、置信度、拒绝原因 | 删除会话时删除；不保存原始 Prompt |
+| `preference_snapshot` | 维度、权重、来源、用户是否确认 | 单条或全量删除 |
+| `memory_item` | user_id、persona_id、text、source、consent | 单条、Persona、用户全量删除 |
+| `body_note` | 用户文本、事实摘要、created_at | UI 删除后不可检索 |
+| `session_summary` | session_id、事实摘要、AI 草稿、用户确认文本、状态 | 随会话级联删除；未确认草稿不进入长期记忆 |
+
+### 7.2 记忆隔离
+
+检索键必须包含：
+
+```text
+tenant/user_id + persona_id + consent_scope + not_deleted
+```
+
+失控模式默认：
+
+- 不检索关系记忆。
+- 不生成关系记忆候选。
+- 不更新偏好快照。
+- 只在用户明确选择后保存用户写的身体笔记。
+
+记忆服务采用 `MemoryProvider` 接口，第一版可以是内存适配器，生产环境换成自托管 Mem0 或 SQLCipher/向量存储。换实现不能改变隔离、确认和删除语义。
+
+### 7.3 删除 API
+
+```text
+DELETE /v1/agent/memory/{memory_id}?user_id=...&persona_id=...
+DELETE /v1/agent/memory?user_id=...&persona_id=...
+DELETE /v1/agent/templates/{template_id}?user_id=...
+DELETE /v1/session/{session_id}?user_id=...
+DELETE /v1/preference/{preference_id}?user_id=...
+```
+
+删除响应必须包含删除范围和计数。异步删除完成前，检索层先写 tombstone，防止“已删除内容”在缓存中再次出现。
+
+## 8. UI 设计与单手操作
+
+### 8.1 情境漫游选择页
+
+像微信聊天列表一样展示“最近使用的人设/模板”，但不展示敏感身体数据：头像、名称、安全摘要、最近时间、草稿状态。底部浮动按钮打开“新建模板”或“帮我选择”。
+
+### 8.2 情境漫游使用页
+
+```text
+顶部：返回 / Persona / 连接状态
+中部：对话气泡 + 当前情景节点
+可展开：温度趋势、压力节奏、数据质量、当前档位
+底部固定：停止 | 按住说话/输入 | 更多
+```
+
+底部 `更多` 才打开切换情景、查看 Skill 建议、查看记忆候选和结束会话。停止高度至少 56dp，键盘和数据面板展开时仍可见。
+
+### 8.3 我的节奏使用页
+
+使用页只展示当前已选模板和运行状态：当前段、剩余时间、当前档位、趋势和固定停止。模板编辑、风格选择和删除都在上一层完成，不和控制操作混在一起。
+
+失控模式单独进入配置确认页，再进入使用页。无安全词时仍必须保留实体停止、急停、温度/电量保护、链路看门狗和固件硬超时；到时停止后没有远程恢复入口。
+
+### 8.4 身体笔记与“了解自己”
+
+身体笔记是 B 层第三个独立模块，不挂在情境漫游或我的节奏的使用页内。情境漫游和我的节奏结束后只提供“查看本次记录”跳转，返回后仍回到身体笔记自己的导航栈。
+
+```text
+身体笔记
+  -> 使用记录列表
+      -> 单次记录详情
+          -> 事实摘要 / 温度趋势 / 压力趋势 / 档位与时间线
+          -> 用户反馈 / AI 总结草稿 / 确认或编辑 / 删除
+          -> 了解自己
+              -> [只看这一次] [参考近期记录]
+              -> 独立对话页
+```
+
+“了解自己”入口使用两个同级大按钮，不使用隐藏开关：
+
+- `只看这一次`：请求只携带当前 `session_id`。Chat 9B 只能引用本次事实、用户反馈和已确认总结。
+- `参考近期记录`：请求携带当前 `session_id` 和后端返回的近期 `comparison_session_ids`。默认比较最近 5 次、最多 10 次；UI 在进入对话前显示将读取的日期和模式，用户确认后才发送。
+
+两个按钮进入同一个微信式对话组件，但标题和数据范围提示必须不同。对话回复要标注依据是“本次记录”还是“近期记录”，以提问、复述和非评判建议帮助用户理解自己的节奏；不能给出医学结论、性功能诊断、确定的愉悦判断、偏好定论或任何设备动作。温度和压力只以聚合趋势、数据质量和时间区间进入上下文。
+
+对话消息默认仅保存在当前对话会话并设置短期过期时间。用户点击“保存这条发现”后，才把选中的文字保存为可编辑、可删除的 `body_note`；不自动把整段对话写入关系记忆或身体档案。
+
+### 8.5 引导按钮
+
+按钮名称建议为“帮我选一个开始方式”。它不直接替用户选择偏好，而是用五步向导生成推荐模板，预览页必须显示：
+
+- 选择了哪些标签。
+- 允许哪些 Skill。
+- 档位上限和最长时长。
+- 是否使用温度/压力趋势。
+- 哪些内容被明确排除。
+
+## 9. 延迟与故障策略
+
+### 9.1 目标预算
+
+| 链路 | p50 目标 | p95 目标 | 超时策略 |
+| --- | ---: | ---: | --- |
+| 本地按住说/VAD | 50-120 ms | <200 ms | 继续等待下一段 |
+| 本地 ASR 首字 | 250-500 ms | <900 ms | 提示重试或切换输入 |
+| Chat 9B 首个 JSON | 500-900 ms | <1500 ms | 本地短句 + 保留文字 |
+| Control 9B 决策 | 250-500 ms | <1000 ms | 保持当前，不自动变化 |
+| 停止 | <300 ms | <500 ms | 本地直发，完全绕过模型 |
+
+### 9.2 降级矩阵
+
+| 故障 | Chat | Control | 设备 |
+| --- | --- | --- | --- |
+| 网络断开 | 本地短句/文字气泡 | 不作自动建议 | 手动和停止仍可用 |
+| Chat 超时 | 回退短句 | 不受影响 | 保持当前 |
+| Control 超时 | 不受影响 | `hold` | 保持当前 |
+| 传感器未知 | 可以继续对话但标注数据不足 | 禁止自动加档 | 手动遵循 Governor |
+| TTS 失败 | 显示文字 | 不受影响 | 不阻塞停止 |
+| Agent 输出非法 | 丢弃模型输出 | 丢弃建议 | 不发送命令 |
+| 记忆服务失败 | 不注入长期记忆 | 不影响设备 | 停止和手动控制不受影响 |
+
+## 10. 安全、隐私和合规边界
+
+1. Agent 没有 BLE、文件系统、删除、定时器、停止或恢复工具。
+2. Chat 9B 与 Control 9B 均不能把传感器数据写成诊断或确定的性反应结论。
+3. 同意状态来自 UI/会话控制，不由模型推断；传感器不能代替同意。
+4. 用户明确停止、拒绝、不适、撤回时，立即停止自动 Skill，并记录安全事件。
+5. 失控模式的终止由设备计时与固件安全逻辑负责，模型不能创建、延长或解除。
+6. Prompt、日志和模型供应商请求不得包含 PCM、原始 12Hz 数据、压力原始值、设备 MAC、密钥、安全词原文或其他 Persona 记忆。
+7. 所有记忆、偏好、会话和身体笔记都必须提供 UI 删除入口，并执行后端级联删除。
+8. “强势”和“SM 风格”只能改变叙事语气与场景参数，不能改变停止规则和安全上限。
+
+## 11. 版本化 API 草案
+
+```text
+POST /v1/agent/turn
+  -> ChatTurn
+
+POST /v1/agent/control-decision
+  -> ControlProposal
+
+GET  /v1/agent/templates?user_id=...
+POST /v1/agent/templates/draft
+POST /v1/agent/templates/confirm
+DELETE /v1/agent/templates/{template_id}
+
+POST /v1/agent/memory
+GET  /v1/agent/memory
+DELETE /v1/agent/memory/{memory_id}
+DELETE /v1/agent/memory
+
+POST /v1/session/{session_id}/feedback
+GET  /v1/session/{session_id}/trend
+DELETE /v1/session/{session_id}
+
+GET  /v1/body-notes/sessions?cursor=...
+GET  /v1/body-notes/sessions/{session_id}
+POST /v1/body-notes/sessions/{session_id}/note
+PATCH /v1/body-notes/{note_id}
+DELETE /v1/body-notes/{note_id}
+
+POST /v1/body-notes/insight-turn
+  body: session_id, comparison_session_ids, message
+  -> InsightTurn（纯文本/引用范围，不含 action、skill_proposals）
+```
+
+Chat、Control 和 Memory API 均需要用户鉴权；当前仓库的联调路由仍是裸接口，不能直接作为生产接口发布。
+
+## 12. 测试计划
+
+### 契约测试
+
+- Chat 9B 返回额外字段、非法 JSON、非法 `scene_ctrl` 时整条丢弃并回退。
+- Control 9B 返回 `action`、`resume`、未知 Skill、超过 8 档或超过 900 秒时拒绝。
+- `skill_proposals` 不在当前模板 allowlist 时被丢弃。
+- wild 模式永不检索或写入关系记忆。
+
+### 数据测试
+
+- 同一用户不同 Persona 不串记忆。
+- 删除单条记忆后不能再次检索。
+- 删除模板后，相关偏好和关系记忆按用户选择级联删除。
+- Prompt 中无原始温度/压力数组、PCM、MAC、密钥和安全词原文。
+- `Q < threshold` 时不更新 IRPI。
+- “只看这一次”请求只能检索当前 `session_id`，Prompt 不出现其他会话摘要。
+- “参考近期记录”只能检索请求中明确列出的 `comparison_session_ids`，删除或越权记录必须被过滤。
+- 未点击“保存这条发现”时，自我探索对话不会生成 `body_note`、`memory_item` 或偏好快照。
+
+### 设备与交互测试
+
+- Stop 不依赖网络、模型、TTS、动画或 Flutter 页面状态。
+- 断连时自动建议被 Governor 拒绝，Stop 仍可发。
+- 失控模式到时停止，App 没有远程恢复入口。
+- 选择页和使用页分离，编辑模板不会在未确认时启动设备。
+- 360dp 宽度下，停止、按住说、暂停和“更多”均在拇指热区。
+- 身体笔记详情页的两个读取范围按钮在 360dp 宽度下均可单手点击，并在进入对话前显示实际读取范围。
+
+## 13. 实施阶段
+
+| 阶段 | 交付 |
+| --- | --- |
+| B0 | 文档、Prompt/输出契约、模板和 Skill 白名单 |
+| B1 | 预置/自定义模板列表、对话创建草稿、预览确认 |
+| B2 | Chat 9B 适配、TTS/Waifu 表现和本地回退 |
+| B3 | 温度/压力 TrendAggregator、Control 9B 建议接口 |
+| B4 | Governor Skill 执行映射、会话事件和趋势归档 |
+| B5 | IRPI 特征、用户确认、偏好快照和删除 |
+| B6 | SQLCipher/自托管记忆、鉴权、审计和 WebSocket |
+| B7 | Android 端到端验收、延迟压测、灰度开关 |
+
+## 14. 本仓库当前状态
+
+- [x] 已有受控 `MemoryProvider`，支持按用户/Persona 隔离和删除。
+- [x] 已有预置/自定义模板的 `draft -> confirmed` 后端骨架。
+- [x] 已有 Chat 9B 的 OpenAI-compatible 适配器和安全回退。
+- [x] 已有 `skill_proposals` 和模板 Skill 白名单的契约校验。
+- [x] 已写入温度/压力摘要、记忆、Waifu、语音延迟和失控模式边界。
+- [x] Control 9B 独立输出契约和 `/control-decision` 路由。
+- [ ] Flutter 使用页接入 Skill 确认与 `senderProvider` 映射。
+- [x] IRPI 计算、质量门控和偏好快照的进程内联调骨架；[ ] 会话趋势与偏好快照持久化。
+- [ ] 生产鉴权、WebSocket、ASR/VAD/TTS、Flutter Skill 确认接入和 Android APK 验收。
+
+本文件是完整目标架构；当前已完成的是后端联调骨架，不是生产上线。未完成项必须在实施计划中保持未勾选，不把设计稿误报成已上线功能。
