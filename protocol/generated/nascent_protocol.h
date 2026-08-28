@@ -1,17 +1,17 @@
 // 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
-// contract version: 0.2.0-demo
+// contract version: 0.3.0-demo
 
 #pragma once
 
 #include <stdint.h>
 #include <stddef.h>
 
-#define NL_PROTO_VERSION "0.2.0-demo"
+#define NL_PROTO_VERSION "0.3.0-demo"
 
 // ---- 常量 ----
 #define NL_PROTO_MAGIC (20026)
 #define NL_VERSION_MAJOR (0)
-#define NL_VERSION_MINOR (2)
+#define NL_VERSION_MINOR (3)
 #define NL_LEVEL_MIN (1)
 #define NL_LEVEL_MAX (8)
 #define NL_DUTY_CAP_PCT (90)
@@ -21,34 +21,37 @@
 #define NL_DHT11_MIN_INTERVAL_MS (1000)
 #define NL_IMU_DECISION_PERIOD_MS (1000)
 #define NL_STILL_PAUSE_MS (30000)
-#define NL_JOY_EDGE_HOLD_MS (80)
-#define NL_JOY_HOLD_RAMP_MS (400)
-#define NL_JOY_DEADZONE (900)
+#define NL_BOOT_KEY_DEBOUNCE_MS (40)
+#define NL_BOOT_STOP_MAX_MS (600)
+#define NL_BOOT_RESUME_HOLD_MS (2000)
 #define NL_WILD_TIMEOUT_MS (900000)
 #define NL_LINK_TIMEOUT_MS (1500)
 #define NL_SESSION_TOKEN_TTL_MS (3600000)
+#define NL_TRANSPORT_IDLE_SWITCH_MS (20000)
 #define NL_SENTINEL_I16 (-32768)
 
 // ---- BLE GATT 标识 ----
-#define NL_BLE_DEVICE_NAME "Nascent-K10"
+#define NL_BLE_DEVICE_NAME "Nascent-Toy"
 #define NL_BLE_MIN_MTU (185)
 #define NL_BLE_SERVICE_UUID "a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 #define NL_BLE_UPLINK_UUID "a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 #define NL_BLE_DOWNLINK_UUID "a1b2c002-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 #define NL_BLE_INFO_UUID "a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 
+// ---- WiFi 备用通道 ----
+#define NL_WIFI_WS_PORT (81)
+#define NL_WIFI_WS_PATH "/nl"
+#define NL_WIFI_MDNS_HOST "nascent"
+
 // ---- 枚举（序号即线序，0 号为最安全取值）----
 typedef enum {
-    NL_FRAME_TYPE_PAIR = 0,
-    NL_FRAME_TYPE_ACK = 1,
-    NL_FRAME_TYPE_HEARTBEAT = 2,
-    NL_FRAME_TYPE_TELEMETRY = 3,
-    NL_FRAME_TYPE_COMMAND = 4,
-    NL_FRAME_TYPE_COUNT = 5
+    NL_FRAME_TYPE_TELEMETRY = 0,
+    NL_FRAME_TYPE_COMMAND = 1,
+    NL_FRAME_TYPE_COUNT = 2
 } nl_frame_type_t;
 
 static const char *const NL_FRAME_TYPE_NAMES[] = {
-    "pair", "ack", "heartbeat", "telemetry", "command"
+    "telemetry", "command"
 };
 
 static inline const char *nl_frame_type_name(uint8_t v) {
@@ -86,21 +89,6 @@ static inline const char *nl_insert_state_name(uint8_t v) {
 }
 
 typedef enum {
-    NL_JOY_EDGE_NONE = 0,
-    NL_JOY_EDGE_UP = 1,
-    NL_JOY_EDGE_DOWN = 2,
-    NL_JOY_EDGE_COUNT = 3
-} nl_joy_edge_t;
-
-static const char *const NL_JOY_EDGE_NAMES[] = {
-    "none", "up", "down"
-};
-
-static inline const char *nl_joy_edge_name(uint8_t v) {
-    return v < NL_JOY_EDGE_COUNT ? NL_JOY_EDGE_NAMES[v] : "?";
-}
-
-typedef enum {
     NL_ALERT_NONE = 0,
     NL_ALERT_OVER_TEMP = 1,
     NL_ALERT_LOW_BATTERY = 2,
@@ -125,13 +113,12 @@ typedef enum {
     NL_CMD_SET_LEVEL = 2,
     NL_CMD_SET_PATTERN = 3,
     NL_CMD_SET_LED = 4,
-    NL_CMD_SET_JOYSTICK = 5,
-    NL_CMD_RESUME = 6,
-    NL_CMD_COUNT = 7
+    NL_CMD_RESUME = 5,
+    NL_CMD_COUNT = 6
 } nl_cmd_t;
 
 static const char *const NL_CMD_NAMES[] = {
-    "stop", "set_mode", "set_level", "set_pattern", "set_led", "set_joystick", "resume"
+    "stop", "set_mode", "set_level", "set_pattern", "set_led", "resume"
 };
 
 static inline const char *nl_cmd_name(uint8_t v) {
@@ -320,7 +307,7 @@ static const nl_led_row_t NL_LED_OVERRIDE_TABLE[] = {
     {NL_LED_STATE_SAFEWORD, 255, 255, 255, 100, "slow_breathe"}, // 安全词白呼吸
 };
 
-// ---- ESP-NOW 板间帧（packed，定长）----
+// ---- 固件内部帧（packed，定长）----
 #pragma pack(push, 1)
 
 typedef struct {
@@ -332,7 +319,7 @@ typedef struct {
     uint8_t reserved;
 } nl_wire_header_t;
 
-// toy-sidecar -> k10-controller，12 Hz
+// 玩具侧采样结果，12 Hz；由传输层序列化成 BleUplink JSON
 typedef struct {
     nl_wire_header_t hdr;
     uint32_t ts_ms;
@@ -355,7 +342,7 @@ typedef struct {
     uint8_t flags;  // bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop, bit4 motor_observed
 } nl_telemetry_t;
 
-// k10-controller -> toy-sidecar，事件驱动 + 心跳重发
+// 由 BleDownlink JSON 解码而来，交给 SafetyGovernor 判定
 typedef struct {
     nl_wire_header_t hdr;
     uint32_t ts_ms;
@@ -364,27 +351,15 @@ typedef struct {
     uint8_t level;
     uint8_t pattern;
     uint8_t led_state;
-    uint8_t flags;  // bit0 joystick_enabled, bit1 hold_ramp
+    uint8_t flags;  // 保留，必须为 0（原 bit0/bit1 是已删除的摇杆使能）
 } nl_command_t;
-
-// toy-sidecar -> k10-controller，确认已执行的序号
-typedef struct {
-    nl_wire_header_t hdr;
-    uint16_t ack_seq;
-    uint8_t accepted;  // 0 拒绝，1 接受
-    uint8_t reason;
-} nl_ack_t;
 
 #pragma pack(pop)
 
 #ifdef __cplusplus
 static_assert(sizeof(nl_wire_header_t) == 8, "wire header packing");
 static_assert(sizeof(nl_telemetry_t) == 42, "telemetry packing");
-static_assert(sizeof(nl_telemetry_t) <= 250, "telemetry exceeds ESP-NOW payload");
 static_assert(sizeof(nl_command_t) == 18, "command packing");
-static_assert(sizeof(nl_command_t) <= 250, "command exceeds ESP-NOW payload");
-static_assert(sizeof(nl_ack_t) == 12, "ack packing");
-static_assert(sizeof(nl_ack_t) <= 250, "ack exceeds ESP-NOW payload");
 #endif
 
 // ---- 帧头填充与校验 ----

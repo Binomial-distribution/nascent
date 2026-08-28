@@ -1,12 +1,12 @@
 // 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
-// contract version: 0.2.0-demo
+// contract version: 0.3.0-demo
 
 class NlConst {
   NlConst._();
-  static const String protoVersion = '0.2.0-demo';
+  static const String protoVersion = '0.3.0-demo';
   static const int protoMagic = 20026;
   static const int versionMajor = 0;
-  static const int versionMinor = 2;
+  static const int versionMinor = 3;
   static const int levelMin = 1;
   static const int levelMax = 8;
   static const int dutyCapPct = 90;
@@ -16,18 +16,19 @@ class NlConst {
   static const int dht11MinIntervalMs = 1000;
   static const int imuDecisionPeriodMs = 1000;
   static const int stillPauseMs = 30000;
-  static const int joyEdgeHoldMs = 80;
-  static const int joyHoldRampMs = 400;
-  static const int joyDeadzone = 900;
+  static const int bootKeyDebounceMs = 40;
+  static const int bootStopMaxMs = 600;
+  static const int bootResumeHoldMs = 2000;
   static const int wildTimeoutMs = 900000;
   static const int linkTimeoutMs = 1500;
   static const int sessionTokenTtlMs = 3600000;
+  static const int transportIdleSwitchMs = 20000;
   static const int sentinelI16 = -32768;
 }
 
 class NlBle {
   NlBle._();
-  static const String deviceName = 'Nascent-K10';
+  static const String deviceName = 'Nascent-Toy';
   static const int minMtu = 185;
   static const String serviceUuid = 'a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10';
   static const String uplinkUuid = 'a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10';
@@ -35,10 +36,17 @@ class NlBle {
   static const String infoUuid = 'a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10';
 }
 
-enum NlFrameType {
-  pair, ack, heartbeat, telemetry, command;
+class NlWifi {
+  NlWifi._();
+  static const int wsPort = 81;
+  static const String wsPath = '/nl';
+  static const String mdnsHost = 'nascent';
+}
 
-  static const List<String> _wire = ['pair', 'ack', 'heartbeat', 'telemetry', 'command'];
+enum NlFrameType {
+  telemetry, command;
+
+  static const List<String> _wire = ['telemetry', 'command'];
   String get wireName => _wire[index];
   static NlFrameType fromWire(int i) => (i >= 0 && i < _wire.length) ? NlFrameType.values[i] : NlFrameType.values.first;
   static NlFrameType fromWireName(String? n) {
@@ -71,18 +79,6 @@ enum NlInsertState {
   }
 }
 
-enum NlJoyEdge {
-  none, up, down;
-
-  static const List<String> _wire = ['none', 'up', 'down'];
-  String get wireName => _wire[index];
-  static NlJoyEdge fromWire(int i) => (i >= 0 && i < _wire.length) ? NlJoyEdge.values[i] : NlJoyEdge.values.first;
-  static NlJoyEdge fromWireName(String? n) {
-    final i = _wire.indexOf(n ?? '');
-    return i < 0 ? NlJoyEdge.values.first : NlJoyEdge.values[i];
-  }
-}
-
 enum NlAlert {
   none, overTemp, lowBattery, safeword, estop, badCmd, linkLost;
 
@@ -96,9 +92,9 @@ enum NlAlert {
 }
 
 enum NlCmd {
-  stop, setMode, setLevel, setPattern, setLed, setJoystick, resume;
+  stop, setMode, setLevel, setPattern, setLed, resume;
 
-  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'set_joystick', 'resume'];
+  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume'];
   String get wireName => _wire[index];
   static NlCmd fromWire(int i) => (i >= 0 && i < _wire.length) ? NlCmd.values[i] : NlCmd.values.first;
   static NlCmd fromWireName(String? n) {
@@ -320,7 +316,7 @@ class UserTags {
   };
 }
 
-/// k10-controller -> app（BLE notify，12 Hz 聚合）
+/// toy-sidecar -> app（BLE notify 或 WiFi WebSocket，12 Hz 聚合）
 class BleUplink {
   final int ts;
   /// 量产接触 NTC；demo 恒为 null
@@ -336,7 +332,6 @@ class BleUplink {
   final List<double> accel;
   final List<double> gyro;
   final NlInsertState insertState;
-  final NlJoyEdge joyEdge;
   final NlMode mode;
   final int level;
   /// demo 恒为 null
@@ -353,7 +348,6 @@ class BleUplink {
     required this.accel,
     required this.gyro,
     required this.insertState,
-    required this.joyEdge,
     required this.mode,
     required this.level,
     this.battery,
@@ -371,7 +365,6 @@ class BleUplink {
     accel: (j['accel'] as List).map((e) => (e as num).toDouble()).toList(),
     gyro: (j['gyro'] as List).map((e) => (e as num).toDouble()).toList(),
     insertState: NlInsertState.fromWireName(j['insert_state'] as String),
-    joyEdge: NlJoyEdge.fromWireName(j['joy_edge'] as String),
     mode: NlMode.fromWireName(j['mode'] as String),
     level: (j['level'] as num).toInt(),
     battery: j['battery'] == null ? null : (j['battery'] as num).toInt(),
@@ -389,7 +382,6 @@ class BleUplink {
     'accel': accel,
     'gyro': gyro,
     'insert_state': insertState.wireName,
-    'joy_edge': joyEdge.wireName,
     'mode': mode.wireName,
     'level': level,
     'battery': battery,
@@ -397,17 +389,13 @@ class BleUplink {
   };
 }
 
-/// app -> k10-controller（BLE write）
+/// app -> toy-sidecar（BLE write 或 WiFi WebSocket）
 class BleDownlink {
   final NlCmd cmd;
   final int? level;
   final NlPattern? pattern;
   final NlMode? mode;
   final NlLedState? led;
-  /// set_joystick 用
-  final bool? enabled;
-  /// set_joystick 用
-  final bool? holdRamp;
   /// session token；缺失或过期整包丢弃
   final String auth;
   const BleDownlink({
@@ -416,8 +404,6 @@ class BleDownlink {
     this.pattern,
     this.mode,
     this.led,
-    this.enabled,
-    this.holdRamp,
     required this.auth,
   });
 
@@ -427,8 +413,6 @@ class BleDownlink {
     pattern: j['pattern'] == null ? null : NlPattern.fromWireName(j['pattern'] as String),
     mode: j['mode'] == null ? null : NlMode.fromWireName(j['mode'] as String),
     led: j['led'] == null ? null : NlLedState.fromWireName(j['led'] as String),
-    enabled: j['enabled'] == null ? null : j['enabled'] as bool,
-    holdRamp: j['hold_ramp'] == null ? null : j['hold_ramp'] as bool,
     auth: j['auth'] as String,
   );
 
@@ -438,8 +422,6 @@ class BleDownlink {
     'pattern': pattern?.wireName,
     'mode': mode?.wireName,
     'led': led?.wireName,
-    'enabled': enabled,
-    'hold_ramp': holdRamp,
     'auth': auth,
   };
 }

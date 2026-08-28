@@ -241,6 +241,12 @@ def gen_c(c: dict) -> str:
             lit = f'"{v}"' if isinstance(v, str) else f"({v})"
             L.append(f"#define NL_BLE_{k.upper()} {lit}")
 
+    if c.get("wifi"):
+        L += ["", "// ---- WiFi 备用通道 ----"]
+        for k, v in c["wifi"].items():
+            lit = f'"{v}"' if isinstance(v, str) else f"({v})"
+            L.append(f"#define NL_WIFI_{k.upper()} {lit}")
+
     L += ["", "// ---- 枚举（序号即线序，0 号为最安全取值）----"]
     for ename, values in c["enums"].items():
         L.append(f"typedef enum {{")
@@ -307,7 +313,7 @@ def gen_c(c: dict) -> str:
     L += ["};", ""]
 
     hdr = c["wire_header"]["fields"]
-    L += ["// ---- ESP-NOW 板间帧（packed，定长）----", "#pragma pack(push, 1)", "", "typedef struct {"]
+    L += ["// ---- 固件内部帧（packed，定长）----", "#pragma pack(push, 1)", "", "typedef struct {"]
     for f in hdr:
         L.append(f"    {f['ctype']} {f['name']};")
     L += ["} nl_wire_header_t;", ""]
@@ -329,9 +335,6 @@ def gen_c(c: dict) -> str:
     for frame in c["wire_frames"]:
         size = frame_size(hdr, frame["fields"])
         L.append(f'static_assert(sizeof(nl_{frame["name"]}_t) == {size}, "{frame["name"]} packing");')
-        L.append(
-            f'static_assert(sizeof(nl_{frame["name"]}_t) <= 250, "{frame["name"]} exceeds ESP-NOW payload");'
-        )
     L += ["#endif", ""]
 
     L += [
@@ -434,9 +437,11 @@ def gen_dart(c: dict) -> str:
         L.append(f"  static const int {camel(k.lower())} = {v};")
     L += ["}", ""]
 
-    if c.get("ble"):
-        L += ["class NlBle {", "  NlBle._();"]
-        for k, v in c["ble"].items():
+    for section, cls_name in (("ble", "NlBle"), ("wifi", "NlWifi")):
+        if not c.get(section):
+            continue
+        L += [f"class {cls_name} {{", f"  {cls_name}._();"]
+        for k, v in c[section].items():
             if isinstance(v, str):
                 L.append(f"  static const String {camel(k)} = '{v}';")
             else:
@@ -557,11 +562,16 @@ def gen_py(c: dict) -> str:
         L.append(f"    {k} = {v}")
     L += ["", ""]
 
-    if c.get("ble"):
-        L.append("class Ble:")
-        L.append('    """BLE GATT 标识，固件与 App 共用。"""')
+    for section, cls_name, doc in (
+        ("ble", "Ble", "BLE GATT 标识，固件与 App 共用。"),
+        ("wifi", "Wifi", "WiFi 备用通道的端口、路径与 mDNS 主机名。"),
+    ):
+        if not c.get(section):
+            continue
+        L.append(f"class {cls_name}:")
+        L.append(f'    """{doc}"""')
         L.append("")
-        for k, v in c["ble"].items():
+        for k, v in c[section].items():
             lit = f'"{v}"' if isinstance(v, str) else str(v)
             L.append(f"    {k.upper()} = {lit}")
         L += ["", ""]
@@ -661,9 +671,11 @@ def gen_js(c: dict) -> str:
         L.append(f"  {camel(k.lower())}: {v},")
     L += ["});", ""]
 
-    if c.get("ble"):
-        L.append("export const NlBle = Object.freeze({")
-        for k, v in c["ble"].items():
+    for section, cls_name in (("ble", "NlBle"), ("wifi", "NlWifi")):
+        if not c.get(section):
+            continue
+        L.append(f"export const {cls_name} = Object.freeze({{")
+        for k, v in c[section].items():
             key = camel(k)
             L.append(f"  {key}: {js_lit(v) if isinstance(v, str) else v},")
         L += ["});", ""]

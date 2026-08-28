@@ -1,11 +1,11 @@
 // 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
-// contract version: 0.2.0-demo
+// contract version: 0.3.0-demo
 
 export const NlConst = Object.freeze({
-  protoVersion: "0.2.0-demo",
+  protoVersion: "0.3.0-demo",
   protoMagic: 20026,
   versionMajor: 0,
-  versionMinor: 2,
+  versionMinor: 3,
   levelMin: 1,
   levelMax: 8,
   dutyCapPct: 90,
@@ -15,17 +15,18 @@ export const NlConst = Object.freeze({
   dht11MinIntervalMs: 1000,
   imuDecisionPeriodMs: 1000,
   stillPauseMs: 30000,
-  joyEdgeHoldMs: 80,
-  joyHoldRampMs: 400,
-  joyDeadzone: 900,
+  bootKeyDebounceMs: 40,
+  bootStopMaxMs: 600,
+  bootResumeHoldMs: 2000,
   wildTimeoutMs: 900000,
   linkTimeoutMs: 1500,
   sessionTokenTtlMs: 3600000,
+  transportIdleSwitchMs: 20000,
   sentinelI16: -32768,
 });
 
 export const NlBle = Object.freeze({
-  deviceName: "Nascent-K10",
+  deviceName: "Nascent-Toy",
   minMtu: 185,
   serviceUuid: "a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10",
   uplinkUuid: "a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10",
@@ -33,12 +34,15 @@ export const NlBle = Object.freeze({
   infoUuid: "a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10",
 });
 
+export const NlWifi = Object.freeze({
+  wsPort: 81,
+  wsPath: "/nl",
+  mdnsHost: "nascent",
+});
+
 export const NlFrameType = Object.freeze((() => {
-  const values = ["pair", "ack", "heartbeat", "telemetry", "command"];
+  const values = ["telemetry", "command"];
   return {
-    PAIR: "pair",
-    ACK: "ack",
-    HEARTBEAT: "heartbeat",
     TELEMETRY: "telemetry",
     COMMAND: "command",
     values,
@@ -80,21 +84,6 @@ export const NlInsertState = Object.freeze((() => {
   };
 })());
 
-export const NlJoyEdge = Object.freeze((() => {
-  const values = ["none", "up", "down"];
-  return {
-    NONE: "none",
-    UP: "up",
-    DOWN: "down",
-    values,
-    fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },
-    fromWireName(n) {
-      const i = values.indexOf(n ?? '');
-      return i < 0 ? values[0] : values[i];
-    },
-  };
-})());
-
 export const NlAlert = Object.freeze((() => {
   const values = ["none", "over_temp", "low_battery", "safeword", "estop", "bad_cmd", "link_lost"];
   return {
@@ -115,14 +104,13 @@ export const NlAlert = Object.freeze((() => {
 })());
 
 export const NlCmd = Object.freeze((() => {
-  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "set_joystick", "resume"];
+  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "resume"];
   return {
     STOP: "stop",
     SET_MODE: "set_mode",
     SET_LEVEL: "set_level",
     SET_PATTERN: "set_pattern",
     SET_LED: "set_led",
-    SET_JOYSTICK: "set_joystick",
     RESUME: "resume",
     values,
     fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },
@@ -403,7 +391,7 @@ export class UserTags {
   }
 }
 
-/** k10-controller -> app（BLE notify，12 Hz 聚合） */
+/** toy-sidecar -> app（BLE notify 或 WiFi WebSocket，12 Hz 聚合） */
 export class BleUplink {
   constructor({
     ts,
@@ -416,7 +404,6 @@ export class BleUplink {
     accel,
     gyro,
     insertState,
-    joyEdge,
     mode,
     level,
     battery = null,
@@ -432,7 +419,6 @@ export class BleUplink {
     this.accel = accel;
     this.gyro = gyro;
     this.insertState = insertState;
-    this.joyEdge = joyEdge;
     this.mode = mode;
     this.level = level;
     this.battery = battery;
@@ -455,7 +441,6 @@ export class BleUplink {
       accel: (j["accel"]).map((e) => Number(e)),
       gyro: (j["gyro"]).map((e) => Number(e)),
       insertState: NlInsertState.fromWireName(j["insert_state"]),
-      joyEdge: NlJoyEdge.fromWireName(j["joy_edge"]),
       mode: NlMode.fromWireName(j["mode"]),
       level: Number(j["level"]),
       // demo 恒为 null
@@ -476,7 +461,6 @@ export class BleUplink {
       "accel": this.accel,
       "gyro": this.gyro,
       "insert_state": this.insertState,
-      "joy_edge": this.joyEdge,
       "mode": this.mode,
       "level": this.level,
       "battery": this.battery,
@@ -485,7 +469,7 @@ export class BleUplink {
   }
 }
 
-/** app -> k10-controller（BLE write） */
+/** app -> toy-sidecar（BLE write 或 WiFi WebSocket） */
 export class BleDownlink {
   constructor({
     cmd,
@@ -493,8 +477,6 @@ export class BleDownlink {
     pattern = null,
     mode = null,
     led = null,
-    enabled = null,
-    holdRamp = null,
     auth,
   }) {
     this.cmd = cmd;
@@ -502,8 +484,6 @@ export class BleDownlink {
     this.pattern = pattern;
     this.mode = mode;
     this.led = led;
-    this.enabled = enabled;
-    this.holdRamp = holdRamp;
     this.auth = auth;
   }
 
@@ -514,10 +494,6 @@ export class BleDownlink {
       pattern: j["pattern"] == null ? null : NlPattern.fromWireName(j["pattern"]),
       mode: j["mode"] == null ? null : NlMode.fromWireName(j["mode"]),
       led: j["led"] == null ? null : NlLedState.fromWireName(j["led"]),
-      // set_joystick 用
-      enabled: j["enabled"] == null ? null : Boolean(j["enabled"]),
-      // set_joystick 用
-      holdRamp: j["hold_ramp"] == null ? null : Boolean(j["hold_ramp"]),
       // session token；缺失或过期整包丢弃
       auth: String(j["auth"]),
     });
@@ -530,8 +506,6 @@ export class BleDownlink {
       "pattern": this.pattern,
       "mode": this.mode,
       "led": this.led,
-      "enabled": this.enabled,
-      "hold_ramp": this.holdRamp,
       "auth": this.auth,
     };
   }
