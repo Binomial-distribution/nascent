@@ -1,6 +1,7 @@
 import { BleDownlink, NlCmd, NlConst, NlInsertState, NlMode } from "./protocol.js";
 import { CHANNEL, CHANNEL_LABEL, currentShell } from "./transport.js";
 import { bodyNotes } from "./body-notes.js";
+import { parseHash, legacyNotesTarget } from "./routes.js";
 import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import {
@@ -39,6 +40,10 @@ const SCENES = [
   ["听见回应", "每一次停顿和改变，都可以成为下一步的线索。"],
 ];
 
+const LOCAL_USER = "local-demo";
+const STYLE_TAGS = ["温柔", "强势", "SM 风格", "安静", "玩心"];
+const TALK_FREQS = ["少说话", "适中", "多一些回应"];
+
 const ui = {
   toastTimer: null,
   sheet: null,
@@ -46,6 +51,11 @@ const ui = {
   scenarioStarted: false,
   scene: 0,
   personas: [],
+  templates: [],
+  activePersona: null,
+  selectedRecordId: null,
+  olderOpen: false,
+  savingPersona: false,
   deferredPrompt: null,
   onboarding: null,
   gateReady: false,
@@ -290,19 +300,7 @@ function icon(name) {
 }
 
 function route() {
-  const hash = (location.hash || "#/heart").replace(/^#/, "");
-  const [path, search = ""] = hash.split("?");
-  const parts = path.split("/").filter(Boolean);
-  const tab = parts[0] || "heart";
-  return {
-    tab,
-    page: parts[1] || "root",
-    sub: parts[2] || null,
-    id: parts[3] || null,
-    sessionId: parts[2] || null,
-    view: parts[3] || null,
-    query: new URLSearchParams(search),
-  };
+  return parseHash(location.hash || "#/heart");
 }
 
 function go(path) {
@@ -407,7 +405,8 @@ function topbar(title, { back = false, backTo = "", action = "" } = {}) {
 function nav(tab) {
   const items = [
     ["heart", "heart", "心绪"],
-    ["intimacy", "book", "亲密时刻"],
+    ["intimacy", "book", "亲密"],
+    ["records", "activity", "记录"],
     ["settings", "person", "我的"],
   ];
   return `<nav class="nav">${items.map(([id, ico, label]) => `
@@ -496,11 +495,10 @@ function renderIntimacy() {
   <main class="page">
     ${statusBar({ clickable: true, trailing: "shield" })}
     <h2 class="lead">选择今天的靠近方式</h2>
-    <p class="sub">慢一点也好，跟着你们的节奏来。</p>
-    ${entry("scenario", "book", "情境漫游", "让 TA 带你进入一段故事", "var(--coral)")}
-    ${entry("control", "share", "我的节奏", "快慢轻重都由你决定", "var(--fog)")}
-    ${entry("notes", "bookmark", "身体笔记", "每一次都值得被温柔记住", "var(--comfort)")}
-    <div class="note">${icon("info")}<span>停止按钮会一直在控制页可见。任何不舒服或想暂停的时刻，都可以立即停止。</span></div>
+    <p class="sub">情景由人设带着走；快慢轻重也可以完全自己来。</p>
+    ${entry("scenario", "book", "情景模式", "先选一个人设，再进入漫游", "var(--coral)")}
+    ${entry("control", "share", "自我控制", "快慢轻重都由你决定", "var(--fog)")}
+    <div class="note">${icon("info")}<span>停止按钮会一直在控制页可见。使用记录已移到「记录」。</span></div>
   </main>
   ${nav("intimacy")}`;
 }
@@ -519,7 +517,7 @@ function renderControl() {
   if (ui.draftLevel === reported) ui.draftLevel = null;
   const level = ui.draftLevel ?? reported;
   const mode = uplink?.mode ?? NlMode.FREE;
-  return `${topbar("我的节奏", { back: true })}
+  return `${topbar("自我控制", { back: true })}
   <main class="page">
     <button class="stop" data-act="stop">${icon("stop")} 停 止</button>
     <div class="level" data-level-label>档位 ${level} / ${NlConst.levelMax}</div>
@@ -527,19 +525,88 @@ function renderControl() {
     <div class="modes">
       ${[
         [NlMode.FREE, "手动"],
-        [NlMode.SCENARIO, "情景"],
         [NlMode.WILD, "失控"],
       ].map(([value, label]) => `
         <button data-act="mode" data-mode="${value}" class="${mode === value ? "active" : ""}">${label}</button>
       `).join("")}
     </div>
-    <p class="hint">换模式才换色，换人不换灯。</p>
+    <p class="hint">换模式才换色，换人不换灯。档位 0 为停止。</p>
   </main>`;
 }
 
+function scenarioCatalog() {
+  const personas = ui.personas.map((item) => ({
+    key: `persona:${item.id}`,
+    name: item.name,
+    subtitle: item.tone,
+  }));
+  const templates = (ui.templates || [])
+    .filter((item) => item.source === "custom" && item.status === "confirmed")
+    .map((item) => ({
+      key: `template:${item.template_id}`,
+      name: item.name,
+      subtitle: item.description || "自定义人设",
+    }));
+  return [...personas, ...templates];
+}
+
 function renderScenario() {
+  const { sessionId } = route();
+  if (sessionId === "new") return renderPersonaForm();
+  if (sessionId === "play") return renderScenarioPlay();
+  return renderPersonaList();
+}
+
+function renderPersonaList() {
+  const items = scenarioCatalog();
+  return `${topbar("情景模式", {
+    back: true,
+    action: `<button class="icon-btn" data-act="persona-new" aria-label="新建人设">${icon("plus")}</button>`,
+  })}
+  <main class="page">
+    <h2 class="lead">选择人设</h2>
+    <p class="sub">点选后进入漫游。人设只改变说什么，不改变灯色和强度。</p>
+    ${items.length ? items.map((item) => `
+      <button class="persona-row ${ui.activePersona?.key === item.key ? "selected" : ""}" data-act="pick-persona" data-key="${escapeHtml(item.key)}" data-name="${escapeHtml(item.name)}">
+        <div class="avatar">${escapeHtml(item.name.slice(0, 1))}</div>
+        <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.subtitle)}</small></div>
+        <span class="chev">${icon("chevron")}</span>
+      </button>
+    `).join("") : `<div class="empty">${icon("person")}<p>还没有人设，点击右上角新建</p></div>`}
+  </main>`;
+}
+
+function renderPersonaForm() {
+  const saving = ui.savingPersona ? "disabled" : "";
+  return `${topbar("新建人设", { back: true })}
+  <main class="page">
+    <form id="persona-form">
+      <label class="form-label" for="persona-name">名称</label>
+      <input class="form-input" id="persona-name" name="name" maxlength="40" required placeholder="例如：轻声陪伴" />
+      <span class="form-label">风格</span>
+      <div class="chip-row">
+        ${STYLE_TAGS.map((tag) => `<button type="button" class="chip" data-act="toggle-tag" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}
+      </div>
+      <span class="form-label">说话频率</span>
+      <div class="chip-row">
+        ${TALK_FREQS.map((item, index) => `<button type="button" class="chip ${index === 1 ? "on" : ""}" data-act="talk-freq" data-freq="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join("")}
+      </div>
+      <span class="form-label">允许的 Skill</span>
+      <div class="chip-row">
+        <button type="button" class="chip on" data-act="toggle-skill" data-skill="rhythm_segment">节奏段</button>
+        <button type="button" class="chip" data-act="toggle-skill" data-skill="set_pattern">波形</button>
+      </div>
+      <p class="microcopy">Skill 只是建议白名单，不会直接控制设备。对话创建人设这一轮不做。</p>
+      <div style="height:16px"></div>
+      <button class="primary" type="submit" ${saving}>保存并回到列表</button>
+    </form>
+  </main>`;
+}
+
+function renderScenarioPlay() {
   const [title, body] = SCENES[ui.scene];
-  return `${topbar("情境漫游", { back: true })}
+  const who = ui.activePersona?.name || "当前人设";
+  return `${topbar(who, { back: true })}
   <main class="page scene">
     <div class="grow">
       <div>
@@ -585,6 +652,99 @@ function formatSessionDate(value, withTime = false) {
 function formatDuration(seconds) {
   const minutes = Math.max(1, Math.round(seconds / 60));
   return `${minutes} 分钟`;
+}
+
+function selectedSession() {
+  const sessions = bodyNotes.sessions;
+  if (!sessions.length) return null;
+  return bodyNotes.getSession(ui.selectedRecordId) || sessions[0];
+}
+
+function wellnessCopy(session, recentCount) {
+  const quality = QUALITY_UI[session.data_quality] || "数据有限";
+  const temp = session.temperature.direction === "rising"
+    ? "温感缓慢上升"
+    : session.temperature.direction === "falling"
+      ? "温感略有回落"
+      : "温感整体平稳";
+  const pressure = session.pressure.direction === "varied"
+    ? "压力节律变化较多"
+    : session.pressure.direction === "rising"
+      ? "压力节律后段更连续"
+      : "压力节律整体平稳";
+  return `${temp}，${pressure}。数据完整度：${quality}。这一段对照了 ${recentCount} 次近期记录。这是使用与传感趋势的身心参考，不是健康检测，也不能替代医生或专业人士建议。本机暂无小米手环心率与接触面温感。`;
+}
+
+function renderRecords() {
+  const latest = selectedSession();
+  if (!latest) {
+    return `${topbar("身心记录")}
+    <main class="page">
+      <div class="empty">${icon("bookmark")}<p>还没有可回看的使用记录</p></div>
+      <p class="disclaimer">这里只有历史回看，不提供恢复、调档或设备控制。</p>
+    </main>
+    ${nav("records")}`;
+  }
+  const recent = bodyNotes.recentComparisons(latest.session_id, 5);
+  const older = bodyNotes.sessions.filter((item) => item.session_id !== latest.session_id);
+  const mode = MODE_UI[latest.mode] || MODE_UI.free;
+  return `${topbar("身心记录", {
+    action: notesMutationsLocked()
+      ? ""
+      : `<button class="icon-btn danger-icon" data-act="delete-session" data-session="${escapeHtml(latest.session_id)}" aria-label="删除本次记录">${icon("trash")}</button>`,
+  })}
+  <main class="page records-page">
+    <section class="record-section">
+      <div class="section-head"><h3>这一次</h3><span>${QUALITY_UI[latest.data_quality]}</span></div>
+      <span class="mode-mark" style="--mode:${mode.color}">${mode.label}</span>
+      <h2 class="lead" style="margin-top:10px">${escapeHtml(latest.title)}</h2>
+      <p class="sub">${formatSessionDate(latest.started_at, true)} · ${formatDuration(latest.duration_s)} · 最高 ${latest.max_level} 档</p>
+      ${renderTimeline(latest.timeline)}
+      <div class="trend-copy"><span>${icon("thermometer")}</span><p>${escapeHtml(latest.temperature.label)}</p></div>
+      <div class="trend-copy"><span>${icon("activity")}</span><p>${escapeHtml(latest.pressure.label)}</p></div>
+    </section>
+    <section class="record-section">
+      <div class="section-head"><h3>近期图谱</h3><span>${recent.length + 1} 次</span></div>
+      <div class="dual-chart">
+        ${[latest, ...recent].map((item) => `
+          <div>
+            <p class="microcopy">${formatSessionDate(item.started_at)} · ${(MODE_UI[item.mode] || MODE_UI.free).label}</p>
+            ${renderTimeline(item.timeline)}
+          </div>
+        `).join("")}
+      </div>
+    </section>
+    <section class="record-section">
+      <div class="section-head"><h3>身心参考</h3></div>
+      <div class="ref-card">
+        <p>${escapeHtml(wellnessCopy(latest, recent.length + 1))}</p>
+        <p class="microcopy">不把压力、温感或心率写成高潮、疾病或固定偏好。</p>
+      </div>
+    </section>
+    ${latest.notes.length ? `<section class="record-section">
+      <div class="section-head"><h3>我保存的发现</h3><span>${latest.notes.length} 条</span></div>
+      ${latest.notes.map((note) => `
+        <div class="saved-note"><p>${escapeHtml(note.text)}</p>${notesMutationsLocked() ? "" : `<button class="icon-btn" data-act="delete-note" data-note="${escapeHtml(note.note_id)}" aria-label="删除这条发现">${icon("trash")}</button>`}</div>
+      `).join("")}
+      ${notesMutationsLocked() ? "" : `<button class="inline-command" data-act="add-session-note" data-session="${escapeHtml(latest.session_id)}">${icon("plus")} 自己写一条</button>`}
+    </section>` : `${notesMutationsLocked() ? "" : `<section class="record-section">
+      <button class="inline-command" data-act="add-session-note" data-session="${escapeHtml(latest.session_id)}">${icon("plus")} 自己写一条</button>
+    </section>`}`}
+    ${older.length ? `<section class="record-section">
+      <button class="inline-command" data-act="toggle-older">${ui.olderOpen ? "收起更早的记录" : `更早的记录 · ${older.length}`}</button>
+      ${ui.olderOpen ? older.map((item) => `
+        <button class="older-row" data-act="select-record" data-session="${escapeHtml(item.session_id)}">
+          <span><strong>${formatSessionDate(item.started_at)}</strong><br><small>${escapeHtml(item.title)}</small></span>
+          <small>${(MODE_UI[item.mode] || MODE_UI.free).label} · ${formatDuration(item.duration_s)}</small>
+        </button>
+      `).join("") : ""}
+    </section>` : ""}
+    <p class="disclaimer">内容仅供参考，不能替代医生或专业人士建议。</p>
+  </main>
+  <div class="records-ask">
+    <button data-act="insight-self" data-session="${escapeHtml(latest.session_id)}">${icon("message")} 和 AI 聊聊自己</button>
+  </div>
+  ${nav("records")}`;
 }
 
 function renderNotesList() {
@@ -691,7 +851,7 @@ function renderTimeline(points) {
 }
 
 function renderMissingSession() {
-  return `${topbar("身体笔记", { back: true })}<main class="page"><div class="empty">这条记录已删除或不可用。</div></main>`;
+  return `${topbar("身心记录", { back: true })}<main class="page"><div class="empty">这条记录已删除或不可用。</div></main>`;
 }
 
 function renderInsight(sessionId, query) {
@@ -1231,7 +1391,17 @@ function startOnboardingFlow() {
   });
 }
 
+function maybeRedirectLegacyNotes() {
+  const current = route();
+  const target = legacyNotesTarget(current);
+  if (!target) return false;
+  if (current.sessionId && current.view !== "insight") ui.selectedRecordId = current.sessionId;
+  go(target);
+  return true;
+}
+
 function render() {
+  if (maybeRedirectLegacyNotes()) return;
   // Onboarding 进行中：忽略其它重绘，避免打断渐变流程。
   if (root.classList.contains("onboarding") && !ui.gateReady) return;
 
@@ -1246,7 +1416,8 @@ function render() {
   const { tab, page, sub, id, sessionId, view, query } = route();
   applyTheme(tab);
   const nested = (tab === "intimacy" && page !== "root")
-    || (tab === "settings" && page !== "root");
+    || (tab === "settings" && page !== "root")
+    || (tab === "records" && view === "insight");
   root.classList.toggle("subpage", nested);
   root.classList.toggle("chat-view", view === "insight");
   root.classList.remove("onboarding");
@@ -1265,11 +1436,13 @@ function render() {
     else if (page === "storage") root.innerHTML = renderStorageSettings();
     else root.innerHTML = renderSettings();
   }
+  else if (tab === "records" && view === "insight") {
+    root.innerHTML = renderInsight(sessionId || query.get("session"), query);
+  }
+  else if (tab === "records") root.innerHTML = renderRecords();
   else if (page === "control") root.innerHTML = renderControl();
   else if (page === "scenario") root.innerHTML = renderScenario();
-  else if (page === "notes" && view === "insight") root.innerHTML = renderInsight(sessionId, query);
-  else if (page === "notes" && sessionId) root.innerHTML = renderNoteDetail(sessionId);
-  else if (page === "notes") root.innerHTML = renderNotesList();
+  else if (tab === "intimacy") root.innerHTML = renderIntimacy();
   else root.innerHTML = renderIntimacy();
   bind();
   restoreCardScroll();
@@ -1305,6 +1478,8 @@ function bind() {
   }
   const form = root.querySelector("#insight-form");
   if (form) form.addEventListener("submit", onInsightSubmit);
+  const personaForm = root.querySelector("#persona-form");
+  if (personaForm) personaForm.addEventListener("submit", onPersonaSubmit);
 }
 
 async function onInsightSubmit(event) {
@@ -1322,6 +1497,94 @@ async function onInsightSubmit(event) {
   ui.insightSending = false;
   render();
   requestAnimationFrame(() => root.querySelector(".chat-thread")?.scrollTo(0, 99999));
+}
+
+function selectedSkills(form) {
+  const ids = [...form.querySelectorAll("[data-act=toggle-skill].on")].map((btn) => btn.dataset.skill);
+  const skills = [];
+  if (ids.includes("rhythm_segment")) {
+    skills.push({
+      skill_id: "rhythm_segment",
+      level: 3,
+      pattern: "soft",
+      duration_s: 90,
+      requires_confirmation: true,
+    });
+  }
+  if (ids.includes("set_pattern")) {
+    skills.push({
+      skill_id: "set_pattern",
+      pattern: "wave",
+      duration_s: 90,
+      requires_confirmation: true,
+    });
+  }
+  return skills.length ? skills : [{
+    skill_id: "rhythm_segment",
+    level: 3,
+    pattern: "soft",
+    duration_s: 90,
+    requires_confirmation: true,
+  }];
+}
+
+async function onPersonaSubmit(event) {
+  event.preventDefault();
+  if (ui.savingPersona) return;
+  const form = event.currentTarget;
+  const name = form.elements.name.value.trim();
+  if (!name) return;
+  const tags = [...form.querySelectorAll("[data-act=toggle-tag].on")].map((btn) => btn.dataset.tag);
+  const talk = form.querySelector("[data-act=talk-freq].on")?.dataset.freq || TALK_FREQS[1];
+  const skills = selectedSkills(form);
+  const description = [tags.join("、"), talk].filter(Boolean).join(" · ").slice(0, 240);
+  const conversation = [{
+    role: "user",
+    content: `请创建人设「${name}」。风格：${tags.join("、") || "未指定"}。说话频率：${talk}。允许 Skill：${skills.map((item) => item.skill_id).join("、")}。`,
+  }];
+  ui.savingPersona = true;
+  form.querySelector("[type=submit]")?.setAttribute("disabled", "disabled");
+  try {
+    const draftRes = await fetch("/v1/agent/templates/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: LOCAL_USER,
+        persona_id: "custom",
+        conversation,
+      }),
+    });
+    let draft = draftRes.ok ? (await draftRes.json()).template : null;
+    if (!draft) {
+      draft = {
+        template_id: `tpl_${Date.now().toString(16)}`,
+        source: "custom",
+        name,
+        description,
+        persona_id: "custom",
+        skills,
+        status: "draft",
+      };
+    } else {
+      draft = { ...draft, name, description, skills, source: "custom", status: "draft" };
+    }
+    const confirmRes = await fetch(`/v1/agent/templates/confirm?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    if (!confirmRes.ok) throw new Error("confirm failed");
+    const saved = await confirmRes.json();
+    ui.templates = [...(ui.templates || []).filter((item) => item.template_id !== saved.template_id), saved];
+    ui.activePersona = { key: `template:${saved.template_id}`, name: saved.name };
+    toast("人设已保存");
+    go("#/intimacy/scenario");
+  } catch {
+    toast("保存失败，请检查连接后重试");
+  } finally {
+    ui.savingPersona = false;
+    if (route().sessionId === "new") render();
+  }
 }
 
 async function onLevelCommit(level) {
@@ -1351,9 +1614,14 @@ async function onClick(event) {
       return;
     }
     const current = route();
-    if (current.page === "notes" && current.view === "insight") go(`#/intimacy/notes/${current.sessionId}`);
-    else if (current.page === "notes" && current.sessionId) go("#/intimacy/notes");
-    else {
+    if (current.tab === "records" && current.view === "insight") go("#/records");
+    else if (current.tab === "intimacy" && current.page === "scenario" && current.sessionId) {
+      if (current.sessionId === "play") {
+        ui.scenarioStarted = false;
+        ui.scene = 0;
+      }
+      go("#/intimacy/scenario");
+    } else {
       ui.scenarioStarted = false;
       ui.scene = 0;
       go("#/intimacy");
@@ -1484,8 +1752,33 @@ async function onClick(event) {
     else ui.scenarioStarted = true;
     render();
   }
-  else if (act === "open-session") go(`#/intimacy/notes/${t.dataset.session}`);
-  else if (act === "insight-current") go(`#/intimacy/notes/${t.dataset.session}/insight?scope=current`);
+  else if (act === "persona-new") go("#/intimacy/scenario/new");
+  else if (act === "pick-persona") {
+    ui.activePersona = { key: t.dataset.key, name: t.dataset.name };
+    ui.scenarioStarted = false;
+    ui.scene = 0;
+    go("#/intimacy/scenario/play");
+  }
+  else if (act === "toggle-tag" || act === "toggle-skill") t.classList.toggle("on");
+  else if (act === "talk-freq") {
+    root.querySelectorAll("[data-act=talk-freq]").forEach((btn) => {
+      btn.classList.toggle("on", btn === t);
+    });
+  }
+  else if (act === "toggle-older") {
+    ui.olderOpen = !ui.olderOpen;
+    render();
+  }
+  else if (act === "select-record") {
+    ui.selectedRecordId = t.dataset.session;
+    render();
+  }
+  else if (act === "insight-self") openInsightSelf(t.dataset.session);
+  else if (act === "open-session") {
+    ui.selectedRecordId = t.dataset.session;
+    go("#/records");
+  }
+  else if (act === "insight-current") go(`#/records/${t.dataset.session}/insight?scope=current`);
   else if (act === "insight-recent") openRecentScope(t.dataset.session);
   else if (act === "add-session-note") composeSessionNote(t.dataset.session);
   else if (act === "delete-note") confirmDeleteNote(t.dataset.note);
@@ -1578,8 +1871,18 @@ function openRecentScope(sessionId) {
   sheet.querySelector("[data-confirm]").onclick = () => {
     closeSheet();
     const ids = recent.map((item) => item.session_id).join(",");
-    go(`#/intimacy/notes/${sessionId}/insight?scope=recent&ids=${encodeURIComponent(ids)}`);
+    go(`#/records/${sessionId}/insight?scope=recent&ids=${encodeURIComponent(ids)}`);
   };
+}
+
+function openInsightSelf(sessionId) {
+  const recent = bodyNotes.recentComparisons(sessionId, 5);
+  if (!recent.length) {
+    go(`#/records/${sessionId}/insight?scope=current`);
+    return;
+  }
+  const ids = recent.map((item) => item.session_id).join(",");
+  go(`#/records/${sessionId}/insight?scope=recent&ids=${encodeURIComponent(ids)}`);
 }
 
 function confirmDeleteSession(sessionId) {
@@ -1602,7 +1905,8 @@ function confirmDeleteSession(sessionId) {
       return;
     }
     closeSheet();
-    go("#/intimacy/notes");
+    if (ui.selectedRecordId === sessionId) ui.selectedRecordId = null;
+    go("#/records");
     toast("这次记录已删除");
   };
 }
@@ -1614,7 +1918,7 @@ function confirmDeleteNote(noteId) {
   }
   const sheet = openSheet(`
     <h2>删除这条发现？</h2>
-    <p class="sub">删除后它不会再出现在身体笔记或 Agent 的可读范围里。</p>
+    <p class="sub">删除后它不会再出现在身心记录或 Agent 的可读范围里。</p>
     <button class="danger" data-confirm>删除</button>
     <div style="height:10px"></div>
     <button class="ghost" data-cancel>取消</button>
@@ -1730,12 +2034,18 @@ window.addEventListener("hashchange", render);
 
 async function loadPersonas() {
   try {
-    const res = await fetch("/v1/persona");
-    if (!res.ok) return;
-    ui.personas = await res.json();
-    if (route().tab === "settings") render();
+    const [personaRes, templateRes] = await Promise.all([
+      fetch("/v1/persona"),
+      fetch(`/v1/agent/templates?user_id=${encodeURIComponent(LOCAL_USER)}`),
+    ]);
+    if (personaRes.ok) ui.personas = await personaRes.json();
+    if (templateRes.ok) ui.templates = await templateRes.json();
+    if (!ui.activePersona && ui.personas[0]) {
+      ui.activePersona = { key: `persona:${ui.personas[0].id}`, name: ui.personas[0].name };
+    }
+    if (route().tab === "settings" || route().page === "scenario") render();
   } catch {
-    // 云端不可达时设置页仍可用。
+    // 云端不可达时设置页和情景列表仍可用。
   }
 }
 

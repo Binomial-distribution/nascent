@@ -4,6 +4,7 @@ import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
 import { toyWsUrl } from "../js/ws.js";
 import { BodyNotesState } from "../js/body-notes.js";
+import { NAV_TABS, parseHash, legacyNotesTarget } from "../js/routes.js";
 
 let failed = 0;
 let passed = 0;
@@ -196,6 +197,38 @@ assert(staleNotes.mutationsLocked === false, "mutations unlock after load finish
 const offlineDelete = new BodyNotesState({ fetchImpl: null });
 assert(await offlineDelete.deleteSession("demo-session-03"), "offline demo allows local-only deletion");
 assert(offlineDelete.getSession("demo-session-03") === null, "offline deletion removes the demo record");
+
+assert(NAV_TABS.join("/") === "heart/intimacy/records/settings", "bottom nav has four tabs");
+assert(parseHash("#/intimacy").page === "root", "intimacy root is the two-entry hub");
+assert(parseHash("#/intimacy/scenario").page === "scenario", "scenario list lives under intimacy");
+assert(parseHash("#/intimacy/scenario/new").sessionId === "new", "persona form uses scenario/new");
+assert(parseHash("#/intimacy/scenario/play").sessionId === "play", "roaming play uses scenario/play");
+assert(parseHash("#/intimacy/control").page === "control", "self-control is a nested intimacy page");
+assert(parseHash("#/records").tab === "records" && parseHash("#/records").view == null, "records long page is a root tab");
+assert(
+  parseHash("#/records/demo-session-03/insight?scope=recent&ids=a,b").sessionId === "demo-session-03",
+  "insight chat keeps the selected session id",
+);
+assert(parseHash("#/records/demo-session-03/insight").view === "insight", "insight is a records subview");
+assert(
+  legacyNotesTarget(parseHash("#/intimacy/notes")) === "#/records",
+  "old notes list redirects to records",
+);
+assert(
+  legacyNotesTarget(parseHash("#/intimacy/notes/demo-session-03")) === "#/records",
+  "old notes detail redirects to records",
+);
+assert(
+  legacyNotesTarget(parseHash("#/intimacy/notes/demo-session-03/insight?scope=current"))
+    === "#/records/demo-session-03/insight?scope=current",
+  "old insight path keeps session and query",
+);
+assert(legacyNotesTarget(parseHash("#/records")) == null, "records itself is not a legacy notes path");
+
+const readableNotes = new BodyNotesState({ fetchImpl: null });
+assert(readableNotes.getSession("demo-session-01") !== null, "legacy notes data can still be read after the records rename");
+assert(await readableNotes.deleteSession("demo-session-01"), "legacy notes data can still be deleted");
+assert(readableNotes.getSession("demo-session-01") === null, "deleted notes records stay gone");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
