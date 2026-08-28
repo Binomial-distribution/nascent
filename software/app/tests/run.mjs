@@ -158,6 +158,19 @@ await failedDelete.load();
 assert(!await failedDelete.deleteSession("demo-session-03"), "remote deletion reports backend failure");
 assert(failedDelete.getSession("demo-session-03") !== null, "failed remote deletion keeps the local record visible");
 
+let resolveLoad;
+const loadingNotes = new BodyNotesState({
+  fetchImpl: () => new Promise((resolve) => {
+    resolveLoad = resolve;
+  }),
+});
+const loadingPromise = loadingNotes.load();
+assert(!await loadingNotes.deleteSession("demo-session-03"), "delete is refused while backend probe is in flight");
+assert(loadingNotes.getSession("demo-session-03") !== null, "in-flight load does not locally delete the record");
+resolveLoad(jsonResponse(localNotes.sessions));
+await loadingPromise;
+assert(loadingNotes.backendAvailable === true, "load completes after the in-flight probe");
+
 const offlineDelete = new BodyNotesState({ fetchImpl: null });
 assert(await offlineDelete.deleteSession("demo-session-03"), "offline demo allows local-only deletion");
 assert(offlineDelete.getSession("demo-session-03") === null, "offline deletion removes the demo record");

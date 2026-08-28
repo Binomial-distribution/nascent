@@ -69,14 +69,16 @@ uvicorn app.main:app --reload
 网站在 <http://127.0.0.1:8000>，接口文档在 <http://127.0.0.1:8000/docs>。
 后端同时托管 `software/app/` 里的静态页，不另起前端构建。
 
-配置走环境变量，前缀 `NASCENT_`，也可以写在 `.env`（已被 gitignore）：
+配置走环境变量，前缀 `NASCENT_`，也可以写在 `.env`（已被 gitignore）。
+
+逻辑别名是 `nascent-chat-9b` / `nascent-control-9b`。发给供应商的 HTTP `model` 必须是供应商认识的 ID，所以 `.env.example` 默认写 `Qwen/Qwen3.5-9B`。两 lane 使用独立 timeout、prompt 和 schema，即使暂时指向同一个快照。
 
 ```
 NASCENT_LLM_API_KEY=...
 NASCENT_LLM_BASE_URL=...
-NASCENT_LLM_MODEL=nascent-chat-9b
-NASCENT_CHAT_LLM_MODEL=nascent-chat-9b
-NASCENT_CONTROL_LLM_MODEL=nascent-control-9b
+NASCENT_LLM_MODEL=Qwen/Qwen3.5-9B
+NASCENT_CHAT_LLM_MODEL=Qwen/Qwen3.5-9B
+NASCENT_CONTROL_LLM_MODEL=Qwen/Qwen3.5-9B
 NASCENT_CHAT_LLM_TIMEOUT_S=8.0
 NASCENT_CONTROL_LLM_TIMEOUT_S=2.5
 NASCENT_MODERATION_ENABLED=true

@@ -15,6 +15,7 @@ from app.services.agent_contract import (
     TemplateDraftRequest,
 )
 from app.services.memory import InMemoryMemoryProvider
+from app.services.llm import _apply_control_policy
 from app.services.preference import (
     InMemoryPreferenceStore,
     PreferenceObservation,
@@ -199,3 +200,52 @@ async def test_preference_store_isolated_and_deletable():
     )
     assert await store.delete_scope(user_id="u", persona_id="p", template_id="t") == 1
     assert await store.list_scope(user_id="u", persona_id="p", template_id="t") == []
+
+
+def test_control_hold_keeps_reason_and_drops_suggestions():
+    result = _apply_control_policy(
+        ControlDecision(
+            decision="hold",
+            recommended_skill_id="rhythm_segment",
+            recommended_level=3,
+            reason_codes=["user_asked_to_wait"],
+        ),
+        ["rhythm_segment"],
+    )
+    assert result.decision == "hold"
+    assert result.reason_codes == ["user_asked_to_wait"]
+    assert result.recommended_skill_id is None
+    assert result.recommended_level is None
+    assert result.action is None
+
+
+def test_control_hold_with_null_skill_is_not_rewritten_as_not_allowed():
+    result = _apply_control_policy(
+        ControlDecision(decision="hold", recommended_skill_id=None, reason_codes=["policy_hold"]),
+        ["rhythm_segment"],
+    )
+    assert result.reason_codes == ["policy_hold"]
+    assert "skill_not_allowed" not in result.reason_codes
+
+
+def test_control_recommend_outside_allowlist_holds():
+    result = _apply_control_policy(
+        ControlDecision(
+            decision="recommend",
+            recommended_skill_id="set_pattern",
+            recommended_pattern="wave",
+        ),
+        ["rhythm_segment"],
+    )
+    assert result.decision == "hold"
+    assert result.reason_codes == ["skill_not_allowed"]
+
+
+@pytest.mark.asyncio
+async def test_memory_search_clamps_negative_limit():
+    provider = InMemoryMemoryProvider()
+    await provider.add(user_id="u", persona_id="p", text="第一条")
+    await provider.add(user_id="u", persona_id="p", text="第二条")
+    assert await provider.search(user_id="u", persona_id="p", query="", limit=-3) == []
+    assert len(await provider.search(user_id="u", persona_id="p", query="", limit=1)) == 1
+    assert len(await provider.search(user_id="u", persona_id="p", query="", limit=99)) == 2

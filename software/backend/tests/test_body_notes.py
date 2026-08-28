@@ -97,6 +97,12 @@ def test_body_insight_rejects_control_and_diagnosis_language():
     with pytest.raises(ValidationError):
         BodyInsightModelOutput(dialogue="这说明你喜欢固定节奏", insight_candidate=None)
 
+    allowed = BodyInsightModelOutput(
+        dialogue="这些只是当时的记录，不代表固定偏好。",
+        insight_candidate=None,
+    )
+    assert "不代表固定偏好" in allowed.dialogue
+
 
 @pytest.mark.asyncio
 async def test_limited_comparison_is_not_sent_to_model():

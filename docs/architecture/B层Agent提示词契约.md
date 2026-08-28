@@ -18,7 +18,7 @@
   + 本轮用户输入
 ```
 
-实时 API 固定为 `Qwen/Qwen3.5-9B`，服务端稳定别名为 `nascent-realtime-9b`。App 不认识供应商模型名，模型更换只修改后端适配器配置和 Prompt 版本。
+实时 API 固定为 `Qwen/Qwen3.5-9B`。Chat 逻辑别名 `nascent-chat-9b`，Control 逻辑别名 `nascent-control-9b`；发给供应商的 HTTP `model` 字段使用供应商 ID。App 不认识供应商模型名，模型更换只修改后端适配器配置和 Prompt 版本。旧别名 `nascent-realtime-9b` 已废弃。
 
 ## 2. 固定系统提示词
 
@@ -169,7 +169,7 @@ on_user_event(event):
 
     context = build_context(
         prompt=load_prompt("b-agent-v1"),
-        model="nascent-realtime-9b",
+        model="nascent-chat-9b",
         persona=load_active_persona(persona_id),
         scene=load_scene(session.scene_id),
         recent_turns=last_n_turns(session, n=6),
@@ -189,7 +189,7 @@ on_user_event(event):
 
 ## 8. 验收
 
-- 连续调用的模型别名为 `nascent-realtime-9b`，Prompt 版本和 Persona 版本可追踪。
+- 连续调用的 Chat 逻辑别名为 `nascent-chat-9b`，Control 为 `nascent-control-9b`，Prompt 版本和 Persona 版本可追踪。
 - 温度/压力只以趋势和质量摘要进入 Prompt，不能触发自动调档。
 - 切换 Persona 后下一轮不出现上一 Persona 的关系记忆。
 - 删除记忆后，新的检索结果和缓存不再包含该记忆。

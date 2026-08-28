@@ -10,7 +10,8 @@ class Settings(BaseSettings):
 
     llm_api_key: str = ""
     llm_base_url: str = ""
-    # 两个逻辑角色可以先指向同一个 Qwen 9B 快照，部署时再拆副本。
+    # 两个逻辑角色：nascent-chat-9b / nascent-control-9b。
+    # HTTP model 字段发给供应商时使用下面的供应商 ID，不要填逻辑别名。
     llm_model: str = "Qwen/Qwen3.5-9B"
     chat_llm_model: str = "Qwen/Qwen3.5-9B"
     control_llm_model: str = "Qwen/Qwen3.5-9B"

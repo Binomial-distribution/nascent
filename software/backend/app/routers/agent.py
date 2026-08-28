@@ -61,7 +61,7 @@ async def search_memory(
     user_id: str, persona_id: str, query: str = "", limit: int = 5
 ) -> list[MemoryItem]:
     return await memory_provider.search(
-        user_id=user_id, persona_id=persona_id, query=query, limit=min(limit, 20)
+        user_id=user_id, persona_id=persona_id, query=query, limit=max(0, min(limit, 20))
     )
 
 

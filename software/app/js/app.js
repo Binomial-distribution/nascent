@@ -617,13 +617,19 @@ function renderSessionRow(session) {
   </button>`;
 }
 
+function notesMutationsLocked() {
+  return bodyNotes.loading || (bodyNotes.backendAvailable === null && Boolean(bodyNotes._fetch));
+}
+
 function renderNoteDetail(sessionId) {
   const session = bodyNotes.getSession(sessionId);
   if (!session) return renderMissingSession();
   const mode = MODE_UI[session.mode] || MODE_UI.free;
   return `${topbar("单次记录", {
     back: true,
-    action: `<button class="icon-btn danger-icon" data-act="delete-session" data-session="${escapeHtml(sessionId)}" aria-label="删除本次记录">${icon("trash")}</button>`,
+    action: notesMutationsLocked()
+      ? ""
+      : `<button class="icon-btn danger-icon" data-act="delete-session" data-session="${escapeHtml(sessionId)}" aria-label="删除本次记录">${icon("trash")}</button>`,
   })}
   <main class="page note-detail-page">
     <div class="record-title">
@@ -656,7 +662,7 @@ function renderNoteDetail(sessionId) {
     <section class="record-section">
       <div class="section-head"><h3>我保存的发现</h3><span>${session.notes.length} 条</span></div>
       ${session.notes.length ? session.notes.map((note) => `
-        <div class="saved-note"><p>${escapeHtml(note.text)}</p><button class="icon-btn" data-act="delete-note" data-note="${escapeHtml(note.note_id)}" aria-label="删除这条发现">${icon("trash")}</button></div>
+        <div class="saved-note"><p>${escapeHtml(note.text)}</p>${notesMutationsLocked() ? "" : `<button class="icon-btn" data-act="delete-note" data-note="${escapeHtml(note.note_id)}" aria-label="删除这条发现">${icon("trash")}</button>`}</div>
       `).join("") : `<p class="microcopy">对话默认不保存。只有你主动点击“保存这条发现”，它才会出现在这里。</p>`}
       <button class="inline-command" data-act="add-session-note" data-session="${escapeHtml(sessionId)}">${icon("plus")} 自己写一条</button>
     </section>
@@ -701,7 +707,7 @@ function renderInsight(sessionId, query) {
   return `${topbar("了解自己", { back: true })}
   <main class="insight-page">
     <div class="scope-strip"><strong>${scopeLabel}</strong><span>不会控制设备</span></div>
-    <div class="source-strip">${sources.map((item) => `<span>${formatSessionDate(item.started_at)} · ${MODE_UI[item.mode].label}</span>`).join("")}</div>
+    <div class="source-strip">${sources.map((item) => `<span>${formatSessionDate(item.started_at)} · ${(MODE_UI[item.mode] || MODE_UI.free).label}</span>`).join("")}</div>
     <div class="chat-thread">
       <div class="chat-day">本次对话临时保存</div>
       <div class="bubble-row assistant"><div class="avatar">N</div><div class="bubble">${scope === "recent" ? "我只会比较上方列出的记录。你想先从哪一点聊起？" : "我只会读取这一次的记录。你最想理解哪个片段？"}</div></div>
@@ -1564,7 +1570,7 @@ function openRecentScope(sessionId) {
     <h2>确认读取范围</h2>
     <p class="sub">Chat 9B 只会读取当前记录和下面列出的记录。默认选择最近 5 次，最多 10 次。</p>
     <div class="scope-list">
-      ${recent.map((item) => `<div><strong>${formatSessionDate(item.started_at)}</strong><span>${MODE_UI[item.mode].label} · ${formatDuration(item.duration_s)}</span></div>`).join("")}
+      ${recent.map((item) => `<div><strong>${formatSessionDate(item.started_at)}</strong><span>${(MODE_UI[item.mode] || MODE_UI.free).label} · ${formatDuration(item.duration_s)}</span></div>`).join("")}
     </div>
     <div class="flow-note compact-flow"><span>${icon("shield")}</span><div><strong>不会发送</strong><small>原始 12 Hz 数组、音频、设备地址、安全词或控制字段</small></div></div>
     <button class="primary" data-confirm>确认并进入对话</button>
@@ -1577,6 +1583,10 @@ function openRecentScope(sessionId) {
 }
 
 function confirmDeleteSession(sessionId) {
+  if (notesMutationsLocked()) {
+    toast("记录还在同步，请稍后再删除");
+    return;
+  }
   const sheet = openSheet(`
     <h2>删除这次记录？</h2>
     <p class="sub">记录、保存的发现和临时对话会一起删除。删除后 Agent 不能再读取，当前演示版本无法恢复。</p>
@@ -1598,6 +1608,10 @@ function confirmDeleteSession(sessionId) {
 }
 
 function confirmDeleteNote(noteId) {
+  if (notesMutationsLocked()) {
+    toast("记录还在同步，请稍后再删除");
+    return;
+  }
   const sheet = openSheet(`
     <h2>删除这条发现？</h2>
     <p class="sub">删除后它不会再出现在身体笔记或 Agent 的可读范围里。</p>
@@ -1740,7 +1754,7 @@ if ("serviceWorker" in navigator) {
 if (!location.hash) location.hash = isOnboardingDone() ? "#/heart" : "#/onboarding";
 else render();
 loadPersonas();
-bodyNotes.load();
+bodyNotes.load().then(() => render());
 
 if ("wakeLock" in navigator) {
   document.addEventListener("visibilitychange", async () => {

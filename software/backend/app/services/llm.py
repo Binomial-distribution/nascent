@@ -99,10 +99,7 @@ async def generate_control(request: ControlDecisionRequest) -> ControlDecision:
         result = ControlDecision.model_validate_json(
             _message_content(await _post_json(payload, settings.control_llm_timeout_s))
         )
-        allowed = set(request.template_skill_allowlist)
-        if result.recommended_skill_id not in allowed:
-            return _control_hold("skill_not_allowed")
-        return result.model_copy(update={"action": None, "requires_user_confirmation": True})
+        return _apply_control_policy(result, request.template_skill_allowlist)
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
         return _control_hold("model_unavailable")
 
@@ -124,6 +121,26 @@ def _control_must_hold(request: ControlDecisionRequest) -> bool:
 
 def _control_hold(reason: str) -> ControlDecision:
     return ControlDecision(decision="hold", reason_codes=[reason])
+
+
+def _apply_control_policy(
+    result: ControlDecision, allowlist: list[str]
+) -> ControlDecision:
+    """Normalize Control output. hold keeps its reasons and drops leftover suggestions."""
+
+    if result.decision == "hold":
+        return result.model_copy(
+            update={
+                "action": None,
+                "recommended_skill_id": None,
+                "recommended_level": None,
+                "recommended_pattern": None,
+                "requires_user_confirmation": True,
+            }
+        )
+    if result.recommended_skill_id not in set(allowlist):
+        return _control_hold("skill_not_allowed")
+    return result.model_copy(update={"action": None, "requires_user_confirmation": True})
 
 
 async def generate_template(request: TemplateDraftRequest) -> PersonaTemplate | None:

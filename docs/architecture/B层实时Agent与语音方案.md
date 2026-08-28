@@ -2,7 +2,7 @@
 
 > 状态：建议方案，待项目负责人 Review 后实施
 > 日期：2026-08-28
-> 适用范围：Flutter Android App 的「亲密时刻」B 层及 FastAPI Agent 后端
+> 适用范围：共享 Web UI + Android WebView 壳的「亲密时刻」B 层及 FastAPI Agent 后端
 
 本文件是 [`B层情景模式技术实现.md`](B层情景模式技术实现.md) 的 Agent、语音和角色表现附录；页面结构、失控模式计时、安全边界、后端事实存储、记忆隔离和删除规则以主方案为准。
 
@@ -45,7 +45,7 @@ Android 麦克风
 
 | 能力 | MVP 选择 | 后续增强 |
 | --- | --- | --- |
-| 实时对话与建议模型 | MVP 固定使用 API 模型 `Qwen/Qwen3.5-9B`，关闭思考，严格 JSON Schema，服务端配置别名为 `nascent-realtime-9b` | 只有完成同地域真实话术集 A/B，并且首句延迟、Schema 成功率、拒答率和成本同时更好，才允许更换版本 |
+| 实时对话与建议模型 | MVP 固定使用 API 模型 `Qwen/Qwen3.5-9B`，关闭思考，严格 JSON Schema；逻辑别名 `nascent-chat-9b` / `nascent-control-9b`，HTTP `model` 使用供应商 ID | 只有完成同地域真实话术集 A/B，并且首句延迟、Schema 成功率、拒答率和成本同时更好，才允许更换版本 |
 | 角色台词模型 | 复用实时 `Qwen/Qwen3.5-9B`，只输出短台词和表现标签 | 后续可以评测其他模型，但必须通过同一 `AgentModel` 适配层，不能绕过审核、Governor 或改变 App 契约 |
 | 剧本规划/会话总结 | 首版仍复用 `Qwen/Qwen3.5-9B`，异步执行，不增加第二个实时 API | 后续如引入更大模型，只能放在异步规划/总结，不得替换实时 9B 关键路径 |
 | Android 流式 ASR | `sherpa_onnx` + 中文/中英 Zipformer | 按目标手机做 int8、线程数和模型包体调优 |
@@ -56,7 +56,7 @@ Android 麦克风
 
 ## 3. 为什么本轮固定使用 Qwen3.5-9B API
 
-本项目本轮 API 主模型固定为 `Qwen/Qwen3.5-9B`，服务端内部使用 `nascent-realtime-9b` 作为稳定别名。9B 的定位是实时中文角色对话，不是设备控制器，也不是记忆数据库。实时调用关闭 Thinking，要求严格 JSON Schema，并以短句流式输出降低语音首声延迟。模型供应商或具体快照发生变化时，只修改后端适配器配置和 Prompt 版本，不让 App 直接依赖供应商模型名。
+本项目本轮 API 主模型固定为 `Qwen/Qwen3.5-9B`。Chat 与 Control 使用独立逻辑别名 `nascent-chat-9b` / `nascent-control-9b`，第一阶段都解析到同一供应商快照。9B 的定位是实时中文角色对话，不是设备控制器，也不是记忆数据库。实时调用关闭 Thinking，要求严格 JSON Schema，并以短句流式输出降低语音首声延迟。模型供应商或具体快照发生变化时，只修改后端适配器配置和 Prompt 版本，不让 App 直接依赖供应商模型名。旧别名 `nascent-realtime-9b` 已废弃。
 
 Agent 输出必须被限制为已定义的 `dialogue / action / scene_ctrl / emotion`。9B 可以同时生成台词、情绪、场景控制建议和记忆候选，但服务端必须在 Schema 校验、内容审核后将这些字段分离处理；Waifu 只消费台词和表现字段，动作建议仍须经过 App Governor 与 `senderProvider`。
 
@@ -265,7 +265,7 @@ AvatarState {
 
 1. 先按主方案落地 `session_control`、`session_event`、`session_trend`、`body_note`，并确定会话、人设、记忆和删除接口的契约字段。
 2. 建立 Agent WebSocket，只流式返回对话片段和最终 `CloudActionEnvelope`；保留现有 POST 作为降级路径。
-3. 接 `Qwen/Qwen3.5-9B` 非思考模式与严格 JSON Schema，服务端模型别名固定为 `nascent-realtime-9b`，增加 1200ms 首响应超时、总时限、重试上限和熔断。
+3. 接 `Qwen/Qwen3.5-9B` 非思考模式与严格 JSON Schema；Chat 别名 `nascent-chat-9b`，Control 别名 `nascent-control-9b`，增加独立超时、重试上限和熔断。
 4. 完成台词审核、年龄/同意状态、禁止挽留和敏感场景规则；拒绝时只返回安全台词，不返回 action。
 5. Android 接本地 VAD/ASR，把有限语音意图映射到契约枚举；原始音频和临时转写不落盘。
 6. 接 TTS、barge-in 和音频焦点管理，再接 Rive 角色状态机。

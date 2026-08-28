@@ -2,8 +2,8 @@
 
 更新时间：2026-08-28
 当前分支：`feat/body-notes-insight`
-基线：`origin/main` (`65be10e`)
-状态：共享 Web UI 和 Android 壳框架已存在；B 层 Agent 联调骨架与身体笔记纵向切片已完成，生产持久化、真实模型网关和实时语音仍待联调
+基线：已合并 `origin/main`（含 AO3400A）
+状态：共享 Web UI 和 Android 壳框架已存在；B 层 Agent 联调骨架与身体笔记纵向切片已完成。B3.0 是权威规格，见 [`docs/architecture/B层完整版技术文稿-双模型与偏好闭环.md`](../architecture/B层完整版技术文稿-双模型与偏好闭环.md) 与 [`docs/implementation/B层完整软件实施计划-B3.0.md`](B层完整软件实施计划-B3.0.md)。本分支继续更新 Draft PR #6，不自动合并。完整情景 UI、传感器接入、有限自动适配和语音拆后续短 PR。
 
 ## 当前软件形态
 
@@ -39,9 +39,9 @@
 
 ### 身体笔记纵向切片
 
-- [x] 页面分层：`使用记录列表 -> 单次记录详情 -> 了解自己对话`。
+- [x] 页面分层：`使用记录列表 -> 单次记录详情 -> 了解自己对话`。当前详情底栏仍是过渡实现：两个同级按钮 `只看这一次` 与 `参考近期记录`。B3.0 产品口径改为单一 `了解自己` 入口，下一轮导航 PR 再改 UI。
 - [x] 单次详情展示日期、模式、时长、数据完整度、低频档位/压力图、温感趋势、压力趋势和用户反馈。
-- [x] 详情页底部固定两个同级按钮：`只看这一次` 与 `参考近期记录`。
+- [x] 详情页底部当前仍是两个同级按钮：`只看这一次` 与 `参考近期记录`（过渡实现）。
 - [x] `只看这一次` 只发送当前 `session_id`。
 - [x] `参考近期记录` 默认选择最近 5 次可用记录、最多 10 次，并在进入前展示确切日期、模式和时长。
 - [x] 微信式临时对话页面持续显示当前读取范围和数据来源。
@@ -128,12 +128,9 @@ NASCENT_CONTROL_LLM_TIMEOUT_S
 
 截至 2026-08-28，本分支已运行：
 
-- `node software/app/tests/run.mjs`：27 passed，0 failed。
-- `python -m pytest software/backend/tests -q`：15 passed（包含双模型同时启动、单 lane 故障隔离和独立超时隔离）。
-- `python -m ruff check software/backend/app software/backend/tests`：通过。
-- `python -m compileall -q software/backend/app software/backend/tests`：通过。
-- `python protocol/tools/gen.py --check`：通过，契约仍为 `0.2.0-demo`。
-- `git diff --check`：通过。
+- `node software/app/tests/run.mjs`：30 passed，0 failed。
+- 本机 PATH 没有可用的 Python 解释器，未复跑 `pytest` / `ruff` / `gen.py --check`；这些检查已写入 `.github/workflows/ci.yml`，由 CI 执行。
+- 新增覆盖：Control `hold` 不改写为 `skill_not_allowed`、记忆负 limit、insight「不代表固定偏好」可通过校验、身体笔记加载中拒绝删除。
 
 浏览器在 360 x 800 视口完成了记录列表、单次详情和“只看这一次”独立聊天页检查：底部两个同级入口可见，页面无横向溢出，聊天回复显示来源范围和“保存这条发现”按钮。近期范围选择、后端失败不误删和纯静态本地删除由前端自动化测试覆盖；删除确认没有在浏览器中实际执行，以免改动联调数据。
 
@@ -153,14 +150,16 @@ NASCENT_CONTROL_LLM_TIMEOUT_S
 - 真实 9B 网关、替换密钥和模型 ID 的联调与延迟压测。
 - WebSocket 流式响应、VAD、ASR、TTS、barge-in 和 Waifu/Rive 表现层。
 - 身体笔记、Persona、关系记忆和偏好快照的生产数据库、鉴权、导出和删除审计。
-- 情境漫游完整微信式会话列表、独立人设选择页、使用前确认页和实际使用页。
-- Control 9B 的 Skill 确认 UI 与 `sendCommand(..., { automatic: true })` 映射。
-- 失控模式设备本地计时的协议字段、固件实现和真机验收。
-- Android Gradle 构建和真机 GATT 联调。
+- [ ] 情境漫游完整微信式会话列表、独立人设选择页（选择已有 / 定义 / 对话创建）和实际使用页。
+- [ ] 我的节奏改为自由档位 / 失控模式两入口，选择页与使用页分层。
+- [ ] 身体笔记详情改为单一「了解自己」入口（读取当前 + 最多 5 次近期）。
+- [ ] Control 9B 的 Skill 确认 UI 与 `sendCommand(..., { automatic: true })` 映射。
+- [ ] SensorSnapshot、Health Connect（小米手环）、ResponseAssessment、WellnessAssessment。
+- [ ] 失控模式设备本地计时的协议字段、固件实现和真机验收。
+- [ ] Android Gradle 构建和真机 GATT 联调。
 
 ## Git 交付
 
 - 当前短分支：`feat/body-notes-insight`。
-- 计划提交：`feat: add body notes insight flow`。
-- 只显式暂存本任务文件，不使用 `git add .` 或 `git add -A`。
-- 推送后创建或更新 Draft PR，不自动合并。
+- 本轮：B3.0 规格收口 + PR #6 Review 修复。
+- 推送后更新 Draft PR #6，不自动合并。

@@ -164,6 +164,7 @@ export class BodyNotesState {
   }
 
   async deleteSession(sessionId) {
+    if (this.loading || (this._fetch && this.backendAvailable === null)) return false;
     if (this.backendAvailable === true) {
       const response = await this._request(`/v1/body-notes/sessions/${encodeURIComponent(sessionId)}`, {
         method: "DELETE",
@@ -206,6 +207,7 @@ export class BodyNotesState {
   }
 
   async deleteNote(noteId) {
+    if (this.loading || (this._fetch && this.backendAvailable === null)) return false;
     if (this.backendAvailable === true) {
       const response = await this._request(`/v1/body-notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
       if (!response.ok || response.data?.deleted !== true) return false;
