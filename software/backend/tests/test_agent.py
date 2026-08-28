@@ -263,3 +263,142 @@ def test_memory_search_http_rejects_out_of_range_limit():
             params={"user_id": "u", "persona_id": "p", "limit": limit},
         )
         assert response.status_code == 422, limit
+
+
+def test_chat_stub_aftercare_does_not_escalate():
+    from app.services.llm import _agent_stub
+
+    turn = _agent_stub(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            scene_id="aftercare",
+            user_input="累了",
+            sensor_context={
+                "temperature_state": "comfortable",
+                "pressure_rhythm": "decreasing",
+                "hr_trend": "unknown",
+            },
+        )
+    )
+    assert turn.action is None
+    assert turn.scene_ctrl == "end"
+    assert "高潮" not in turn.dialogue
+
+
+def test_prompt_includes_sensor_trends_and_aftercare():
+    from app.services.prompt_builder import SYSTEM_PROMPT, build_messages
+
+    assert "事后抚慰" in SYSTEM_PROMPT
+    assert "Chat 9B" in SYSTEM_PROMPT
+    messages = build_messages(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            scene_id="rising",
+            user_input="可以再近一点",
+            sensor_context={
+                "temperature_state": "warming",
+                "pressure_rhythm": "increasing",
+                "hr_trend": "unknown",
+            },
+        ),
+        [],
+    )
+    blob = messages[1]["content"]
+    assert "warming" in blob
+    assert "increasing" in blob
+    assert "hr_trend" in blob
+    assert "press_l" not in blob
+
+
+def test_siliconflow_console_url_normalizes_to_api_root():
+    from app.config import normalize_llm_base_url
+
+    assert normalize_llm_base_url("https://cloud.siliconflow.cn/") == "https://api.siliconflow.cn/v1"
+    assert normalize_llm_base_url("https://api.siliconflow.cn/v1") == "https://api.siliconflow.cn/v1"
+
+
+def test_llm_vendor_payload_disables_thinking_and_extracts_json():
+    from app.services.providers.openai_compat import coerce_json_text, vendor_payload
+
+    payload = vendor_payload({"model": "Qwen/Qwen3.5-9B", "messages": []})
+    assert payload["enable_thinking"] is False
+    extracted = coerce_json_text('thinking\n```json\n{"dialogue":"我在","action":null}\n```')
+    assert extracted == '{"dialogue":"我在","action":null}'
+
+
+@pytest.mark.asyncio
+async def test_generate_turn_uses_completion_provider(monkeypatch):
+    import json as json_lib
+
+    from app.config import settings
+    from app.services import llm
+
+    captured = {}
+
+    async def fake_complete(**kwargs):
+        captured["model"] = kwargs["model"]
+        captured["messages"] = kwargs["messages"]
+        return json_lib.dumps({
+            "dialogue": "按你的节奏来",
+            "action": None,
+            "scene_ctrl": "stay",
+            "emotion": "calm",
+        })
+
+    monkeypatch.setattr(settings, "llm_api_key", "test")
+    monkeypatch.setattr(settings, "llm_base_url", "https://example.invalid/v1")
+    monkeypatch.setattr(llm, "complete_json", fake_complete)
+    result = await llm.generate_turn(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            user_input="你好",
+            memory_policy="off",
+            sensor_context={"temperature_state": "warming", "pressure_rhythm": "steady"},
+        ),
+        [],
+    )
+    assert result.dialogue == "按你的节奏来"
+    assert result.action is None
+    assert captured["model"] == "Qwen/Qwen3.5-9B"
+    blob = json_lib.dumps(captured["messages"], ensure_ascii=False)
+    assert "press_l" not in blob
+    assert "warming" in blob
+
+
+def test_speech_routes_fail_closed_without_vendor_config():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    transcribe = client.post(
+        "/v1/speech/transcribe",
+        files={"file": ("utterance.wav", b"RIFF", "audio/wav")},
+    )
+    speak = client.post("/v1/speech/speak", json={"text": "我在"})
+    assert transcribe.status_code == 503
+    assert speak.status_code == 503
+    health = client.get("/healthz")
+    assert health.json()["speech"] == "stub"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_rejects_oversized_audio():
+    from app.services.providers.speech import MAX_AUDIO_BYTES, transcribe
+
+    with pytest.raises(ValueError):
+        await transcribe(b"x" * (MAX_AUDIO_BYTES + 1))
+
+
+def test_tts_rejects_json_error_payload():
+    from types import SimpleNamespace
+
+    from app.services.providers.speech import _require_audio
+
+    with pytest.raises(ValueError):
+        _require_audio(SimpleNamespace(headers={"content-type": "application/json"}, content=b'{"error":"no"}'))
+    audio = _require_audio(SimpleNamespace(headers={"content-type": "audio/mpeg"}, content=b"ID3" + b"\x00" * 40))
+    assert audio.startswith(b"ID3")

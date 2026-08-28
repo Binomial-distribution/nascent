@@ -13,13 +13,14 @@
 | 四栏底栏：心绪 / 亲密时刻 / 记录 / 我的 | 已实现 | 本轮 `feat/intimacy-records-ia` |
 | Chat / Control 双逻辑模型与 `parallel-turn` | 后端联调骨架 | 已实现 |
 | 身心记录长页 + 单一「聊聊自己」入口 | 已实现；旧 `#/intimacy/notes*` 重定向 | 本轮 |
-| 情景模式人设列表 + 结构化新建 | 已实现；点选后仍是静态漫游页 | 微信式聊天后续 PR |
+| 情景模式人设列表 + 自定义/新增 | 已有人设点选后经通话接入动画进入实时通话；新增走 C 层定义（可上传头像）再拨打 | 本轮 `feat/provider-live-voice` |
+| 情景语音输入 | 通话页连续听：浏览器 VAD 切句 → 云端 ASR → 转写文本进 Chat 9B → 云端 TTS 播报；PCM 不进 Prompt。这是相对「PCM 不上云」的明确产品决定。玩具侧安全词麦克风仍只在 ESP32 本地。 | 本轮 demo；Waifu 仍后续 |
 | 自我控制：停止 + Slider + 失控 | 已实现；控制页已去掉情景按钮 | 失控独立确认页仍后续 |
-| `SensorSnapshot`、心率、Health Connect | 仍用松散 `sensor_context`；协议已有 `hr_trend` / `hr_1hz` 摘要字段 | 后续 PR |
+| `SensorSnapshot`、心率、Health Connect | 情景聊天已把脱敏 `sensor_context`（温感 / 压力节律 / 心率趋势）发给 Chat 9B；原始值和 Health Connect 仍未接入 | 聚合快照与手环后续 PR |
 | `ResponseAssessment` / `WellnessAssessment` | 未实现 | 后续 PR |
 | 有限自动适配执行 | Governor 仅拦截 `automatic` 且 insert 未知 | 后续 PR |
 | IRPI 六因子（含心率 0.05） | 代码仍是五因子 `0.45 / 0.25 / 0.15 / 0.10 / 0.05` | 后续 PR |
-| 按住说话 / TTS / Waifu | 未实现 | 后续 PR |
+| 按住说话 / TTS / Waifu | 台词走 `POST /v1/speech/speak`（CosyVoice）；失败才回退浏览器朗读。Waifu 未实现 | Waifu 后续 PR |
 
 ## 1. 摘要
 
@@ -28,7 +29,7 @@ B 层不是一个“聊天机器人直接控制硬件”的页面，而是一条
 ```text
 用户选择/创建人设
   -> 情景聊天或手动控制
-  -> 本地语音输入与脱敏 SensorSnapshot
+  -> 通话连续听（云端 ASR）与脱敏 SensorSnapshot
   -> Chat 9B 生成台词与角色表现
   -> Control 9B 生成 hold / recommend / ask
   -> 确定性 Policy + Governor 审核
@@ -63,8 +64,8 @@ B 层不是一个“聊天机器人直接控制硬件”的页面，而是一条
 
 亲密时刻
   ├─ 情景模式
-  │    ├─ 人设列表（预置 + 已确认自定义）-> 点选进入现有漫游使用页
-  │    └─ 新建 -> 结构化表单 -> 回列表
+  │    ├─ 已有人设 -> 通话接入动画 -> 聊天（文字 / 按住说话）
+  │    └─ 自定义/新增 -> C 层定义（可上传头像）-> 直接开始 -> 通话 -> 聊天
   └─ 自我控制 -> 停止 + 八档 Slider + 失控（无情景按钮）
 
 记录（长页下滑）
@@ -74,7 +75,7 @@ B 层不是一个“聊天机器人直接控制硬件”的页面，而是一条
   └─ 和 AI 聊聊自己 -> 了解自己对话（当前 + 最多 5 次）
 ```
 
-完整目标仍包含对话创建人设、微信式情景聊天、失控独立确认页；本轮未做。
+完整目标仍包含对话创建人设、失控独立确认页和 Waifu；情景通话与按住说话已在本轮接入。
 
 创建人设的对话页和实际使用的情景聊天必须是不同页面。所有主要操作放在屏幕下半区；触控高度至少 48dp，停止按钮至少 56dp。
 
@@ -231,7 +232,7 @@ ESP32 12 Hz 原始采样
   -> 会话归档和偏好特征
 ```
 
-原始温度、压力、PCM、设备 MAC、令牌和安全词原文不得进入 LLM Prompt、共享日志或关系记忆。原始数据如需调试，只允许本地短时环形缓存，并必须有单独的调试开关和自动过期。
+原始温度、压力、PCM、设备 MAC、令牌和安全词原文不得进入 Chat/Control Prompt、共享日志或关系记忆。通话页可以把一句音频发到独立的 `/v1/speech/transcribe`；转写文本才进入 Chat 9B。玩具侧安全词麦克风仍只在 ESP32 本地处理。
 
 ### 4.2 发给模型的聚合字段
 
@@ -547,7 +548,7 @@ DELETE /v1/body-notes/{note_id}
 3. 同意状态来自 UI/会话控制，不由模型推断；传感器不能代替同意。
 4. 用户明确停止、拒绝、不适、撤回时，立即停止自动 Skill，并记录安全事件。
 5. 失控模式的终止由设备计时与固件安全逻辑负责，模型不能创建、延长或解除。
-6. Prompt、日志和模型供应商请求不得包含 PCM、原始 12Hz 数据、压力原始值、设备 MAC、密钥、安全词原文或其他 Persona 记忆。
+6. Chat/Control Prompt、日志和关系记忆不得包含 PCM、原始 12Hz 数据、压力原始值、设备 MAC、密钥、安全词原文或其他 Persona 记忆。通话音频只发往 `/v1/speech/transcribe`。
 7. 所有记忆、偏好、会话和身体笔记都必须提供 UI 删除入口，并执行后端级联删除。
 8. “强势”和“SM 风格”只能改变叙事语气与场景参数，不能改变停止规则和安全上限。
 
@@ -556,6 +557,12 @@ DELETE /v1/body-notes/{note_id}
 ```text
 POST /v1/agent/turn
   -> ChatTurn
+
+POST /v1/speech/transcribe
+  -> { text }
+
+POST /v1/speech/speak
+  -> audio/mpeg
 
 POST /v1/agent/control-decision
   -> ControlProposal

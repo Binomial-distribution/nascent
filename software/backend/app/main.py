@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import agent, body_notes, persona, session
+from .routers import agent, body_notes, persona, session, speech
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "app"
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -34,11 +34,16 @@ app.include_router(session.router)
 app.include_router(persona.router)
 app.include_router(agent.router)
 app.include_router(body_notes.router)
+app.include_router(speech.router)
 
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "llm": "configured" if settings.llm_configured else "stub",
+        "speech": "configured" if settings.speech_configured else "stub",
+    }
 
 
 # 具体 API 必须先注册。挂在最后的 "/" 只负责网站静态页。

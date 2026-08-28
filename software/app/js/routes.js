@@ -1,4 +1,5 @@
 export const NAV_TABS = ["heart", "intimacy", "records", "settings"];
+export const SCENARIO_FLOW = ["new", "define", "start", "call", "chat", "play"];
 
 export function parseHash(hash) {
   const raw = (hash || "#/heart").replace(/^#/, "");
