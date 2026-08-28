@@ -3,7 +3,7 @@
 更新时间：2026-08-28
 当前分支：`feat/body-notes-insight`
 基线：已合并 `origin/main`（含 AO3400A）
-状态：共享 Web UI 和 Android 壳框架已存在；B 层 Agent 联调骨架与身体笔记纵向切片已完成。B3.0 是权威规格，见 [`docs/architecture/B层完整版技术文稿-双模型与偏好闭环.md`](../architecture/B层完整版技术文稿-双模型与偏好闭环.md) 与 [`B层完整软件实施计划-B3.0.md`](B层完整软件实施计划-B3.0.md)。本分支继续更新 Draft PR #6，不自动合并。完整情景 UI、传感器接入、有限自动适配和语音拆后续短 PR。
+状态：共享 Web UI 和 Android 壳框架已存在；B 层 Agent 联调骨架与身体笔记纵向切片已完成。B3.0 是权威规格，见 [`docs/architecture/B层完整版技术文稿-双模型与偏好闭环.md`](../architecture/B层完整版技术文稿-双模型与偏好闭环.md) 与 [`B层完整软件实施计划-B3.0.md`](B层完整软件实施计划-B3.0.md)。此前 Codex 文稿见 [`codex-plans/`](codex-plans/)。本分支继续更新 Draft PR #6，不自动合并。完整情景 UI、传感器接入、有限自动适配和语音拆后续短 PR。
 
 ## 当前软件形态
 
