@@ -18,15 +18,16 @@ void SafetyGovernor::onCommand(const nl_command_t &cmd, uint32_t now_ms) {
     return;
   }
 
-  // resume 是唯一能解除闩锁的指令，而它只由 K10 上的物理双键确认产生。
-  // App 与云端都发不出它——喊停之后要恢复，必须有人在场按下去。
-  if (cmd.cmd == NL_CMD_RESUME) {
-    if (latched_) {
-      Serial.println("[safety] 收到物理确认，解除闩锁");
-      clearLatch(now_ms);
-    }
-    return;
-  }
+  // 这里**故意没有 NL_CMD_RESUME 分支**。
+  //
+  // 0.3.0 之前它存在，因为那时指令只可能来自 K10，而 K10 只在用户按下板载
+  // 双键时才发 resume。手机直连玩具侧之后这个前提消失了：留着这个分支，
+  // 任何能写 downlink 的一方都能远程解除用户刚刚按下的停机。
+  //
+  // 于是恢复路径整体搬出了指令通道 —— clearLatch() 只由 boot_key 的处理函数调用。
+  // 传输层当然也各自拒绝 resume 并记 bad_cmd，但那只是给 App 的反馈；
+  // 真正的保证是这里不存在这条代码路径。过滤会漏，不存在的分支不会漏。
+  if (cmd.cmd == NL_CMD_RESUME) return;
 
   // 闩锁期间其余指令一律丢弃，包括换模式。
   if (latched_) return;
@@ -59,8 +60,7 @@ void SafetyGovernor::onCommand(const nl_command_t &cmd, uint32_t now_ms) {
       break;
 
     case NL_CMD_SET_PATTERN:
-    case NL_CMD_SET_JOYSTICK:
-      // 波形由原板按档位自己决定，摇杆使能是 K10 侧的事，玩具侧不需要动作。
+      // 波形由原板按档位自己决定，本板只能按键、不能调波形。
       break;
 
     default:
@@ -80,7 +80,9 @@ void SafetyGovernor::onLink(bool up, uint32_t now_ms) {
   if (up == link_up_) return;
   link_up_ = up;
   if (!up) {
-    Serial.println("[safety] 链路丢失，归零");
+    // 手机是唯一的指令来源。连接一断就没有任何东西能再降档，
+    // 所以断链的默认行为必须是停下来，而不是保持当前输出。
+    Serial.println("[safety] 与手机的链路丢失，归零");
     recompute(now_ms);
   }
 }

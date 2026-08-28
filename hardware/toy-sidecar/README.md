@@ -1,6 +1,10 @@
-# toy-sidecar —— 玩具侧协处理板
+# toy-sidecar —— 玩具侧主板
 
-ESP32-S3-N16R8。负责采集、推断、点灯，以及通过 AO3400A 低边 N-MOS 并联原产品按键。
+ESP32-S3-N16R8。负责采集、推断、点灯，通过 AO3400A 低边 N-MOS 并联原产品按键，
+并作为手机的 BLE GATT 外设。
+
+协议 0.3.0 起这是 demo 里**唯一**一块板：行空板 K10 与 HW504 摇杆已经删除，
+手机直连本板。名字里的 "sidecar" 是双板时期留下的，暂不改目录名以免牵动所有路径引用。
 
 ## 最重要的一条
 
@@ -25,8 +29,12 @@ AO3400A 本体能过 5.7A，所以那颗电阻是安全论证的一部分，不�
 | FSR402 右 | GPIO2 | ADC1_CH1，demo 未接（`TOY_HAS_FSR_R=0`） |
 | MPU6050 SDA | GPIO8 | 400kHz |
 | MPU6050 SCL | GPIO9 | |
+| BOOT 键 | GPIO0 | 开发板自带，无需接线。短按急停，长按 2s 解除闩锁 |
 
 改引脚要同步改 `include/config.h` 和这张表，两处不一致比两处都错更难查。
+
+GPIO0 是 strapping 脚：**上电时按住会进下载模式**，那种情况下固件根本不会跑，
+所以它不构成安全风险；运行期当普通输入读没有问题。
 
 ### 原按键开关器件：AO3400A 低边 N-MOS
 
@@ -139,7 +147,10 @@ DLPF 42Hz 仍有高频残留，在 12Hz 采样下是相邻样本间的无规则�
 | `motor_sense.{h,cpp}` | 电机是否在转的 IMU 观测，只读，永不驱动按键 |
 | `ao3400.{h,cpp}` | 原板按键时序与九档开环跟踪 |
 | `led_ws2812.{h,cpp}` | 灯语：模式配色 + 覆盖层优先级 |
-| `espnow_link.{h,cpp}` | 板间链路，ACK 去重与超时 |
+| `transport.h` | 传输层抽象。BLE 与 WiFi 都实现它，同一时刻只开一条 |
+| `ble_peripheral.{h,cpp}` | BLE GATT 外设、会话令牌、下行的全部拒绝规则 |
+| `uplink_json.{h,cpp}` | 上行 JSON 组装，两条传输共用一份 |
+| `boot_key.{h,cpp}` | BOOT 键：短按急停，长按解除闩锁 |
 | `sensors/` | 三个传感器的薄封装，只做单位换算 |
 
 通用驱动全部用 vendored 的社区库（见 [`../VENDOR.md`](../VENDOR.md)），
@@ -153,12 +164,34 @@ DLPF 42Hz 仍有高频残留，在 12Hz 采样下是相邻样本间的无规则�
 
 ## 停机路径
 
-`stop` 是唯一能穿过所有状态的指令。它的执行不在主循环里排队：
-ESP-NOW 回调收到 `NL_CMD_STOP` 的那一行就直接调 `Ao3400::requestOffNow()`
-和 `LedRing::renderSafewordNow()`，电机断电与灯变白是同一时刻发生的。
+停机有两个入口，执行体是同一段 `applyStopNow()`：
 
-闩锁之后**不会自动恢复，也不能远程恢复**。唯一的解除途径是在 K10 上
-同时长按板载 A、B 两键两秒，K10 才会发出 `resume`。App 写 `resume` 会被直接拒绝。
+| 入口 | 触发 | 闩锁记的 alert |
+|---|---|---|
+| 远端 `stop` | 手机经 BLE / WebSocket 写 downlink | `safeword` |
+| BOOT 键短按 | 板上按一下，松手在 600ms 内 | `estop` |
+
+两者都不在主循环里排队：收到的那一行就直接调 `Ao3400::requestOffNow()`
+和 `LedRing::renderSafewordNow()`，断电与灯变白是同一时刻发生的。
+
+链路断开也归零：手机是唯一的指令来源，连接一断就没有任何东西能再降档，
+所以断连的默认行为必须是停下来。这一条与双板时期不同——那时 K10 上还有
+摇杆和屏幕可以本地控，断连不停机是合理的；现在本板的本地入口只能停不能开。
+
+### 恢复只有一条路
+
+闩锁之后**不会自动恢复，也不能远程恢复**。唯一的解除途径是
+**长按板上的 BOOT 键 2 秒**（`NL_BOOT_RESUME_HOLD_MS`）。
+
+这条不变量不是靠"各处记得过滤 `resume`"来保证的，而是靠代码里不存在那条路径：
+
+- `SafetyGovernor::onCommand` **没有** `NL_CMD_RESUME` 分支，收到就直接返回。
+- `clearLatch()` 全工程只有 `main.cpp` 的 `pollBootKey()` 一处调用。
+- 传输层额外拒绝 `resume` 并记 `bad_cmd`，但那只是给 App 的反馈，不是防线本身。
+
+双板时期这条路在 K10 上（板载 A+B 双键），K10 删除后落到本板的 BOOT 键。
+中间 600ms～2000ms 是刻意留空的死区：不这样做，一次"想停机但手慢了"
+的按压会变成一次恢复。
 
 要求物理在场是刻意的：用户喊过停之后设备自己重新动起来，
 是这个产品最坏的失败模式，不该由软件单方面决定。
@@ -170,16 +203,20 @@ pio run -e toy-sidecar -t upload
 pio device monitor -b 115200
 ```
 
-首次上电串口会打印本机 MAC，把它填进 k10-controller 的 `config.h`；
-反过来把 K10 打印的 MAC 填进本工程的 `PEER_MAC_K10`。验证期不做动态配对。
+分区表是 `huge_app.csv`（默认的 1.28MB 装不下 BLE + WiFi + 传感器这一套）。
+从旧固件升上来必须整片重烧，不能只 OTA。
+
+上电后板子以 `Nascent-Toy` 广播，手机直接连它，不再需要填任何 MAC。
 
 ## 还没做的
 
-- 急停拉环的 GPIO 中断（`SafetyGovernor::onEstop` 接口已留好，没有接线）
+- WiFi WebSocket 备用通道（`transport.h` 的接口已留好，见 `protocol/wifi_ws.md`）
+- 独立的急停拉环。BOOT 键短按已经接到 `SafetyGovernor::onEstop`，
+  但那是开发板上的键，不是量产要的常闭拉环
 - 电量采样，所以 `low_battery` 灯语目前没有触发源
 - 电机观测阈值还没标定，`MOTOR_SENSE_ENABLED` 仍是 0，观测器现在只是个打印器
 - 「停机未确认」只有白灯 + `flags` bit4 + 串口，没有独立的 `alert` 枚举值。
-  追加 `alert` 会牵动 K10、App、后端三端文案，留给单独的协议 PR
+  追加 `alert` 会牵动固件、App、后端三端文案，留给单独的协议 PR
 - 原板第 9 档之后再短按是回第 1 档还是关机，还没测。协议封顶 `NL_LEVEL_MAX = 8`，
   `requestLevel` 不会主动按到第 9 档，所以那个回绕是防御性代码
 - AO3400A 的 datasheet 还没入库 `datasheets/`（CD4066B 那份已标为否决留档）

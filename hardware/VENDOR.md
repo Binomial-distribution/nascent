@@ -12,7 +12,7 @@ PlatformIO 会自动把 `lib/` 下的每个目录当作项目本地库编译，�
 | DHTesp | 1.19 | <https://github.com/beegee-tokyo/DHTesp> | toy-sidecar，DHT11 | MIT |
 | MPU6050 | v1.4.5 | <https://github.com/ElectronicCats/mpu6050> | toy-sidecar，六轴 | MIT |
 | Adafruit_NeoPixel | 1.15.5 | <https://github.com/adafruit/Adafruit_NeoPixel> | toy-sidecar，WS2812B ×8 | LGPL-3.0 |
-| ArduinoJson | v7.4.3 | <https://github.com/bblanchon/ArduinoJson> | k10-controller，BLE JSON | MIT |
+| ArduinoJson | v7.4.3 | <https://github.com/bblanchon/ArduinoJson> | toy-sidecar，BLE / WebSocket JSON | MIT |
 
 ## 随平台提供、不需要也没法 vendored 的部分
 
@@ -62,4 +62,5 @@ tar -xzf /tmp/lib.tgz -C <工程>/lib/<库名> --strip-components=1
 | `ao3400.cpp` | 模拟的是**这一台**原产品控制板的按键时序与九档循环行为，没有通用性 |
 | `insert_state.cpp` | 入体推断的判据组合与阈值是产品定义的一部分 |
 | `led_ws2812.cpp` 的灯语层 | 底层驱动用 NeoPixel，模式配色与优先级抢占是产品语言 |
-| `espnow_link.cpp` | 只是 `esp_now` 官方 API 的薄封装，加库反而多一层 |
+| `ble_peripheral.cpp` | 只是 `BLEDevice` 的薄封装加本产品的拒绝规则，没有通用性 |
+| `boot_key.cpp` | 短按停机 / 长按解闩锁的时序与死区是安全语义，不能交给通用按键库 |
