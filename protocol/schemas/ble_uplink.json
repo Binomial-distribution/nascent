@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nascent.local/protocol/ble_uplink.json",
   "title": "BleUplink",
-  "description": "k10-controller -> app（BLE notify，12 Hz 聚合） | contract 0.2.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "description": "toy-sidecar -> app（BLE notify 或 WiFi WebSocket，12 Hz 聚合） | contract 0.3.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
   "$defs": {
     "LevelSetting": {
       "type": "object",
@@ -211,14 +211,6 @@
         "inserted"
       ]
     },
-    "joy_edge": {
-      "type": "string",
-      "enum": [
-        "none",
-        "up",
-        "down"
-      ]
-    },
     "mode": {
       "type": "string",
       "enum": [
@@ -261,7 +253,6 @@
     "accel",
     "gyro",
     "insert_state",
-    "joy_edge",
     "mode",
     "level",
     "alert"

@@ -7,7 +7,7 @@
 #
 # 禁止手改 generated/ 与 schemas/，它们会被下一次生成覆盖。
 
-version: "0.2.0-demo"
+version: "0.3.0-demo"
 
 # ---------------------------------------------------------------------------
 # 常量：三端共享的阈值与上限。固件用宏，App/后端用常量类。
@@ -15,7 +15,7 @@ version: "0.2.0-demo"
 constants:
   PROTO_MAGIC: 20026
   VERSION_MAJOR: 0
-  VERSION_MINOR: 2
+  VERSION_MINOR: 3
 
   LEVEL_MIN: 1
   LEVEL_MAX: 8
@@ -32,14 +32,19 @@ constants:
   IMU_DECISION_PERIOD_MS: 1000
   STILL_PAUSE_MS: 30000
 
-  JOY_EDGE_HOLD_MS: 80
-  JOY_HOLD_RAMP_MS: 400
-  JOY_DEADZONE: 900
+  # 玩具侧 BOOT 键：短按本地停机，长按解除闩锁。
+  # 解闩锁必须长到不可能是误触——它是全系统唯一能让设备重新动起来的动作。
+  BOOT_KEY_DEBOUNCE_MS: 40
+  BOOT_STOP_MAX_MS: 600
+  BOOT_RESUME_HOLD_MS: 2000
 
   WILD_TIMEOUT_MS: 900000
 
   LINK_TIMEOUT_MS: 1500
   SESSION_TOKEN_TTL_MS: 3600000
+
+  # 当前传输空闲这么久，且另一条已配置，才切换。BLE 与 WiFi 不并存。
+  TRANSPORT_IDLE_SWITCH_MS: 20000
 
   # int16 哨兵值，表示该通道本帧无效（例如 demo 阶段未焊 NTC）
   SENTINEL_I16: -32768
@@ -47,9 +52,12 @@ constants:
 # ---------------------------------------------------------------------------
 # BLE GATT 标识。固件与 App 必须用同一组 UUID，
 # 所以它们放在这里而不是只写在 ble_gatt.md 里——文档不会被编译器检查。
+#
+# UUID 沿用 K10 时期的取值：服务只是从主控板挪到玩具侧，逻辑身份没变，
+# 换一组新 UUID 只会白白牵动 App 与 Android 壳。
 # ---------------------------------------------------------------------------
 ble:
-  device_name: "Nascent-K10"
+  device_name: "Nascent-Toy"
   # 低于这个 MTU，12Hz 的上行 JSON 需要分包，App 侧要自己拼。
   min_mtu: 185
   service_uuid: "a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10"
@@ -58,18 +66,33 @@ ble:
   info_uuid: "a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 
 # ---------------------------------------------------------------------------
+# WiFi 备用通道。玩具侧作 STA 接入局域网并起一个 WebSocket 服务端，
+# 承载与 BLE 完全相同的 BleUplink / BleDownlink JSON。
+#
+# 端口与路径必须两端一致，所以它们和 BLE 的 UUID 一样进契约，
+# 而不是固件写一份、App 再抄一份。
+# ---------------------------------------------------------------------------
+wifi:
+  ws_port: 81
+  ws_path: "/nl"
+  mdns_host: "nascent"
+
+# ---------------------------------------------------------------------------
 # 枚举：序号即线序。0 号一律是"最安全"的取值，
 # 这样一帧全零的坏包解出来是 stop / unknown / none，而不是加档。
 # ---------------------------------------------------------------------------
 enums:
-  frame_type: [pair, ack, heartbeat, telemetry, command]
+  # pair / ack / heartbeat 随 ESP-NOW 一起删除：BLE 的写响应与 WebSocket 的
+  # TCP 已经各自负责可靠性，玩具侧不再需要自己做配对和确认帧。
+  frame_type: [telemetry, command]
   mode: [free, scenario, wild]
   insert_state: [unknown, not_inserted, inserted]
-  joy_edge: [none, up, down]
   alert: [none, over_temp, low_battery, safeword, estop, bad_cmd, link_lost]
-  # resume 追加在末尾，前面的线序不变。
-  # 它只由 K10 上的物理双键确认产生，App 永远发不出这条指令。
-  cmd: [stop, set_mode, set_level, set_pattern, set_led, set_joystick, resume]
+  # resume 保留在枚举里，但**没有任何传输层能投递它**：
+  # 固件的 SafetyGovernor::onCommand 不再识别这个值，解除闩锁只能由玩具侧
+  # BOOT 键的处理函数直接调用 clearLatch()。保留它是为了让 App 的安全总督
+  # 能继续显式拒绝并给出文案，属于纵深防御，不是可用指令。
+  cmd: [stop, set_mode, set_level, set_pattern, set_led, resume]
   pattern: [soft_min, soft, shallow_wave, wave, pulse, strong_pulse, mixed, peak]
   led_state: [mode_default, warming, comfort_reached, cleaning, low_battery, safeword]
   phase: [warming, rising, plateau, calm]
@@ -107,8 +130,15 @@ led_overrides:
   - {state: safeword,        anim: slow_breathe, r: 255, g: 255, b: 255, priority: 100, label: "安全词白呼吸"}
 
 # ---------------------------------------------------------------------------
-# ESP-NOW 板间帧：定长 packed struct，仅生成 C。
-# 单帧上限 250 字节，当前用量远低于上限。
+# 固件内部帧：定长 packed struct，仅生成 C。
+#
+# 0.3.0 之前这是 K10 与玩具侧之间的 ESP-NOW 板间帧。去掉 K10 之后板间链路
+# 不存在了，但这两个结构留了下来——它们现在是玩具侧固件的内部表示：
+# 传输层把收到的 JSON 解码进 nl_command_t 再交给 SafetyGovernor，
+# 采样层把结果填进 nl_telemetry_t 再由传输层序列化成 JSON 上行。
+#
+# 保留它们的实际好处是安全总督的接口一行都不用改，
+# 而且换传输不会牵动"什么算一帧遥测"这件事。
 # ---------------------------------------------------------------------------
 wire_header:
   fields:
@@ -121,7 +151,7 @@ wire_header:
 
 wire_frames:
   - name: telemetry
-    doc: "toy-sidecar -> k10-controller，12 Hz"
+    doc: "玩具侧采样结果，12 Hz；由传输层序列化成 BleUplink JSON"
     fields:
       - {name: ts_ms,             ctype: uint32_t}
       - {name: env_temp_c_x10,    ctype: int16_t,  doc: "DHT11 温度 x10；无效为 SENTINEL_I16"}
@@ -143,7 +173,7 @@ wire_frames:
       - {name: flags,             ctype: uint8_t, doc: "bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop, bit4 motor_observed"}
 
   - name: command
-    doc: "k10-controller -> toy-sidecar，事件驱动 + 心跳重发"
+    doc: "由 BleDownlink JSON 解码而来，交给 SafetyGovernor 判定"
     fields:
       - {name: ts_ms,     ctype: uint32_t}
       - {name: cmd,       ctype: uint8_t, enum: cmd}
@@ -151,18 +181,14 @@ wire_frames:
       - {name: level,     ctype: uint8_t}
       - {name: pattern,   ctype: uint8_t, enum: pattern}
       - {name: led_state, ctype: uint8_t, enum: led_state}
-      - {name: flags,     ctype: uint8_t, doc: "bit0 joystick_enabled, bit1 hold_ramp"}
-
-  - name: ack
-    doc: "toy-sidecar -> k10-controller，确认已执行的序号"
-    fields:
-      - {name: ack_seq,  ctype: uint16_t}
-      - {name: accepted, ctype: uint8_t, doc: "0 拒绝，1 接受"}
-      - {name: reason,   ctype: uint8_t, enum: alert}
+      - {name: flags,     ctype: uint8_t, doc: "保留，必须为 0（原 bit0/bit1 是已删除的摇杆使能）"}
 
 # ---------------------------------------------------------------------------
-# JSON 报文：BLE（手机 <-> K10）与云端（App <-> 后端）。
-# 生成 JSON Schema + Dart + Pydantic。
+# JSON 报文：设备链路（手机 <-> 玩具侧，BLE 或 WiFi WebSocket）
+# 与云端（App <-> 后端）。生成 JSON Schema + Dart + Pydantic。
+#
+# BleUplink / BleDownlink 的名字沿用下来：两条传输承载的是同一份载荷，
+# 改名会牵动 App、后端和全部 schema 文件，换不来任何语义澄清。
 # ---------------------------------------------------------------------------
 json_objects:
   - name: LevelSetting
@@ -194,7 +220,7 @@ json_objects:
 json_messages:
   - name: BleUplink
     file: ble_uplink
-    direction: "k10-controller -> app（BLE notify，12 Hz 聚合）"
+    direction: "toy-sidecar -> app（BLE notify 或 WiFi WebSocket，12 Hz 聚合）"
     fields:
       - {name: ts,            type: int}
       - {name: temp_a,        type: float, nullable: true, doc: "量产接触 NTC；demo 恒为 null"}
@@ -206,25 +232,22 @@ json_messages:
       - {name: accel,         type: "list:float"}
       - {name: gyro,          type: "list:float"}
       - {name: insert_state,  type: "enum:insert_state"}
-      - {name: joy_edge,      type: "enum:joy_edge"}
       - {name: mode,          type: "enum:mode"}
       - {name: level,         type: int}
-      # demo 没有电量采样电路，K10 恒发 null。
+      # demo 没有电量采样电路，玩具侧恒发 null。
       # 声明成非空会让 App 一解析就崩，而不是安静地不显示电量。
       - {name: battery,       type: int, nullable: true, doc: "demo 恒为 null"}
       - {name: alert,         type: "enum:alert"}
 
   - name: BleDownlink
     file: ble_downlink
-    direction: "app -> k10-controller（BLE write）"
+    direction: "app -> toy-sidecar（BLE write 或 WiFi WebSocket）"
     fields:
       - {name: cmd,     type: "enum:cmd"}
       - {name: level,   type: int, nullable: true}
       - {name: pattern, type: "enum:pattern", nullable: true}
       - {name: mode,    type: "enum:mode", nullable: true}
       - {name: led,     type: "enum:led_state", nullable: true}
-      - {name: enabled, type: bool, nullable: true, doc: "set_joystick 用"}
-      - {name: hold_ramp, type: bool, nullable: true, doc: "set_joystick 用"}
       - {name: auth,    type: str, doc: "session token；缺失或过期整包丢弃"}
 
   - name: CloudSummary

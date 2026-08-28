@@ -1,6 +1,6 @@
 """本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
 
-contract version: 0.2.0-demo
+contract version: 0.3.0-demo
 """
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-PROTO_VERSION = "0.2.0-demo"
+PROTO_VERSION = "0.3.0-demo"
 
 
 class NlConst:
     PROTO_MAGIC = 20026
     VERSION_MAJOR = 0
-    VERSION_MINOR = 2
+    VERSION_MINOR = 3
     LEVEL_MIN = 1
     LEVEL_MAX = 8
     DUTY_CAP_PCT = 90
@@ -25,19 +25,20 @@ class NlConst:
     DHT11_MIN_INTERVAL_MS = 1000
     IMU_DECISION_PERIOD_MS = 1000
     STILL_PAUSE_MS = 30000
-    JOY_EDGE_HOLD_MS = 80
-    JOY_HOLD_RAMP_MS = 400
-    JOY_DEADZONE = 900
+    BOOT_KEY_DEBOUNCE_MS = 40
+    BOOT_STOP_MAX_MS = 600
+    BOOT_RESUME_HOLD_MS = 2000
     WILD_TIMEOUT_MS = 900000
     LINK_TIMEOUT_MS = 1500
     SESSION_TOKEN_TTL_MS = 3600000
+    TRANSPORT_IDLE_SWITCH_MS = 20000
     SENTINEL_I16 = -32768
 
 
 class Ble:
     """BLE GATT 标识，固件与 App 共用。"""
 
-    DEVICE_NAME = "Nascent-K10"
+    DEVICE_NAME = "Nascent-Toy"
     MIN_MTU = 185
     SERVICE_UUID = "a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10"
     UPLINK_UUID = "a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10"
@@ -45,10 +46,15 @@ class Ble:
     INFO_UUID = "a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10"
 
 
+class Wifi:
+    """WiFi 备用通道的端口、路径与 mDNS 主机名。"""
+
+    WS_PORT = 81
+    WS_PATH = "/nl"
+    MDNS_HOST = "nascent"
+
+
 class FrameType(str, Enum):
-    PAIR = "pair"
-    ACK = "ack"
-    HEARTBEAT = "heartbeat"
     TELEMETRY = "telemetry"
     COMMAND = "command"
 
@@ -92,21 +98,6 @@ class InsertState(str, Enum):
         return members[i] if 0 <= i < len(members) else members[0]
 
 
-class JoyEdge(str, Enum):
-    NONE = "none"
-    UP = "up"
-    DOWN = "down"
-
-    @property
-    def wire(self) -> int:
-        return list(JoyEdge).index(self)
-
-    @classmethod
-    def from_wire(cls, i: int) -> "JoyEdge":
-        members = list(cls)
-        return members[i] if 0 <= i < len(members) else members[0]
-
-
 class Alert(str, Enum):
     NONE = "none"
     OVER_TEMP = "over_temp"
@@ -132,7 +123,6 @@ class Cmd(str, Enum):
     SET_LEVEL = "set_level"
     SET_PATTERN = "set_pattern"
     SET_LED = "set_led"
-    SET_JOYSTICK = "set_joystick"
     RESUME = "resume"
 
     @property
@@ -319,7 +309,7 @@ class UserTags(BaseModel):
 
 
 class BleUplink(BaseModel):
-    """k10-controller -> app（BLE notify，12 Hz 聚合）"""
+    """toy-sidecar -> app（BLE notify 或 WiFi WebSocket，12 Hz 聚合）"""
 
     ts: int
     temp_a: float | None = None  # 量产接触 NTC；demo 恒为 null
@@ -331,7 +321,6 @@ class BleUplink(BaseModel):
     accel: list[float]
     gyro: list[float]
     insert_state: InsertState
-    joy_edge: JoyEdge
     mode: Mode
     level: int
     battery: int | None = None  # demo 恒为 null
@@ -339,15 +328,13 @@ class BleUplink(BaseModel):
 
 
 class BleDownlink(BaseModel):
-    """app -> k10-controller（BLE write）"""
+    """app -> toy-sidecar（BLE write 或 WiFi WebSocket）"""
 
     cmd: Cmd
     level: int | None = None
     pattern: Pattern | None = None
     mode: Mode | None = None
     led: LedState | None = None
-    enabled: bool | None = None  # set_joystick 用
-    hold_ramp: bool | None = None  # set_joystick 用
     auth: str  # session token；缺失或过期整包丢弃
 
 

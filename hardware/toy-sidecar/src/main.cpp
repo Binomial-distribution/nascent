@@ -1,8 +1,11 @@
 // toy-sidecar 主循环。
 //
-// 这块板做四件事，不多做一件：
-//   采样（DHT11 / MPU6050 / FSR402）→ 推断使用状态 → 过安全总督 → 按原板按键 + 点灯
-// 同时以 12Hz 把遥测发回 K10。
+// 0.3.0 起这是**唯一**一块板：行空板 K10 已经删除，手机直连本板。
+// 于是它多了两个以前属于 K10 的职责——BLE GATT 外设与会话令牌的签发。
+//
+// 这块板做五件事，不多做一件：
+//   采样（DHT11 / MPU6050 / FSR402）→ 推断使用状态 → 过安全总督
+//   → 按原板按键 + 点灯 → 12Hz 上行给手机
 //
 // 它**不驱动电机**。所有振动强度都由原产品控制板决定，
 // 本板只能通过 AO3400A 并联按键去"按"它，这是硬件级的安全边界。
@@ -13,8 +16,9 @@
 #include <Arduino.h>
 
 #include "ao3400.h"
+#include "ble_peripheral.h"
+#include "boot_key.h"
 #include "config.h"
-#include "espnow_link.h"
 #include "insert_state.h"
 #include "led_ws2812.h"
 #include "motor_sense.h"
@@ -23,6 +27,8 @@
 #include "sensors/dht11.h"
 #include "sensors/fsr402.h"
 #include "sensors/mpu6050.h"
+#include "transport.h"
+#include "uplink_json.h"
 
 namespace {
 
@@ -34,7 +40,15 @@ MotorSense g_motor;
 Ao3400 g_button;
 LedRing g_led;
 SafetyGovernor g_safety;
-EspNowLink g_link;
+BootKey g_boot_key;
+
+BlePeripheral g_ble;
+
+// 当前生效的那条传输。B3 接入 WiFi WebSocket 之后这个指针会在两者之间切换，
+// 但同一时刻只有一条在跑——ESP32-S3 只有一路射频。
+Transport *g_link = &g_ble;
+
+char g_uplink_buf[384];
 
 ImuSample g_imu_sample = {};
 bool g_imu_ok = false;
@@ -52,22 +66,50 @@ bool g_boot_power_check_done = false;
 volatile bool g_stop_verify_pending = false;
 volatile uint32_t g_stop_verify_at_ms = 0;
 
-// ESP-NOW 回调在 WiFi 任务上下文里跑，只做转发，重活留给主循环。
+// 停机的执行器动作。远端 stop 指令与 BOOT 键短按共用这一段，
+// 区别只在闩锁记的 alert 是 safeword 还是 estop。
+void applyStopNow(uint32_t now) {
+  g_button.requestOffNow();
+  g_led.renderSafewordNow();
+
+  // 关机长按要 BTN_LONG_MS，之前可能还垫一个 BTN_POWER_GAP_MS；
+  // 按完还得等观测窗口刷干净才能判断振动是否真的停了。
+  g_stop_verify_at_ms = now + BTN_POWER_GAP_MS + BTN_LONG_MS + STOP_VERIFY_MS;
+  g_stop_verify_pending = true;
+}
+
+// BLE 的写回调在协议栈任务上下文里跑，只做转发，重活留给主循环。
 void onCommand(const nl_command_t &cmd) {
   uint32_t now = millis();
 
-  // stop 不等下一轮 loop。从收到帧到电机断电必须是这一行里发生的事。
-  if (cmd.cmd == NL_CMD_STOP) {
-    g_button.requestOffNow();
-    g_led.renderSafewordNow();
-
-    // 关机长按要 BTN_LONG_MS，之前可能还垫一个 BTN_POWER_GAP_MS；
-    // 按完还得等观测窗口刷干净才能判断振动是否真的停了。
-    g_stop_verify_at_ms = now + BTN_POWER_GAP_MS + BTN_LONG_MS + STOP_VERIFY_MS;
-    g_stop_verify_pending = true;
-  }
+  // stop 不等下一轮 loop。从收到指令到断电必须是这一行里发生的事。
+  if (cmd.cmd == NL_CMD_STOP) applyStopNow(now);
 
   g_safety.onCommand(cmd, now);
+}
+
+// BOOT 键是本板唯一的本地物理入口，也是**唯一**能解除停机闩锁的地方。
+// 这个函数是全工程里唯一调用 clearLatch() 的位置，不要在别处调。
+void pollBootKey(uint32_t now) {
+  switch (g_boot_key.poll(now)) {
+    case BootKey::Event::kStop:
+      Serial.println("[boot-key] 短按：本地急停");
+      applyStopNow(now);
+      g_safety.onEstop(now);
+      break;
+
+    case BootKey::Event::kResume:
+      if (g_safety.latched()) {
+        Serial.println("[boot-key] 长按已达 2s：物理确认，解除闩锁");
+        g_safety.clearLatch(now);
+      } else {
+        Serial.println("[boot-key] 长按已达 2s，但当前没有闩锁，忽略");
+      }
+      break;
+
+    case BootKey::Event::kNone:
+      break;
+  }
 }
 
 // 电源状态观测。
@@ -206,11 +248,16 @@ void setup() {
                  "若原板此刻是开机的，请手动关掉");
 #endif
 
+  // BOOT 键在传输之前初始化：它是停机路径的一部分，
+  // 不该等无线起来才可用。
+  g_boot_key.begin(PIN_BOOT_KEY);
+
   g_safety.begin(millis());
 
-  if (!g_link.begin(PEER_MAC_K10, ESPNOW_CHANNEL, onCommand)) {
-    Serial.println("[toy-sidecar] ESP-NOW 初始化失败");
+  if (!g_link->begin(onCommand)) {
+    Serial.printf("[toy-sidecar] 传输 %s 初始化失败\n", g_link->name());
   }
+  Serial.println("[toy-sidecar] 等待手机连接；停机后需长按 BOOT 键 2 秒才能恢复");
 
   g_last_tick_ms = millis();
 }
@@ -218,10 +265,12 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
-  // 按键时序和灯效需要比主节拍更细的粒度，每轮都推进。
+  // 按键时序、灯效和 BOOT 键需要比主节拍更细的粒度，每轮都推进。
+  // BOOT 键放在最前：它是停机入口，不该排在采样后面。
+  pollBootKey(now);
   g_button.tick(now);
   g_led.render(now);
-  g_link.tick(now);
+  g_link->tick(now);
 
   if (now - g_last_tick_ms < NL_UPLINK_PERIOD_MS) {
     delay(1);
@@ -246,8 +295,11 @@ void loop() {
 
   // --- 安全 ---
   g_safety.onSensors(g_insert.state(), g_insert.still(), g_insert.still_ms());
-  g_safety.onLink(g_link.up(now), now);
+  g_safety.onLink(g_link->up(now), now);
   g_safety.tick(now);
+
+  // 闩锁状态同步给传输层，让"闩锁期间只放 stop"这条拒绝发生在解析层。
+  g_link->setStopLatched(g_safety.latched());
 
   // --- 执行：这是全板唯一一处调用 requestLevel 的地方 ---
   uint8_t level = g_safety.level();
@@ -265,5 +317,13 @@ void loop() {
   // --- 上行 ---
   nl_telemetry_t t;
   buildTelemetry(t, now);
-  g_link.sendTelemetry(t);
+
+  // 传输层因参数非法产生的告警优先上报，否则用总督的结论。
+  // 顺序有讲究：bad_cmd 是"你刚发的那条被拒了"，属于对本次写入的应答，
+  // 而总督的 alert 描述的是设备的持续状态，晚一帧上报无妨。
+  nl_alert_t alert = g_link->takeAlert();
+  if (alert == NL_ALERT_NONE) alert = static_cast<nl_alert_t>(t.alert);
+
+  size_t n = nl_build_uplink(g_uplink_buf, sizeof(g_uplink_buf), t, g_safety.mode(), alert, now);
+  g_link->sendUplink(g_uplink_buf, n);
 }

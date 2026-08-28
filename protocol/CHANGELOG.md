@@ -3,6 +3,43 @@
 版本号语义见 [`README.md`](README.md#版本策略)。
 每次改动都要在这里留一行，写清**为什么**改，而不只是改了什么。
 
+## 0.3.0-demo — 2026-08-28
+
+去掉行空板 K10 与 HW504 摇杆，手机直连玩具侧 ESP32-S3。这是**破坏性变更**：
+`cmd` 枚举删掉了中间的 `set_joystick`，`resume` 的线序从 6 挪到 5，
+固件与控制端必须同批更新。现场没有已发出的设备，代价可以接受。
+
+为什么改：双板形态里 K10 只做了两件事——摇杆换档和当手机的 BLE 入口。
+两件都不值得一块独立的板：BLE 外设玩具侧自己就能做，而摇杆换来的
+"断网也能换档"原产品的实体按键本来就有。少一块板少一条链路，
+停机路径上也少了一跳。
+
+- `ble.device_name` 改为 `Nascent-Toy`。UUID 全部不动：服务只是从 K10 挪到玩具侧，
+  逻辑身份没变，换 UUID 只会白白牵动 App 与 Android 壳。
+- 新增 `wifi:` 段（`ws_port` / `ws_path` / `mdns_host`）与 [`wifi_ws.md`](wifi_ws.md)：
+  WiFi 是备用通道，承载与 BLE 完全相同的 JSON。BLE 优先，两者运行时互斥，
+  理由是 ESP32-S3 只有一路射频，共存会让 12 Hz 上行抖动。
+- 删 `joy_edge` 枚举与 `BleUplink.joy_edge`；删 `cmd.set_joystick` 与
+  `BleDownlink.enabled` / `hold_ramp`；删 `JOY_EDGE_HOLD_MS` / `JOY_HOLD_RAMP_MS` /
+  `JOY_DEADZONE`。摇杆是 K10 上的件，K10 没了它也没了。
+- **`resume` 保留在枚举里，但不再是任何链路上的可投递指令。**
+  固件的 `SafetyGovernor::onCommand` 不再识别它，`clearLatch()` 只有玩具侧 BOOT 键的
+  处理函数会调。这是本次最重要的一条：手机直连之后，"指令只可能来自 K10 物理按键"
+  这个前提没了，如果继续让 `onCommand` 接受 `resume`，手机就能远程解除停机闩锁。
+  把它从分发里删掉，传输层被攻破也合成不出一次恢复，不再依赖下游自觉过滤。
+  枚举值留着是为了让 App 的安全总督继续显式拒绝并给出文案。
+- 新增 `BOOT_KEY_DEBOUNCE_MS` / `BOOT_STOP_MAX_MS` / `BOOT_RESUME_HOLD_MS`：
+  玩具侧 BOOT 键短按本地停机，长按 2 秒解除闩锁。取代 K10 的物理双键。
+- 新增 `TRANSPORT_IDLE_SWITCH_MS`：BLE 与 WiFi 的切换门槛。
+- ESP-NOW 相关全部删除：`espnow_frame.md` 删除，`ack` 帧删除，
+  `frame_type` 收缩为 `[telemetry, command]`。BLE 的写响应与 WebSocket 的 TCP
+  已经各自负责可靠性，玩具侧不再需要自己做配对与确认帧。
+- `wire_header` / `wire_frames` **保留但语义改变**：不再是板间线上格式，
+  而是玩具侧固件的内部表示（传输层 JSON ⇄ `nl_command_t` / `nl_telemetry_t`）。
+  保留的实际好处是安全总督的接口一行都不用改。250 字节的 ESP-NOW 载荷断言随之删除，
+  packing 断言保留。
+- `command.flags` 的 bit0/bit1 改为保留位，必须为 0。
+
 ## 0.2.0-demo — 2026-08-28
 
 为 App 的心绪记录提供跨端稳定的枚举值，避免用户标签在三端使用自由文本后产生无法互认的值。

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nascent.local/protocol/cloud_action.json",
   "title": "CloudActionEnvelope",
-  "description": "backend -> app | contract 0.2.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
+  "description": "backend -> app | contract 0.3.0-demo | 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。",
   "$defs": {
     "LevelSetting": {
       "type": "object",
