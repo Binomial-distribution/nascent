@@ -140,7 +140,7 @@ wire_frames:
       - {name: insert_state,      ctype: uint8_t, enum: insert_state}
       - {name: alert,             ctype: uint8_t, enum: alert}
       - {name: applied_level,     ctype: uint8_t, doc: "玩具侧实际生效的档位"}
-      - {name: flags,             ctype: uint8_t, doc: "bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop"}
+      - {name: flags,             ctype: uint8_t, doc: "bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop, bit4 motor_observed"}
 
   - name: command
     doc: "k10-controller -> toy-sidecar，事件驱动 + 心跳重发"

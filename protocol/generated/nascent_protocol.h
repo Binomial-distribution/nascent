@@ -352,7 +352,7 @@ typedef struct {
     uint8_t insert_state;
     uint8_t alert;
     uint8_t applied_level;  // 玩具侧实际生效的档位
-    uint8_t flags;  // bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop
+    uint8_t flags;  // bit0 still, bit1 dht_valid, bit2 imu_valid, bit3 estop, bit4 motor_observed
 } nl_telemetry_t;
 
 // k10-controller -> toy-sidecar，事件驱动 + 心跳重发
