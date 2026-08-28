@@ -8,8 +8,15 @@ import '../state/session.dart';
 ///
 /// 停止按钮常驻在最显眼的位置，且在任何状态下都可点——包括断连时。
 /// 一个在出问题时会变灰的停止按钮等于没有停止按钮。
-class ControlPage extends ConsumerWidget {
+class ControlPage extends ConsumerStatefulWidget {
   const ControlPage({super.key});
+
+  @override
+  ConsumerState<ControlPage> createState() => _ControlPageState();
+}
+
+class _ControlPageState extends ConsumerState<ControlPage> {
+  int? _draftLevel;
 
   Future<void> _send(BuildContext context, WidgetRef ref, BleDownlink cmd) async {
     final reason = await ref.read(senderProvider)(cmd);
@@ -19,12 +26,13 @@ class ControlPage extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final u = ref.watch(uplinkProvider).valueOrNull;
-    final level = u?.level ?? 0;
+    final reportedLevel = u?.level ?? 0;
+    final level = _draftLevel ?? reportedLevel;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('控制')),
+      appBar: AppBar(title: const Text('我的节奏')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -42,7 +50,14 @@ class ControlPage extends ConsumerWidget {
                   // auth 由 BleClient 填，这里给空串只是为了满足构造函数。
                   const BleDownlink(cmd: NlCmd.stop, auth: ''),
                 ),
-                child: const Text('停 止', style: TextStyle(fontSize: 28)),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.stop_circle_outlined, size: 30),
+                    SizedBox(width: 10),
+                    Text('停 止', style: TextStyle(fontSize: 28)),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 24),
@@ -55,18 +70,17 @@ class ControlPage extends ConsumerWidget {
               max: NlConst.levelMax.toDouble(),
               divisions: NlConst.levelMax,
               label: '$level',
-              onChanged: (v) {
-                // 拖动过程中不发指令，松手才发。
-                // 12Hz 的链路塞不下逐帧的滑块事件，也没必要。
-              },
-              onChangeEnd: (v) {
+              onChanged: (v) => setState(() => _draftLevel = v.round()),
+              onChangeEnd: (v) async {
                 final lv = v.round();
                 if (lv == 0) {
-                  _send(context, ref, const BleDownlink(cmd: NlCmd.stop, auth: ''));
+                  await _send(context, ref,
+                      const BleDownlink(cmd: NlCmd.stop, auth: ''));
                 } else {
-                  _send(context, ref,
+                  await _send(context, ref,
                       BleDownlink(cmd: NlCmd.setLevel, level: lv, auth: ''));
                 }
+                if (mounted) setState(() => _draftLevel = lv);
               },
             ),
             const SizedBox(height: 24),
@@ -78,11 +92,14 @@ class ControlPage extends ConsumerWidget {
                 ButtonSegment(value: NlMode.wild, label: Text('失控')),
               ],
               selected: {u?.mode ?? NlMode.free},
-              onSelectionChanged: (s) => _send(
-                context,
-                ref,
-                BleDownlink(cmd: NlCmd.setMode, mode: s.first, auth: ''),
-              ),
+              onSelectionChanged: (s) {
+                if (s.isEmpty) return;
+                _send(
+                  context,
+                  ref,
+                  BleDownlink(cmd: NlCmd.setMode, mode: s.first, auth: ''),
+                );
+              },
             ),
             const SizedBox(height: 8),
             Text(

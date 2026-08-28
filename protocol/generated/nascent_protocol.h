@@ -1,12 +1,12 @@
 // 本文件由 protocol/tools/gen.py 从 contract.yaml 生成，请勿手改。
-// contract version: 0.1.0-demo
+// contract version: 0.2.0-demo
 
 #pragma once
 
 #include <stdint.h>
 #include <stddef.h>
 
-#define NL_PROTO_VERSION "0.1.0-demo"
+#define NL_PROTO_VERSION "0.2.0-demo"
 
 // ---- 常量 ----
 #define NL_PROTO_MAGIC (20026)
@@ -220,6 +220,23 @@ static const char *const NL_EMOTION_NAMES[] = {
 
 static inline const char *nl_emotion_name(uint8_t v) {
     return v < NL_EMOTION_COUNT ? NL_EMOTION_NAMES[v] : "?";
+}
+
+typedef enum {
+    NL_MOOD_TONE_QUIET = 0,
+    NL_MOOD_TONE_OPEN = 1,
+    NL_MOOD_TONE_WARM = 2,
+    NL_MOOD_TONE_BRIGHT = 3,
+    NL_MOOD_TONE_TIRED = 4,
+    NL_MOOD_TONE_COUNT = 5
+} nl_mood_tone_t;
+
+static const char *const NL_MOOD_TONE_NAMES[] = {
+    "quiet", "open", "warm", "bright", "tired"
+};
+
+static inline const char *nl_mood_tone_name(uint8_t v) {
+    return v < NL_MOOD_TONE_COUNT ? NL_MOOD_TONE_NAMES[v] : "?";
 }
 
 typedef enum {
