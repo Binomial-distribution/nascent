@@ -42,7 +42,7 @@ flowchart LR
 |---|---|---|
 | App ↔ 玩具侧（默认） | JSON over BLE GATT | [`ble_gatt.md`](ble_gatt.md)、`schemas/ble_uplink.json`、`schemas/ble_downlink.json` |
 | App ↔ 玩具侧（备用） | 同一份 JSON over WebSocket | [`wifi_ws.md`](wifi_ws.md)、同上两个 schema |
-| App ↔ 后端 | JSON over HTTPS | `schemas/cloud_summary.json`、`schemas/cloud_action.json` |
+| App ↔ 后端 | JSON over HTTPS | [`http_api.md`](http_api.md)、`schemas/cloud_summary.json`、`schemas/cloud_action.json` |
 | App 本地归档 | SQLCipher | `schemas/session_record.json` |
 
 两条设备链路承载**完全相同**的载荷，所以只有两个 schema，不是四个。

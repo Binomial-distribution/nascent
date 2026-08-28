@@ -4,7 +4,9 @@
 
 ## 两条入口
 
-| 入口 | 怎么打开 | 怎么连行空板 K10 |
+连的都是玩具侧那块 ESP32-S3，中间没有别的板。
+
+| 入口 | 怎么打开 | 怎么连玩具侧 |
 |---|---|---|
 | 网站 | 下面这条命令后打开 <http://127.0.0.1:8000> | Chrome / Edge 的 Web Bluetooth |
 | PWA App | 设置页「安装为 App」，或浏览器添加到主屏幕 | 仍是 Web Bluetooth |
@@ -29,9 +31,12 @@ css/app.css
 icons/
 js/
   protocol.js     由 protocol/tools/gen.py 生成，禁止手改
+  transport.js    选路：BLE 还是 WiFi，持有通道与玩具地址
   ble.js          Web Bluetooth，或 App 壳注入的 NascentNative
+  ws.js           WiFi WebSocket 备用通道
+  channel.js      两条通道共用的版本门控与上行解析
   governor.js     浏览器侧安全总督
-  session.js      发指令的唯一入口
+  session.js      发指令的唯一入口（`sendCommand`）
   heart.js        心绪、科普卡片、身体笔记（本次运行内）
   app.js          A/B/C 三层界面
 tests/run.mjs     总督与心绪的回归
@@ -59,13 +64,31 @@ cd protocol && python3 tools/gen.py
 
 ## 设备连接
 
-手机只连行空板 K10，不直连玩具侧。连接入口在「我的 → 连接行空板 K10」。
-心绪页的状态条只展示，不调强度。
+手机直连玩具侧那块 ESP32-S3（广播名 `Nascent-Toy`），连接入口在「我的」页。
+协议 0.3.0 之前中间还有一块行空板 K10，现在没有了；GATT 的 UUID 一个都没改，
+所以页面这边只是换了个连接对象，不是换了套协议。心绪页的状态条只展示，不调强度。
 
 | 可以 | 不行 |
 |---|---|
 | 桌面 / Android Chrome、Edge；localhost 或 HTTPS | Safari（含 iOS）目前没有 Web Bluetooth |
 | Nascent Android App（原生蓝牙桥） | 用 `file://` 打开页面 |
+
+### 备用通道与它的限制
+
+玩具侧还提供一条 WiFi WebSocket（`ws://<玩具 IP>:81/nl`），载荷与 BLE 完全相同，
+两条通道在设备上**运行时互斥**，同一时刻只开一条。
+
+要注意的限制：网站现在由 FastAPI 以纯 HTTP 托管，仓库没有 TLS 配置。所以在
+**手机浏览器**上这两条路不可能同时通——访问 `http://<PC 局域网 IP>:8000` 不是安全上下文，
+Web Bluetooth 直接不可用；而一旦给网站上 HTTPS，`ws://` 又会被混合内容拦掉。
+Android 壳没有这个矛盾（明文放行 + 原生 GATT 桥），所以 **WiFi 通道以 Android 壳
+与桌面 Chrome 为主要验证路径**，手机浏览器上以 BLE 为准。
+
+### 恢复不在页面里
+
+停机之后页面**发不出**恢复指令，这不是漏了个按钮：`resume` 在设备端根本没有
+指令分支，解除闩锁只能长按玩具侧板上的 BOOT 键 2 秒。总督会显式拒绝并给出文案，
+不要试图「补上」这个功能。
 
 ## 检查
 
