@@ -1,0 +1,14 @@
+// 本机专用配置 —— 复制成 local_config.h 后填。
+//
+//     cp include/local_config.h.example include/local_config.h
+//
+// local_config.h 已被 .gitignore 排除（`**/local_config.h`），**不要提交**。
+// WiFi 密码和真实设备标识都属于不进仓库的东西。
+//
+// 不创建这个文件也能正常构建：WiFi 通道会因为 SSID 为空而不启用，
+// 手机走 BLE 连设备。WiFi 只是备用通道。
+#pragma once
+
+// 玩具侧作 STA 接入的局域网。必须是 2.4 GHz —— ESP32-S3 不支持 5 GHz。
+#define NL_WIFI_SSID     "你的WiFi名"
+#define NL_WIFI_PASSWORD "你的WiFi密码"

@@ -148,13 +148,43 @@ DLPF 42Hz 仍有高频残留，在 12Hz 采样下是相邻样本间的无规则�
 | `ao3400.{h,cpp}` | 原板按键时序与九档开环跟踪 |
 | `led_ws2812.{h,cpp}` | 灯语：模式配色 + 覆盖层优先级 |
 | `transport.h` | 传输层抽象。BLE 与 WiFi 都实现它，同一时刻只开一条 |
-| `ble_peripheral.{h,cpp}` | BLE GATT 外设、会话令牌、下行的全部拒绝规则 |
+| `ble_peripheral.{h,cpp}` | BLE GATT 外设（默认通道），只管 GATT 这层管道 |
+| `wifi_ws.{h,cpp}` | WiFi STA + WebSocket 服务端 + mDNS（备用通道） |
+| `downlink_gate.{h,cpp}` | 会话令牌与下行的全部拒绝规则，**两条传输共用一份** |
 | `uplink_json.{h,cpp}` | 上行 JSON 组装，两条传输共用一份 |
 | `boot_key.{h,cpp}` | BOOT 键：短按急停，长按解除闩锁 |
 | `sensors/` | 三个传感器的薄封装，只做单位换算 |
 
 通用驱动全部用 vendored 的社区库（见 [`../VENDOR.md`](../VENDOR.md)），
 自己写的只有上表中的产品逻辑。
+
+### 两条通讯通道
+
+默认 BLE，备用 WiFi WebSocket，**同一时刻只开一条**——ESP32-S3 只有一路
+2.4GHz 射频，两栈共存要靠时分，12Hz 的上行会开始抖，而这条链路上跑着停机指令。
+
+切换规则在 `main.cpp` 的 `maybeSwitchTransport()`：当前通道空闲超过
+`NL_TRANSPORT_IDLE_SWITCH_MS`（20 秒）且另一条可用才切，切过去起不来就退回来。
+没配 WiFi 凭据时永远待在 BLE。
+
+**切换不重置安全状态。** 闩锁、档位、模式都跨传输保持：换一条线连上来不是
+"新的一次会话"，更不是解除停机的理由。
+
+鉴权与全部拒绝规则收在 `downlink_gate.{h,cpp}`，两条传输共用同一个实例类型。
+这是刻意的：规则抄成两份之后，只改了一边的修补会让另一条链路变成弱点，
+而攻击者只需要弱的那条。
+
+WiFi 凭据不进仓库：
+
+```bash
+cp include/local_config.h.example include/local_config.h
+# 填 SSID / 密码（必须 2.4GHz，ESP32-S3 不支持 5GHz）
+```
+
+`local_config.h` 已被 `.gitignore` 排除。不建这个文件也能正常构建，
+只是 WiFi 通道不启用。协议细节见 [`../../protocol/wifi_ws.md`](../../protocol/wifi_ws.md)，
+其中包含一条必须知道的限制：`ws://` 是明文，手机浏览器上
+**Web Bluetooth 与 WiFi 通道不可能同时可用**，WiFi 通道以 Android 壳和桌面 Chrome 为准。
 
 ## 强度封顶是怎么实现的
 
@@ -210,7 +240,7 @@ pio device monitor -b 115200
 
 ## 还没做的
 
-- WiFi WebSocket 备用通道（`transport.h` 的接口已留好，见 `protocol/wifi_ws.md`）
+- WiFi 凭据的 BLE 下发（现在只能靠 `local_config.h` 重烧）
 - 独立的急停拉环。BOOT 键短按已经接到 `SafetyGovernor::onEstop`，
   但那是开发板上的键，不是量产要的常闭拉环
 - 电量采样，所以 `low_battery` 灯语目前没有触发源
