@@ -22,8 +22,6 @@ PlatformIO 会自动把 `lib/` 下的每个目录当作项目本地库编译，�
 
 | 组件 | 随谁提供 |
 |---|---|
-| `esp_now` | ESP-IDF，随 `espressif32` / `platform-unihiker` 平台 |
-| `unihiker_k10`（屏幕 / 板载按键 / RGB） | DFRobot `framework-arduinounihiker` 内核 |
 | `BLEDevice`（Bluedroid） | arduino-esp32 内核 |
 | `WiFi`、`ESPmDNS` | arduino-esp32 内核 |
 
@@ -33,16 +31,11 @@ PlatformIO 会自动把 `lib/` 下的每个目录当作项目本地库编译，�
 必须跟 arduino-esp32 内核对齐（2.x ↔ 1.4.x，3.x ↔ 2.x），而本仓库没有固定
 `espressif32` 的版本；BLE 与 WiFi 又是运行时互斥的，省 RAM 的动机也不成立。
 
-K10 工程的 platform 直接写成 GitHub 地址，PlatformIO 首次构建时自己拉：
-
-```ini
-platform = https://github.com/DFRobot/platform-unihiker.git
-board = unihiker_k10
-```
-
-`k10-controller/reference/` 下放了 DFRobot 官方示例原件（MIT），
-用来对照屏幕、按键、模拟输入的正确 API 用法。它们不参与编译，
-存在的意义是：写这块板的代码时不要凭记忆猜 API，照着官方例子抄。
+协议 `0.3.0-demo` 之前这里还有 `esp_now`（随 `espressif32`）和 DFRobot
+`unihiker_k10`（随 `platform-unihiker`，K10 工程的 `platform` 写成 GitHub 地址、
+首次构建自己拉）。K10 工程已整个删除，这两项都不再需要。git 历史里仍能看到
+当时的 `k10-controller/reference/`（DFRobot 官方示例原件，MIT），新设计不要
+照它接线。
 
 ## vendored 内容做了裁剪
 
