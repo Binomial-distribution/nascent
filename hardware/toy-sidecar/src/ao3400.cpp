@@ -1,4 +1,4 @@
-#include "cd4066.h"
+#include "ao3400.h"
 
 #include <Arduino.h>
 
@@ -14,10 +14,10 @@ portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
 
 }  // namespace
 
-void Cd4066 ::begin(uint8_t pin) {
+void Ao3400::begin(uint8_t pin) {
   pin_ = pin;
   pinMode(pin_, OUTPUT);
-  digitalWrite(pin_, LOW);  // 断开 = 不按
+  digitalWrite(pin_, LOW);  // 栅极拉低 = 截止 = 不按
 
   // 上电什么都不按。
   //
@@ -34,14 +34,14 @@ void Cd4066 ::begin(uint8_t pin) {
   needs_resync_ = false;
 }
 
-void Cd4066::startPress(bool long_press, uint32_t now_ms) {
+void Ao3400::startPress(bool long_press, uint32_t now_ms) {
   pressing_long_ = long_press;
   digitalWrite(pin_, HIGH);
   phase_ = Phase::kPressing;
   phase_until_ms_ = now_ms + (long_press ? BTN_LONG_MS : BTN_SHORT_MS);
 }
 
-void Cd4066::finishPress() {
+void Ao3400::finishPress() {
   if (press_budget_ > 0) --press_budget_;
 
   if (pressing_long_) {
@@ -62,7 +62,7 @@ void Cd4066::finishPress() {
   step_ = static_cast<uint8_t>(step_ % ORIGINAL_STEP_COUNT + 1);
 }
 
-void Cd4066::requestOffNow() {
+void Ao3400::requestOffNow() {
   portENTER_CRITICAL(&g_mux);
 
   // 队列里可能正排着"开机"长按，先把目标改成关机，
@@ -99,7 +99,7 @@ void Cd4066::requestOffNow() {
   portEXIT_CRITICAL(&g_mux);
 }
 
-void Cd4066::requestLevel(uint8_t target) {
+void Ao3400::requestLevel(uint8_t target) {
   if (target > NL_LEVEL_MAX) target = NL_LEVEL_MAX;
 
   if (target == 0) {
@@ -116,7 +116,7 @@ void Cd4066::requestLevel(uint8_t target) {
   portEXIT_CRITICAL(&g_mux);
 }
 
-void Cd4066::markObservedPowered(bool on) {
+void Ao3400::markObservedPowered(bool on) {
   portENTER_CRITICAL(&g_mux);
   if (powered_ != on) {
     powered_ = on;
@@ -127,7 +127,7 @@ void Cd4066::markObservedPowered(bool on) {
   portEXIT_CRITICAL(&g_mux);
 }
 
-void Cd4066::tick(uint32_t now_ms) {
+void Ao3400::tick(uint32_t now_ms) {
   portENTER_CRITICAL(&g_mux);
 
   switch (phase_) {
