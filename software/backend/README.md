@@ -1,6 +1,6 @@
 # backend —— FastAPI 云端
 
-当前是**骨架**：接口形状、协议模型和安全边界已经定了，LLM 与审核都是桩。
+当前是**联调骨架**：接口形状、协议模型、安全边界、Qwen 9B 适配器、模板、记忆和 IRPI 偏好闭环已定；生产鉴权、持久化和审核仍待接入。
 
 ## 它不控制硬件
 
@@ -26,8 +26,14 @@ app/
   config.py               pydantic-settings，密钥只从环境变量读
   protocol.py             由 protocol/tools/gen.py 生成，禁止手改
   routers/session.py      POST /v1/session/summary
+  routers/agent.py        B 层对话、模板草稿、记忆删除 API
   routers/persona.py      GET  /v1/persona
-  services/llm.py         模型调用（桩）
+  services/llm.py         Qwen 9B OpenAI-compatible 适配器与安全回退
+  services/agent.py       Agent 编排与记忆检索
+  services/agent_contract.py  Agent、模板和 Skill 的严格 JSON 契约
+  services/memory.py      Mem0 兼容语义的可替换记忆适配器
+  services/template.py    预置/自定义模板生命周期
+  services/preference.py  IRPI 权重、质量门控和可删除偏好快照
   services/moderation.py  越界动作兜底（桩）
 ```
 
@@ -66,16 +72,35 @@ uvicorn app.main:app --reload
 ```
 NASCENT_LLM_API_KEY=...
 NASCENT_LLM_BASE_URL=...
+NASCENT_LLM_MODEL=nascent-chat-9b
+NASCENT_CHAT_LLM_MODEL=nascent-chat-9b
+NASCENT_CONTROL_LLM_MODEL=nascent-control-9b
 NASCENT_MODERATION_ENABLED=true
 ```
 
 `moderation_enabled` 默认是 `true`。关掉它需要一个明确动作，
 不该因为忘配环境变量而悄悄失效。
 
+## B 层模板流程
+
+模板接口把“选择”和“使用”分开：
+
+- `GET /v1/agent/templates?user_id=...`：读取预置模板和已确认的自定义模板。
+- `POST /v1/agent/templates/draft`：提交聊天记录，生成仅供预览的 `draft`。
+- `POST /v1/agent/templates/confirm`：用户确认后保存为 `confirmed`。
+- `DELETE /v1/agent/templates/{template_id}`：删除自定义模板。
+- `POST /v1/agent/turn`：在当前模板范围内生成台词、表现和 Skill 建议。
+- `POST /v1/agent/preferences/observe`：计算并记录一次脱敏偏好观察。
+- `GET /v1/agent/preferences`：读取当前用户/人设/模板的偏好快照。
+- `DELETE /v1/agent/preferences`：删除当前人设或模板的偏好快照。
+
+Skill 建议不能直接控制硬件；Flutter 必须再次检查模板状态、用户确认、当前模式和 `Governor`，然后只通过 `senderProvider` 发出允许的协议命令。失控模式不接受 Agent 调度。
+
 ## 还没做的
 
-- 真实 LLM 调用（`services/llm.py` 是桩），注意超时要短
+- 生产鉴权、持久化和审计（当前模板/记忆/偏好适配器是进程内实现）
 - 台词内容审核
-- 鉴权：目前所有接口都是裸的
-- 持久化：人设是内存里的固定列表
+- 本地 ASR/VAD/TTS 和 WebSocket 流式传输
+- 真实部署网关、模型快照和延迟压测
+- 人设 CRUD、版本和资产管理
 - 会话记录归档（`SessionRecord` 模型已生成，还没有落库路径）
