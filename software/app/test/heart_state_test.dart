@@ -12,6 +12,24 @@ void main() {
     expect(heart.streak, 1);
   });
 
+  test('streak tolerates today being empty and counts from yesterday', () {
+    final heart = HeartState();
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+    heart.recordMoodForDate(yesterday, MoodTone.quiet);
+
+    expect(heart.streak, 1);
+  });
+
+  test('streak breaks when yesterday is missing and today is empty', () {
+    final heart = HeartState();
+    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+
+    heart.recordMoodForDate(twoDaysAgo, MoodTone.bright);
+
+    expect(heart.streak, 0);
+  });
+
   test('stores body notes in memory and exposes the newest note first', () {
     final heart = HeartState();
 

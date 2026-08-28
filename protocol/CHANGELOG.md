@@ -9,6 +9,8 @@
 
 - 新增 mood_tone 枚举：quiet、open、warm、bright、tired。
 - UserTags.mood 改为 enum:mood_tone。
+- VERSION_MINOR 同步为 2，与版本字符串对齐；ESP-NOW 帧只校验 major，minor 仅记录，不影响既有设备互联。
+- App 侧 BLE 版本门控放宽为只校验主版本，0.1.x 固件无需重新烧录即可连接。
 - BLE 指令、传感器字段、设备安全协议和停止/恢复规则不变。
 
 ## 0.1.0-demo — 2026-08-28

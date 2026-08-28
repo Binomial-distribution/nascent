@@ -102,6 +102,10 @@ class HeartState extends ChangeNotifier {
   int get streak {
     if (_moods.isEmpty) return 0;
     var cursor = _day(DateTime.now());
+    // 今天还没记不算断签：从昨天开始数，给今天留宽限。
+    if (!_moods.containsKey(cursor)) {
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
     var count = 0;
     while (_moods.containsKey(cursor)) {
       count += 1;
@@ -132,6 +136,13 @@ class HeartState extends ChangeNotifier {
   void recordMood(MoodTone mood, {String note = ''}) {
     final today = _day(DateTime.now());
     _moods[today] = MoodEntry(date: today, mood: mood, note: note);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void recordMoodForDate(DateTime date, MoodTone mood, {String note = ''}) {
+    final day = _day(date);
+    _moods[day] = MoodEntry(date: day, mood: mood, note: note);
     notifyListeners();
   }
 

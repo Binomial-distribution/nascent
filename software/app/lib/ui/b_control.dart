@@ -29,6 +29,9 @@ class _ControlPageState extends ConsumerState<ControlPage> {
   Widget build(BuildContext context) {
     final u = ref.watch(uplinkProvider).valueOrNull;
     final reportedLevel = u?.level ?? 0;
+    // 上行确认草稿已生效就交回给设备值，否则草稿会永久锁存，
+    // 设备侧调档和停止后的归零都反映不到滑块上。
+    if (_draftLevel == reportedLevel) _draftLevel = null;
     final level = _draftLevel ?? reportedLevel;
 
     return Scaffold(
@@ -44,12 +47,17 @@ class _ControlPageState extends ConsumerState<ControlPage> {
                 style: FilledButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.errorContainer,
                 ),
-                onPressed: () => _send(
-                  context,
-                  ref,
-                  // auth 由 BleClient 填，这里给空串只是为了满足构造函数。
-                  const BleDownlink(cmd: NlCmd.stop, auth: ''),
-                ),
+                onPressed: () {
+                  // 停止后设备归零，草稿档位必须一并清掉，
+                  // 否则界面会在设备已停时仍显示非零档位。
+                  setState(() => _draftLevel = null);
+                  _send(
+                    context,
+                    ref,
+                    // auth 由 BleClient 填，这里给空串只是为了满足构造函数。
+                    const BleDownlink(cmd: NlCmd.stop, auth: ''),
+                  );
+                },
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -76,11 +84,12 @@ class _ControlPageState extends ConsumerState<ControlPage> {
                 if (lv == 0) {
                   await _send(context, ref,
                       const BleDownlink(cmd: NlCmd.stop, auth: ''));
+                  if (mounted) setState(() => _draftLevel = null);
                 } else {
                   await _send(context, ref,
                       BleDownlink(cmd: NlCmd.setLevel, level: lv, auth: ''));
+                  if (mounted) setState(() => _draftLevel = lv);
                 }
-                if (mounted) setState(() => _draftLevel = lv);
               },
             ),
             const SizedBox(height: 24),

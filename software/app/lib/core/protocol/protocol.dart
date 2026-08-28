@@ -6,7 +6,7 @@ class NlConst {
   static const String protoVersion = '0.2.0-demo';
   static const int protoMagic = 20026;
   static const int versionMajor = 0;
-  static const int versionMinor = 1;
+  static const int versionMinor = 2;
   static const int levelMin = 1;
   static const int levelMax = 8;
   static const int dutyCapPct = 90;

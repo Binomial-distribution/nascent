@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/protocol/protocol.dart';
 import '../heart/heart_state.dart';
 import '../state/session.dart';
+import 'widgets/device_status.dart';
 
 /// A 层：心绪。只负责觉察、记录和内容浏览，不改变设备强度。
 class HomePage extends ConsumerStatefulWidget {
@@ -130,7 +130,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           const SizedBox(height: 8),
           _MoodCalendar(moods: heart.moods),
           const SizedBox(height: 18),
-          _ConnectionHint(connected: connected, uplink: uplink),
+          DeviceStatusBar(connected: connected, uplink: uplink),
           const SizedBox(height: 12),
           Text(
             '内容仅供参考，不能替代医生或专业人士建议。',
@@ -255,38 +255,45 @@ class _MoodPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: MoodTone.values.map((mood) {
           final isSelected = mood == selected;
           final color = Color(mood.colorValue);
-          return Semantics(
-            button: true,
-            label: mood.label,
-            selected: isSelected,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => onSelected(mood),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 58,
-                height: 68,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? color.withAlpha(45) : Colors.transparent,
+          // 均分宽度而不是固定 58px：320pt 窄屏上固定宽度会溢出。
+          return Expanded(
+            child: Semantics(
+              button: true,
+              label: mood.label,
+              selected: isSelected,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isSelected ? color : Colors.transparent,
-                    width: 1.5,
+                  onTap: () => onSelected(mood),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    height: 68,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color:
+                          isSelected ? color.withAlpha(45) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected ? color : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(mood.emoji,
+                            style: const TextStyle(fontSize: 24)),
+                        const SizedBox(height: 4),
+                        Text(mood.label,
+                            style: Theme.of(context).textTheme.labelSmall,
+                            overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
                   ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(mood.emoji, style: const TextStyle(fontSize: 24)),
-                    const SizedBox(height: 4),
-                    Text(mood.label,
-                        style: Theme.of(context).textTheme.labelSmall),
-                  ],
                 ),
               ),
             ),
@@ -407,44 +414,6 @@ class _MoodCalendar extends StatelessWidget {
           ),
         );
       }).toList(),
-    );
-  }
-}
-
-class _ConnectionHint extends StatelessWidget {
-  const _ConnectionHint({required this.connected, required this.uplink});
-
-  final bool connected;
-  final BleUplink? uplink;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = uplink?.insertState;
-    final text = !connected
-        ? '设备未连接'
-        : switch (state) {
-            NlInsertState.inserted => '设备已连接 · 在使用中',
-            NlInsertState.notInserted => '设备已连接 · 未在使用',
-            _ => '设备已连接 · 状态同步中',
-          };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text)),
-          Icon(Icons.chevron_right,
-              color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ],
-      ),
     );
   }
 }

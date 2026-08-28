@@ -15,7 +15,7 @@ PROTO_VERSION = "0.2.0-demo"
 class NlConst:
     PROTO_MAGIC = 20026
     VERSION_MAJOR = 0
-    VERSION_MINOR = 1
+    VERSION_MINOR = 2
     LEVEL_MIN = 1
     LEVEL_MAX = 8
     DUTY_CAP_PCT = 90

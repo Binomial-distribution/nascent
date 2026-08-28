@@ -11,7 +11,7 @@
 // ---- 常量 ----
 #define NL_PROTO_MAGIC (20026)
 #define NL_VERSION_MAJOR (0)
-#define NL_VERSION_MINOR (1)
+#define NL_VERSION_MINOR (2)
 #define NL_LEVEL_MIN (1)
 #define NL_LEVEL_MAX (8)
 #define NL_DUTY_CAP_PCT (90)

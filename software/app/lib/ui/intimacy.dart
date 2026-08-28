@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/protocol/protocol.dart';
 import '../state/session.dart';
 import 'b_control.dart';
+import 'widgets/device_status.dart';
 
 /// B 层：亲密时刻。它是三个入口的工作台，实际设备调节仍集中在控制页。
 class IntimacyPage extends ConsumerWidget {
@@ -19,7 +19,11 @@ class IntimacyPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
-          _DeviceStatusBar(connected: connected, uplink: uplink),
+          DeviceStatusBar(
+            connected: connected,
+            uplink: uplink,
+            trailingIcon: Icons.shield_outlined,
+          ),
           const SizedBox(height: 20),
           Text('选择今天的靠近方式',
               style: Theme.of(context).textTheme.headlineSmall),
@@ -61,43 +65,6 @@ class IntimacyPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           _SafetyNote(),
-        ],
-      ),
-    );
-  }
-}
-
-class _DeviceStatusBar extends StatelessWidget {
-  const _DeviceStatusBar({required this.connected, required this.uplink});
-
-  final bool connected;
-  final BleUplink? uplink;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = uplink?.insertState;
-    final status = !connected
-        ? '设备未连接'
-        : switch (state) {
-            NlInsertState.inserted => '设备已连接 · 在使用中',
-            NlInsertState.notInserted => '设备已连接 · 未在使用',
-            _ => '设备已连接 · 状态同步中',
-          };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              size: 18),
-          const SizedBox(width: 10),
-          Expanded(child: Text(status)),
-          Icon(Icons.shield_outlined,
-              size: 18,
-              color: Theme.of(context).colorScheme.onSurfaceVariant),
         ],
       ),
     );
@@ -251,8 +218,13 @@ class _ScenarioPageState extends State<ScenarioPage> {
               FilledButton.icon(
                 onPressed: () {
                   setState(() {
-                    _started = true;
-                    _scene = (_scene + 1) % _scenes.length;
+                    // 首次点按是"开始"：停留在当前段，之后才逐段推进，
+                    // 否则第 0 段会在开始的一瞬间被跳过。
+                    if (_started) {
+                      _scene = (_scene + 1) % _scenes.length;
+                    } else {
+                      _started = true;
+                    }
                   });
                 },
                 icon: Icon(_started ? Icons.arrow_forward : Icons.play_arrow),
@@ -364,8 +336,11 @@ class _BodyNotesPageState extends ConsumerState<BodyNotesPage> {
             const SizedBox(height: 12),
             FilledButton(
               onPressed: () {
-                ref.read(heartStateProvider).addBodyNote(controller.text);
+                final text = controller.text;
                 Navigator.pop(context);
+                // 空白内容不会被保存，也不要谎称已保存。
+                if (text.trim().isEmpty) return;
+                ref.read(heartStateProvider).addBodyNote(text);
                 ScaffoldMessenger.of(this.context).showSnackBar(
                   const SnackBar(content: Text('笔记已保存到本次运行')),
                 );

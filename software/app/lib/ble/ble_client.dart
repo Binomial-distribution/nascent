@@ -64,10 +64,13 @@ class BleClient {
     final info = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     _token = info['token'] as String?;
 
-    // 协议版本不一致就别继续了。字段错位比连不上难查得多。
+    // 只校验主版本：minor 变更（如新增枚举）不影响既有报文的收发，
+    // 与 ESP-NOW 帧"version_minor 只记录"的策略一致。主版本不一致就别继续了，
+    // 字段错位比连不上难查得多。
     final proto = info['proto'] as String?;
-    if (proto != NlConst.protoVersion) {
-      throw StateError('协议版本不一致：设备 $proto，App ${NlConst.protoVersion}');
+    final deviceMajor = int.tryParse(proto?.split('.').first ?? '');
+    if (deviceMajor != NlConst.versionMajor) {
+      throw StateError('协议主版本不一致：设备 $proto，App ${NlConst.protoVersion}');
     }
   }
 
