@@ -35,7 +35,7 @@ flowchart LR
   Cloud["FastAPI backend"]
   Phone <-->|"BLE GATT / JSON"| K10
   K10 <-->|"ESP-NOW / packed struct"| Toy
-  Toy -->|"GPIO7 -> CD4066 并联按键"| Board
+  Toy -->|"GPIO7 -> AO3400A 并联按键"| Board
   Phone <-->|"HTTPS / JSON"| Cloud
 ```
 

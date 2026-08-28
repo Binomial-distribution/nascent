@@ -5,13 +5,14 @@
 // 同时以 12Hz 把遥测发回 K10。
 //
 // 它**不驱动电机**。所有振动强度都由原产品控制板决定，
-// 本板只能通过 CD4066 并联按键去"按"它，这是硬件级的安全边界。
+// 本板只能通过 AO3400A 并联按键去"按"它，这是硬件级的安全边界。
+// 那条支路的漏极串了 10kΩ，电流封在 0.37mA，物理上带不动任何电机。
 //
 // 单核 Arduino loop 足够：12Hz 的节拍下最重的活是 NeoPixel 刷新（8 颗，约 240us）。
 // 不上 FreeRTOS 任务是刻意的——停机路径越短越可信。
 #include <Arduino.h>
 
-#include "cd4066.h"
+#include "ao3400.h"
 #include "config.h"
 #include "espnow_link.h"
 #include "insert_state.h"
@@ -30,7 +31,7 @@ Mpu6050 g_imu;
 Fsr402 g_fsr;
 InsertInference g_insert;
 MotorSense g_motor;
-Cd4066 g_button;
+Ao3400 g_button;
 LedRing g_led;
 SafetyGovernor g_safety;
 EspNowLink g_link;
@@ -185,7 +186,7 @@ void setup() {
   // 原板的长按是电源取反而不是关机，上电盲发一次"对齐用"的长按，
   // 会把本来关着的玩具打开——用户没要求任何输出、设备却自己动起来。
   // 所以这里只假定它关着，真实状态交给 MotorSense 观测去修正。
-  g_button.begin(PIN_CD4066_CTRL);
+  g_button.begin(PIN_AO3400_GATE);
   g_boot_ms = millis();
 
   g_led.begin();
