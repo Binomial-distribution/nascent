@@ -18,6 +18,7 @@
 #include "ao3400.h"
 #include "ble_peripheral.h"
 #include "boot_key.h"
+#include "command_mailbox.h"
 #include "config.h"
 #include "insert_state.h"
 #include "led_ws2812.h"
@@ -71,6 +72,8 @@ bool g_boot_power_check_done = false;
 volatile bool g_stop_verify_pending = false;
 volatile uint32_t g_stop_verify_at_ms = 0;
 
+CommandMailbox g_mailbox;
+
 // 停机的执行器动作。远端 stop 指令与 BOOT 键短按共用这一段，
 // 区别只在闩锁记的 alert 是 safeword 还是 estop。
 void applyStopNow(uint32_t now) {
@@ -83,13 +86,15 @@ void applyStopNow(uint32_t now) {
   g_stop_verify_pending = true;
 }
 
-// BLE 的写回调在协议栈任务上下文里跑，只做转发，重活留给主循环。
-void onCommand(const nl_command_t &cmd) {
-  uint32_t now = millis();
+// 传输层回调（BLE 在 Bluedroid 任务，WiFi 在主循环的 tick 里）只允许入队。
+// applyStopNow 与总督判定在 drainCommands 里跑；requestLevel 仍在 loop 后段，
+// 且必须发生在 drain 之后，这样 stop 不会被加档顶掉。
+void onCommand(const nl_command_t &cmd) { g_mailbox.post(cmd); }
 
-  // stop 不等下一轮 loop。从收到指令到断电必须是这一行里发生的事。
+void drainCommands(uint32_t now) {
+  nl_command_t cmd;
+  if (!g_mailbox.take(cmd)) return;
   if (cmd.cmd == NL_CMD_STOP) applyStopNow(now);
-
   g_safety.onCommand(cmd, now);
 }
 
@@ -319,6 +324,7 @@ void loop() {
   g_button.tick(now);
   g_led.render(now);
   g_link->tick(now);
+  drainCommands(now);  // WiFi 本轮入队的，以及两次 loop 之间 BLE 写下的
 
   if (now - g_last_tick_ms < NL_UPLINK_PERIOD_MS) {
     delay(1);
@@ -352,6 +358,10 @@ void loop() {
   // 放在安全判定之后：切换要基于本轮已经算出的链路状态，
   // 而且切换过程中的那几百毫秒里，档位早已因断链归零。
   maybeSwitchTransport(now);
+
+  // 采样期间 BLE 可能又写下一条。requestLevel 之前必须再排空一次，
+  // 否则这里读到旧档位、发出加档，把已经入队的 stop 顶掉。
+  drainCommands(now);
 
   // --- 执行：这是全板唯一一处调用 requestLevel 的地方 ---
   uint8_t level = g_safety.level();

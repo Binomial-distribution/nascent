@@ -7,12 +7,10 @@
 
 namespace {
 
-// requestOffNow() 从 BLE 的写回调（协议栈任务，另一个核）调用，
-// tick() 从主循环调用。两边都改同一组状态，必须互斥。
+// tick() / requestOffNow() / requestLevel() 都只从主循环调用
+// （远端 stop 经 CommandMailbox 排到 loop 里再执行）。
+// 这把锁留下是因为状态机会被同一次 loop 里的多处入口碰到，
 // 临界区里只有寄存器写和几个赋值，微秒级。
-//
-// BOOT 键那条停机路径是在主循环里跑的，本来不需要这把锁，
-// 但它和远端 stop 共用 requestOffNow()，多拿一次无代价的锁比分两个入口安全。
 portMUX_TYPE g_mux = portMUX_INITIALIZER_UNLOCKED;
 
 }  // namespace

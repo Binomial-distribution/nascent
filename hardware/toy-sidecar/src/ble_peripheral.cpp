@@ -117,6 +117,8 @@ void BlePeripheral::publishInfo() {
 }
 
 void BlePeripheral::handleWrite(const char *data, size_t len, uint32_t now_ms) {
+  // 本函数在 Bluedroid 任务里跑。handler_ 只允许把指令丢进信箱，
+  // 不能在这里动按键或总督，见 main.cpp 的 CommandMailbox。
   nl_command_t out;
   if (!gate_.accept(data, len, now_ms, out)) return;
   if (handler_) handler_(out);
