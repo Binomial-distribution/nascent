@@ -61,12 +61,15 @@ export class Governor {
   reject(cmd, { automatic = false } = {}) {
     if (cmd.cmd === NlCmd.STOP) return null;
 
+    // 这条拒绝纯粹是为了给用户一个说法。真正的保证在固件：
+    // SafetyGovernor::onCommand 里没有 resume 分支，clearLatch() 只有
+    // BOOT 键的处理函数会调。控制端就算被改坏了也发不出一次恢复。
     if (cmd.cmd === NlCmd.RESUME) {
-      return "恢复只能在设备上完成：同时长按 K10 的 A、B 两键两秒。";
+      return "恢复只能在设备上完成：长按玩具上的 BOOT 键两秒。";
     }
 
     if (this._stopped) {
-      return "已停止。需要在设备上按键确认后才能继续。";
+      return "已停止。需要长按玩具上的 BOOT 键两秒才能继续。";
     }
 
     if (!this.linkHealthy) {

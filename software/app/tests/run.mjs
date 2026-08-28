@@ -1,7 +1,8 @@
-import { BleDownlink, BleUplink, NlAlert, NlCmd, NlConst, NlInsertState, NlMode } from "../js/protocol.js";
+import { BleDownlink, BleUplink, NlAlert, NlCmd, NlConst, NlInsertState, NlMode, NlWifi } from "../js/protocol.js";
 import { Governor } from "../js/governor.js";
 import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
+import { toyWsUrl } from "../js/ws.js";
 
 let failed = 0;
 let passed = 0;
@@ -24,7 +25,6 @@ function uplink(over = {}) {
     accel: [0, 0, 1],
     gyro: [0, 0, 0],
     insert_state: "unknown",
-    joy_edge: "none",
     mode: "free",
     level: 1,
     alert: "none",
@@ -35,8 +35,8 @@ function uplink(over = {}) {
 const gov = new Governor();
 assert(gov.reject(new BleDownlink({ cmd: NlCmd.STOP, auth: "" })) == null, "stop is always allowed");
 assert(
-  gov.reject(new BleDownlink({ cmd: NlCmd.RESUME, auth: "" }))?.includes("设备上") ,
-  "resume is rejected with device-only message",
+  gov.reject(new BleDownlink({ cmd: NlCmd.RESUME, auth: "" }))?.includes("BOOT"),
+  "resume is rejected and points at the toy's BOOT key",
 );
 assert(
   gov.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 3, auth: "" })) === "与设备的连接不可用，此时只能发送停止。",
@@ -45,7 +45,8 @@ assert(
 
 gov.ingest(uplink({ alert: "safeword" }));
 assert(
-  gov.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 2, auth: "" })) === "已停止。需要在设备上按键确认后才能继续。",
+  gov.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 2, auth: "" }))
+    === "已停止。需要长按玩具上的 BOOT 键两秒才能继续。",
   "safeword latches stop",
 );
 assert(gov.reject(new BleDownlink({ cmd: NlCmd.STOP, auth: "" })) == null, "stop still allowed after safeword");
@@ -96,6 +97,28 @@ assert(heart.isRead(card.id), "marks card read");
 assert(heart.isFavorite(card.id), "marks card favorite");
 heart.toggleFavorite(card);
 assert(!heart.isFavorite(card.id), "favorite toggles off");
+
+assert(
+  toyWsUrl("192.168.1.20") === `ws://192.168.1.20:${NlWifi.wsPort}${NlWifi.wsPath}`,
+  "bare host gets the contract port and path",
+);
+assert(
+  toyWsUrl(" nascent.local ") === `ws://nascent.local:${NlWifi.wsPort}${NlWifi.wsPath}`,
+  "address is trimmed",
+);
+assert(
+  toyWsUrl("192.168.1.20:8080") === `ws://192.168.1.20:8080${NlWifi.wsPath}`,
+  "explicit port is kept",
+);
+assert(
+  toyWsUrl("ws://192.168.1.20/") === `ws://192.168.1.20:${NlWifi.wsPort}${NlWifi.wsPath}`,
+  "pasted scheme and trailing slash are tolerated",
+);
+{
+  let threw = false;
+  try { toyWsUrl("  "); } catch { threw = true; }
+  assert(threw, "empty address is rejected instead of building ws://:81");
+}
 
 assert(NlInsertState.UNKNOWN === "unknown", "insert_state unknown is the safe default");
 assert(NlMode.FREE === "free", "mode free is the default play");

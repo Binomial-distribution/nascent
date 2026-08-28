@@ -281,7 +281,7 @@ export function mountOnboarding(root, { onComplete }) {
             <div class="ob-card">
               <div>
                 <strong>蓝牙</strong>
-                <p>用于连接行空板 K10，控制与状态同步。</p>
+                <p>用于连接玩具，控制与状态同步。</p>
               </div>
               <button class="ghost" data-ob="perm-bt">${state.draft.bluetooth ? "已允许" : "允许"}</button>
             </div>
@@ -298,7 +298,7 @@ export function mountOnboarding(root, { onComplete }) {
         return `
           <div class="ob-stack">
             <p class="ob-kicker">设备配对</p>
-            <h2>连接行空板 K10</h2>
+            <h2>连接玩具</h2>
             <p class="ob-sub">连接成功后，设备会轻震一下作为确认。</p>
             <div class="ob-pair ${state.draft.paired ? "ok" : ""}">
               ${state.draft.paired ? "已连接 · 轻震确认完成" : "尚未连接"}

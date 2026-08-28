@@ -1,7 +1,13 @@
-import { BleClient } from "./ble.js";
 import { Governor } from "./governor.js";
+import { TransportClient } from "./transport.js";
 
-export const ble = new BleClient();
+/**
+ * 与玩具的唯一那条连接。可能走 BLE 也可能走 WiFi WebSocket，由
+ * TransportClient 选路；这一层和界面都不需要知道当前是哪一条。
+ *
+ * 0.3.0 之前它叫 `ble`，现在改名是因为"蓝牙"不再等于"设备连接"。
+ */
+export const link = new TransportClient();
 export const governor = new Governor();
 
 let connected = false;
@@ -26,20 +32,20 @@ export function getUplink() {
   return uplink;
 }
 
-ble.onConnected((ok) => {
+link.onConnected((ok) => {
   connected = ok;
   if (!ok) uplink = null;
   notify();
 });
 
-ble.onUplink((u) => {
+link.onUplink((u) => {
   uplink = u;
   governor.ingest(u);
   notify();
 });
 
 /**
- * 发指令的唯一入口。所有界面都必须走这里，不许直接摸 BleClient——
+ * 发指令的唯一入口。所有界面都必须走这里，不许直接摸传输层——
  * 绕过去就等于绕过了安全总督。
  *
  * 返回 null 表示已发出，否则是拒绝理由，直接展示给用户。
@@ -48,7 +54,7 @@ export async function sendCommand(cmd, { automatic = false } = {}) {
   const reason = governor.reject(cmd, { automatic });
   if (reason != null) return reason;
   try {
-    await ble.send(cmd);
+    await link.send(cmd);
     return null;
   } catch (err) {
     return `发送失败：${err.message || err}`;

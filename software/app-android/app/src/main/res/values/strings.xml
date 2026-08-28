@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Nascent</string>
     <string name="setup_title">同一套 Web UI</string>
-    <string name="setup_body">先在电脑上启动网站，再填入地址。App 打开的就是那份页面；连行空板时走系统蓝牙，不经过 Web Bluetooth。</string>
+    <string name="setup_body">先在电脑上启动网站，再填入地址。App 打开的就是那份页面；连玩具时走系统蓝牙，不经过 Web Bluetooth。</string>
     <string name="setup_hint">http://192.168.1.8:8000</string>
     <string name="open_site">打开网站</string>
     <string name="change_server">更换网站</string>
