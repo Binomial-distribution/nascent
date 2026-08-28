@@ -2,14 +2,16 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
   // 缓存名带版本号：0.3.0 拆出了 transport / ws / channel 三个模块，
   // 沿用 v1 会让老客户端拿着一份缺文件的缓存，import 直接 404。
-  event.waitUntil(caches.open("nascent-shell-v2").then((cache) => cache.addAll([
+  event.waitUntil(caches.open("nascent-shell-v3").then((cache) => cache.addAll([
     "/",
     "/css/app.css",
     "/js/app.js",
     "/js/ble.js",
+    "/js/body-notes.js",
     "/js/channel.js",
     "/js/governor.js",
     "/js/heart.js",
+    "/js/onboarding.js",
     "/js/session.js",
     "/js/protocol.js",
     "/js/transport.js",
@@ -23,7 +25,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v2")
+      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v3")
         .map((n) => caches.delete(n)),
     );
     await self.clients.claim();

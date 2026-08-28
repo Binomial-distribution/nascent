@@ -52,6 +52,7 @@ flowchart TB
 | [`datasheets/`](datasheets/) | 已选型器件的厂商 datasheet | — |
 | [`docs/`](docs/) | 协作与提交规范 | — |
 | [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.4 已归档 |
+| [`docs/implementation/`](docs/implementation/) | B 层实施计划、落地记录与 Codex 文稿归档 | B3.0 |
 
 `hardware/` 下原来还有一个 `k10-controller/`（行空板 K10：摇杆、屏、BLE Peripheral、ESP-NOW 网关），协议 `0.3.0-demo` 起已整个删除，手机改为直连玩具侧。目录名里的 "sidecar" 是双板时期留下的，暂不改名以免牵动所有路径引用。
 

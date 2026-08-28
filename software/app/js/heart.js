@@ -66,7 +66,6 @@ export class HeartState {
     this._readCards = new Map();
     this._favoriteCards = new Set();
     this._moods = new Map();
-    this._bodyNotes = [];
     this._activeCard = 0;
     this._listeners = new Set();
   }
@@ -98,14 +97,6 @@ export class HeartState {
 
   get moods() {
     return new Map(this._moods);
-  }
-
-  get bodyNotes() {
-    return [...this._bodyNotes];
-  }
-
-  get latestBodyNote() {
-    return this._bodyNotes[0] ?? null;
   }
 
   moodFor(date) {
@@ -156,18 +147,10 @@ export class HeartState {
     this._notify();
   }
 
-  addBodyNote(text) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    this._bodyNotes.unshift({ createdAt: new Date(), text: trimmed });
-    this._notify();
-  }
-
   clearLocal() {
     this._readCards.clear();
     this._favoriteCards.clear();
     this._moods.clear();
-    this._bodyNotes = [];
     this._activeCard = 0;
     this._notify();
   }

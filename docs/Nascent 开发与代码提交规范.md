@@ -162,7 +162,7 @@ git push -u origin feat/your-small-task
 
 已经约定：短分支、显式暂存、Draft PR、文件放置、架构文档进仓库、协议生成流程、提交前检查和高风险评审。
 
-尚未具备：自动范围校验器、CI 里的 `gen.py --check`、固件硬件在环测试。没有这些工具时，仍按第 6、7 节人工执行；不要因为没有 CI 就跳过 `gen.py --check`。
+尚未具备：自动范围校验器、固件硬件在环测试。CI 现已覆盖 `pytest`、`ruff`、前端 `node tests/run.mjs` 和 `protocol/tools/gen.py --check`。没有这些工具时，仍按第 6、7 节人工执行；不要因为本地没跑 CI 就跳过 `gen.py --check`。
 
 本规范替代不了上板验证和人工 Review。每个涉及执行器或停机路径的任务，最终仍需在真机上确认三件事：停止立刻生效；从 App 写 `resume` 不能恢复；恢复只有长按玩具侧 BOOT 键 2 秒这一条路。
 

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "docs/**", "chore/**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install backend dependencies
+        run: pip install -r software/backend/requirements.txt
+
+      - name: Ruff
+        run: python -m ruff check software/backend/app software/backend/tests
+
+      - name: Compile
+        run: python -m compileall -q software/backend/app software/backend/tests
+
+      - name: Pytest
+        run: python -m pytest software/backend/tests -q
+
+      - name: Protocol check
+        run: python protocol/tools/gen.py --check
+
+      - name: App tests
+        run: node software/app/tests/run.mjs

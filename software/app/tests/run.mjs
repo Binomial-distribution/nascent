@@ -3,6 +3,7 @@ import { Governor } from "../js/governor.js";
 import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
 import { toyWsUrl } from "../js/ws.js";
+import { BodyNotesState } from "../js/body-notes.js";
 
 let failed = 0;
 let passed = 0;
@@ -84,12 +85,6 @@ twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
 heart3.recordMood(NlMoodTone.BRIGHT, { date: twoDaysAgo });
 assert(heart3.streak === 0, "streak breaks when yesterday is missing");
 
-heart.addBodyNote("  先慢一点  ");
-heart.addBodyNote("听见自己的节奏");
-assert(heart.bodyNotes.length === 2, "stores two body notes");
-assert(heart.latestBodyNote?.text === "听见自己的节奏", "newest note first");
-assert(heart.bodyNotes.at(-1).text === "先慢一点", "trims and keeps older note");
-
 const card = heart.cards[0];
 heart.readCard(card);
 heart.toggleFavorite(card);
@@ -123,6 +118,84 @@ assert(
 assert(NlInsertState.UNKNOWN === "unknown", "insert_state unknown is the safe default");
 assert(NlMode.FREE === "free", "mode free is the default play");
 assert(NlAlert.NONE === "none", "alert none is the safe default");
+
+function jsonResponse(data, { ok = true, status = 200 } = {}) {
+  return { ok, status, json: async () => data };
+}
+
+const localNotes = new BodyNotesState({ fetchImpl: null });
+assert(localNotes.sessions.length === 3, "body notes expose demo sessions without a backend");
+assert(localNotes.recentComparisons("demo-session-03").length === 2, "recent scope selects usable records");
+
+const insightCalls = [];
+const remoteNotes = new BodyNotesState({
+  fetchImpl: async (path, options = {}) => {
+    if (path === "/v1/body-notes/sessions") return jsonResponse(localNotes.sessions);
+    if (path === "/v1/body-notes/insight-turn") {
+      insightCalls.push(JSON.parse(options.body));
+      return jsonResponse({
+        dialogue: "只读取这一次。",
+        scope: "current",
+        sources: [],
+        insight_candidate: null,
+      });
+    }
+    return jsonResponse({}, { ok: false, status: 404 });
+  },
+});
+await remoteNotes.load();
+await remoteNotes.sendInsight("demo-session-03", [], "帮我理解这一次");
+assert(remoteNotes.backendAvailable === true, "body notes detect the available backend");
+assert(insightCalls[0].session_id === "demo-session-03", "current insight sends the selected session id");
+assert(insightCalls[0].comparison_session_ids.length === 0, "current insight sends no recent records");
+
+const failedDelete = new BodyNotesState({
+  fetchImpl: async (path) => path === "/v1/body-notes/sessions"
+    ? jsonResponse(localNotes.sessions)
+    : jsonResponse({}, { ok: false, status: 500 }),
+});
+await failedDelete.load();
+assert(!await failedDelete.deleteSession("demo-session-03"), "remote deletion reports backend failure");
+assert(failedDelete.getSession("demo-session-03") !== null, "failed remote deletion keeps the local record visible");
+
+let resolveLoad;
+const loadingNotes = new BodyNotesState({
+  fetchImpl: () => new Promise((resolve) => {
+    resolveLoad = resolve;
+  }),
+});
+const loadingPromise = loadingNotes.load();
+assert(!await loadingNotes.deleteSession("demo-session-03"), "delete is refused while backend probe is in flight");
+assert(loadingNotes.getSession("demo-session-03") !== null, "in-flight load does not locally delete the record");
+assert(!await loadingNotes.sendInsight("demo-session-03", [], "先等等"), "insight is refused while backend probe is in flight");
+assert(loadingNotes.messages("demo-session-03", "current").length === 0, "refused insight does not enqueue a user turn");
+resolveLoad(jsonResponse(localNotes.sessions));
+await loadingPromise;
+assert(loadingNotes.backendAvailable === true, "load completes after the in-flight probe");
+
+const staleList = [
+  { session_id: "demo-session-03", title: "复活检查", started_at: new Date().toISOString(), duration_s: 60, mode: "free", persona_name: null, max_level: 1, data_quality: "complete", temperature: { direction: "stable", label: "温感平稳", quality: "complete", sample_count: 10 }, pressure: { direction: "stable", label: "接触压力变化较少", quality: "complete", sample_count: 10 }, summary: "", user_feedback: "", timeline: [], notes: [] },
+];
+const staleNotes = new BodyNotesState({
+  sessions: staleList,
+  fetchImpl: async (path, options = {}) => {
+    if (path === "/v1/body-notes/sessions" && !options.method) return jsonResponse(staleList);
+    if (String(path).includes("/sessions/demo-session-03") && options.method === "DELETE") {
+      return jsonResponse({ deleted: true });
+    }
+    return jsonResponse({}, { ok: false, status: 404 });
+  },
+});
+await staleNotes.load();
+assert(await staleNotes.deleteSession("demo-session-03"), "loaded backend allows deletion");
+assert(staleNotes.getSession("demo-session-03") === null, "deleted session leaves local state");
+await staleNotes.load();
+assert(staleNotes.getSession("demo-session-03") === null, "a stale backend list does not resurrect a deleted session");
+assert(staleNotes.mutationsLocked === false, "mutations unlock after load finishes");
+
+const offlineDelete = new BodyNotesState({ fetchImpl: null });
+assert(await offlineDelete.deleteSession("demo-session-03"), "offline demo allows local-only deletion");
+assert(offlineDelete.getSession("demo-session-03") === null, "offline deletion removes the demo record");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
