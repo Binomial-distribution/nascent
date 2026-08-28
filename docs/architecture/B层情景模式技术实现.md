@@ -1,13 +1,24 @@
 # B 层情景模式技术实现
 
-> 状态：技术方案草案，待项目负责人 Review 后进入协议与代码实施
+> 状态：架构已确认；Agent/模板/记忆联调骨架和身体笔记纵向切片已实现，生产持久化与实时语音待实施
 > 日期：2026-08-28
-> 范围：Flutter Android「亲密时刻」B 层、FastAPI Agent、多人设与分层记忆
+> 范围：共享 Web UI + Android WebView 壳的「亲密时刻」B 层、FastAPI Agent、多人设与分层记忆
 
 > 合并说明：本文件是 B 层产品、交互、安全、数据和后端逻辑的主方案；
 > [`B层实时Agent与语音方案.md`](B层实时Agent与语音方案.md) 是本文件中 Agent、语音和角色表现部分的实施附录。
 > 本轮实时 API 主模型固定为 `Qwen/Qwen3.5-9B`，服务端别名为 `nascent-realtime-9b`；Prompt 的字段和输出 JSON 以 [`B层Agent提示词契约.md`](B层Agent提示词契约.md) 为准。
 > 两份文档以本文件的安全边界、失控模式计时规则、数据删除规则为唯一口径。
+
+### 当前实现快照（2026-08-28）
+
+- `software/app/` 已实现身体笔记的三层独立导航：记录列表、单次详情、自我探索对话。
+- 单次详情底部固定两个同级入口：`只看这一次` 与 `参考近期记录`；近期范围进入前展示具体日期、模式和数量。
+- `software/backend/app/routers/body_notes.py` 已提供记录读取、笔记增删改和 `insight-turn` 联调 API；当前存储为进程内实现，尚未具备账号鉴权和生产持久化。
+- Chat 9B 只接收用户明确授权记录的来源标识、数据质量、温感趋势和压力趋势；不接收原始 12 Hz 数组、档位时间线、音频、设备地址或安全词。
+- 身体笔记模型输出使用独立严格契约，只允许 `dialogue` 与 `insight_candidate`；控制、Skill、诊断和固定偏好话术会被拒绝并回退到本地安全短句。
+- Web UI 的删除在后端可用时必须得到后端成功响应才更新界面；纯静态演示模式只删除本次内存数据，不能冒充云端删除。
+- 真实模型请求已具备 OpenAI-compatible HTTP 适配器，但 API 网关、替换后的密钥和模型快照仍需在本地 `.env` 登记后联调，任何密钥不得进入仓库。
+- 情境使用回合已提供 `POST /v1/agent/parallel-turn` 双模型并行编排：Chat 与 Control 同时启动、独立超时和独立回退，响应携带可展示的脱敏数据走向；停止链路不经过模型。
 
 ## 1. 目标与边界
 
@@ -16,7 +27,7 @@ B 层包含三个并列模块，但本文件重点定义「情境漫游」：
 | 模块 | 用户目标 | 本轮技术定位 |
 | --- | --- | --- |
 | 情境漫游 | 与选定人设进行有节奏的对话式体验，并看到身体数据走向 | 微信式会话主界面、语音输入、数据趋势、场景状态机、多人设和记忆 |
-| 我的节奏 | 用户直接决定档位、模式和停止 | 沿用独立控制页；所有设备命令只走 `senderProvider` 与 `Governor` |
+| 我的节奏 | 用户直接决定档位、模式和停止 | 沿用独立控制页；所有设备命令只走 `sendCommand()` 与 `Governor` |
 | 身体笔记 | 独立回看每次使用记录、趋势、总结和自己的感受 | 使用记录列表、单次详情、非评判总结，以及“只看这一次 / 参考近期记录”的自我探索对话 |
 
 三个模块共享设备状态和会话身份，但职责不能混合：
@@ -26,6 +37,26 @@ B 层包含三个并列模块，但本文件重点定义「情境漫游」：
 - 身体笔记展示历史，不允许从历史页面恢复设备运行状态。
 - 身体笔记中的对话只帮助用户理解记录，不能提出或执行设备动作。
 - 人设只决定说什么、怎么说，不决定灯色、档位、安全阈值或停止规则。
+
+### 1.2 双模型并行回合
+
+情境使用页发送一次用户事件时，后端不按“先聊天、再调控”的串行方式等待。`/v1/agent/parallel-turn` 同时启动两条逻辑 lane：
+
+```text
+Chat lane
+  用户输入 + 当前人设 + 已授权关系记忆
+  -> Chat 9B
+  -> dialogue / avatar / memory_proposals / skill_proposals
+
+Control lane
+  聚合温感趋势 + 聚合压力趋势 + 数据质量 + Skill 白名单
+  -> Control 9B
+  -> hold / ask / recommend（仍然 action=null）
+```
+
+响应中的 `data_flow` 用于在 UI 展示“数据走到哪里”，只包含上述阶段名称，不回传系统 Prompt、原始 12 Hz 采样、完整记忆文本、音频或密钥。编排器分别使用 Chat 8 秒和 Control 2.5 秒的独立 `wait_for`，任一 lane 超时只降级自己：Chat 回退短句，Control 保持当前状态；两者都不能延长失控模式或阻塞 `stop`。Control 建议只有在用户确认、`Governor` 放行并经唯一 `sendCommand()` 入口后才可能成为设备指令。
+
+身体笔记的“了解自己”不是实时设备回合，只走 Chat 9B。它不会为了凑“双模型”而启动 Control 9B，也不会产生 Skill 或档位建议。
 
 ### 1.1 模板与硬件 Skill
 
@@ -42,10 +73,10 @@ B 层包含三个并列模块，但本文件重点定义「情境漫游」：
   -> UI：展示节奏、档位范围、时长和数据权限
   -> 用户：确认保存
   -> 后端：保存模板版本
-  -> 使用界面：启动模板，Skill 建议仍经 Governor + senderProvider
+  -> 使用界面：启动模板，Skill 建议仍经 Governor + sendCommand()
 ```
 
-Skill 是受限能力白名单，不是 Agent 工具权限。第一版只允许声明 `set_level`、`set_pattern` 和有限时长的节奏段；不能声明 BLE 写入、停止闩锁、恢复、延长失控时间、修改安全阈值或删除数据。Agent 输出的是 `skill_proposal`，执行前必须满足：模板已确认、当前会话已授权、模式不是失控模式、App `Governor` 放行，并由唯一的 `senderProvider` 发送。
+Skill 是受限能力白名单，不是 Agent 工具权限。第一版只允许声明 `set_level`、`set_pattern` 和有限时长的节奏段；不能声明 BLE 写入、停止闩锁、恢复、延长失控时间、修改安全阈值或删除数据。Agent 输出的是 `skill_proposal`，执行前必须满足：模板已确认、当前会话已授权、模式不是失控模式、Web UI `Governor` 放行，并由唯一的 `sendCommand()` 入口发送。
 
 模板删除入口放在模板管理页；删除模板时可选择同时删除该模板的关系记忆。删除必须是后端鉴权 API 的级联操作，删除后不能被检索或重新注入 Prompt。
 
@@ -331,7 +362,7 @@ stateDiagram-v2
   fallback --> idle: 本地台词播放完成
 ```
 
-停止链路独立于这套状态机。即使 ASR、WebSocket、LLM、TTS 或 Avatar 卡死，停止按钮仍必须能够调用 `senderProvider`。
+停止链路独立于这套状态机。即使 ASR、WebSocket、LLM、TTS 或 Avatar 卡死，停止按钮仍必须能够调用 `sendCommand()`。
 
 ### 5.3 我的节奏：失控模式状态机
 
@@ -420,8 +451,8 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
   participant U as 用户
-  participant A as Flutter App
-  participant G as App Governor
+  participant A as 共享 Web UI
+  participant G as Web Governor
   participant C as Agent 后端
   participant M as 记忆服务
   participant D as K10/设备
@@ -434,7 +465,7 @@ sequenceDiagram
   C-->>A: agent.delta 流式短句
   A->>U: TTS + 人设动画
   C-->>A: agent.final + 可选 action 建议
-  A->>G: senderProvider(..., automatic: true)
+  A->>G: sendCommand(..., automatic: true)
   G-->>A: 允许或拒绝
   A->>D: 仅发送通过的有限命令
 ```
@@ -735,7 +766,7 @@ error
 
 ## 12. 数据与线程分工
 
-Flutter 侧建议拆分：
+共享 Web UI 侧建议拆分：
 
 ```text
 ScenarioController
@@ -760,7 +791,7 @@ MemoryRepository
 约束：
 
 - `ScenarioController` 不能直接调用 `BleClient`。
-- 任何动作建议只能交给 `senderProvider(..., automatic: true)`。
+- 任何动作建议只能交给 `sendCommand(..., { automatic: true })`。
 - `TrendAggregator` 只读 `uplinkProvider`，不反向控制设备。
 - Avatar 只消费 `listening / thinking / speaking / emotion / mouth_level`。
 - 数据曲线和消息动画不能监听 12Hz 原始流直接重建整个页面。
@@ -815,7 +846,7 @@ MemoryRepository
 - LLM、网络、TTS 和动画同时故障时，停止仍可立即发送。
 - 安全词与设备急停不依赖 App、网络或 Agent。
 - 用户停句到首声达到 p50 700-1300ms，p95 小于 1800ms 的工程目标。
-- 所有自动动作都经过 `senderProvider(..., automatic: true)`，不存在直接 BLE 路径。
+- 所有自动动作都经过 `sendCommand(..., { automatic: true })`，不存在直接 BLE 路径。
 - 失控模式的最大时长由设备侧安全策略封顶，后端和 Agent 无权延长；设备计时到期必须进入停止闩锁。
 
 ## 15. 实施顺序

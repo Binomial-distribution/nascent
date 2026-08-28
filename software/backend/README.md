@@ -34,6 +34,8 @@ app/
   services/memory.py      Mem0 兼容语义的可替换记忆适配器
   services/template.py    预置/自定义模板生命周期
   services/preference.py  IRPI 权重、质量门控和可删除偏好快照
+  services/body_note_contract.py  身体笔记与自我探索严格契约
+  services/body_notes.py  记录存储接口和授权范围编排
   services/moderation.py  越界动作兜底（桩）
 ```
 
@@ -75,6 +77,8 @@ NASCENT_LLM_BASE_URL=...
 NASCENT_LLM_MODEL=nascent-chat-9b
 NASCENT_CHAT_LLM_MODEL=nascent-chat-9b
 NASCENT_CONTROL_LLM_MODEL=nascent-control-9b
+NASCENT_CHAT_LLM_TIMEOUT_S=8.0
+NASCENT_CONTROL_LLM_TIMEOUT_S=2.5
 NASCENT_MODERATION_ENABLED=true
 ```
 
@@ -90,15 +94,30 @@ NASCENT_MODERATION_ENABLED=true
 - `POST /v1/agent/templates/confirm`：用户确认后保存为 `confirmed`。
 - `DELETE /v1/agent/templates/{template_id}`：删除自定义模板。
 - `POST /v1/agent/turn`：在当前模板范围内生成台词、表现和 Skill 建议。
+- `POST /v1/agent/parallel-turn`：同一回合并行执行 Chat 9B 与 Control 9B，分别降级，并返回可展示的数据走向。
 - `POST /v1/agent/preferences/observe`：计算并记录一次脱敏偏好观察。
 - `GET /v1/agent/preferences`：读取当前用户/人设/模板的偏好快照。
 - `DELETE /v1/agent/preferences`：删除当前人设或模板的偏好快照。
 
-Skill 建议不能直接控制硬件；Flutter 必须再次检查模板状态、用户确认、当前模式和 `Governor`，然后只通过 `senderProvider` 发出允许的协议命令。失控模式不接受 Agent 调度。
+Skill 建议不能直接控制硬件；共享 Web UI 必须再次检查模板状态、用户确认、当前模式和 `Governor`，然后只通过 `sendCommand()` 发出允许的协议命令。Android 壳只提供原生 GATT 桥，不在 Kotlin 中重写这套规则。失控模式不接受 Agent 调度。
+
+`parallel-turn` 的两条模型链路由 `asyncio.gather` 同时启动，因此总等待时间接近较慢通道而不是两者相加。Chat 超时只回退台词；Control 超时只返回 `hold`。接口中的 `data_flow` 只列出脱敏阶段，不返回系统 Prompt、原始传感器数组或内部记忆内容。停止命令不经过这个接口。
+
+## 身体笔记接口
+
+- `GET /v1/body-notes/sessions`：按时间倒序读取使用记录。
+- `GET /v1/body-notes/sessions/{session_id}`：读取单次详情和低频绘图点。
+- `DELETE /v1/body-notes/sessions/{session_id}`：删除会话及其笔记；不存在时返回 404。
+- `POST /v1/body-notes/sessions/{session_id}/note`：仅在用户点击保存后创建发现。
+- `PATCH/DELETE /v1/body-notes/{note_id}`：编辑或删除单条发现。
+- `POST /v1/body-notes/insight-turn`：按显式 ID 授权一次 Chat 9B 自我探索回合。
+
+模型上下文不包含档位时间线、原始传感数组、音频、MAC、密钥或安全词。身体笔记输出契约也不包含动作字段；出现设备控制、Skill、诊断或固定偏好话术时整次输出被拒绝并使用本地安全回退。
 
 ## 还没做的
 
 - 生产鉴权、持久化和审计（当前模板/记忆/偏好适配器是进程内实现）
+- 身体笔记数据库、会话归属鉴权和级联删除审计（当前同样是进程内实现）
 - 台词内容审核
 - 本地 ASR/VAD/TTS 和 WebSocket 流式传输
 - 真实部署网关、模型快照和延迟压测

@@ -20,6 +20,7 @@ from .agent_contract import (
     PersonaTemplate,
     TemplateDraftRequest,
 )
+from .body_note_contract import BodyInsightModelOutput
 from .prompt_builder import build_messages
 
 
@@ -49,7 +50,7 @@ async def generate_turn(request: AgentTurnRequest, memories: list) -> AgentTurn:
         "response_format": {"type": "json_object"},
     }
     try:
-        body = await _post_json(payload)
+        body = await _post_json(payload, settings.chat_llm_timeout_s)
         result = AgentTurn.model_validate_json(_message_content(body))
         allowed_skills = {
             skill.skill_id for skill in request.active_template.skills
@@ -95,7 +96,9 @@ async def generate_control(request: ControlDecisionRequest) -> ControlDecision:
         "response_format": {"type": "json_object"},
     }
     try:
-        result = ControlDecision.model_validate_json(_message_content(await _post_json(payload)))
+        result = ControlDecision.model_validate_json(
+            _message_content(await _post_json(payload, settings.control_llm_timeout_s))
+        )
         allowed = set(request.template_skill_allowlist)
         if result.recommended_skill_id not in allowed:
             return _control_hold("skill_not_allowed")
@@ -141,14 +144,17 @@ async def generate_template(request: TemplateDraftRequest) -> PersonaTemplate | 
         {"role": "user", "content": json.dumps(request.model_dump(mode="json"), ensure_ascii=False)},
     ]
     try:
-        body = await _post_json({
-            "model": settings.chat_llm_model or settings.llm_model,
-            "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 300,
-            "stream": False,
-            "response_format": {"type": "json_object"},
-        })
+        body = await _post_json(
+            {
+                "model": settings.chat_llm_model or settings.llm_model,
+                "messages": messages,
+                "temperature": 0.2,
+                "max_tokens": 300,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+            },
+            settings.chat_llm_timeout_s,
+        )
         template = PersonaTemplate.model_validate_json(_message_content(body))
         return template.model_copy(update={
             "source": "custom",
@@ -159,8 +165,51 @@ async def generate_template(request: TemplateDraftRequest) -> PersonaTemplate | 
         return None
 
 
-async def _post_json(payload: dict) -> dict:
-    async with httpx.AsyncClient(timeout=settings.llm_timeout_s) as client:
+async def generate_body_insight(
+    message: str,
+    scope: str,
+    sessions: list[dict[str, object]],
+) -> tuple[str, str | None]:
+    """用 Chat 9B 帮用户理解已授权记录，不产生设备建议或长期记忆。"""
+
+    if not settings.llm_api_key or not settings.llm_base_url:
+        return _body_insight_stub(scope, sessions)
+    payload = {
+        "model": settings.chat_llm_model or settings.llm_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是 Nascent 身体笔记的自我探索助手。只输出 BodyInsightModelOutput JSON，"
+                    "字段只能是 dialogue 和 insight_candidate。只引用输入中的聚合事实，不能诊断、"
+                    "判断性功能、断言愉悦或固定用户偏好。不能输出 action、skill_proposals、档位建议、"
+                    "设备控制、医疗结论或安全词。说明观察来自本次还是近期对比。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"scope": scope, "sessions": sessions, "message": message},
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        "temperature": 0.4,
+        "max_tokens": 260,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        result = BodyInsightModelOutput.model_validate_json(
+            _message_content(await _post_json(payload, settings.chat_llm_timeout_s))
+        )
+        return result.dialogue, result.insight_candidate
+    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+        return _body_insight_stub(scope, sessions)
+
+
+async def _post_json(payload: dict, timeout_s: float | None = None) -> dict:
+    async with httpx.AsyncClient(timeout=timeout_s or settings.llm_timeout_s) as client:
         response = await client.post(
             _completion_url(settings.llm_base_url),
             json=payload,
@@ -193,6 +242,23 @@ def _message_content(body: dict) -> str:
 def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
     dialogue = "我在这里，按设备的计时和安全规则来。" if request.session_mode == "wild" else "我在这里，按你的节奏来。"
     return AgentTurn(dialogue=dialogue, emotion="calm")
+
+
+def _body_insight_stub(scope: str, sessions: list[dict[str, object]]) -> tuple[str, str | None]:
+    current = sessions[0]
+    if scope == "recent" and len(sessions) > 1:
+        dialogue = (
+            f"我只参考了你确认的 {len(sessions)} 次记录。"
+            "从这些记录看，时长和节奏并不总是一样；你更想先比较开始阶段，还是结束前的感受？"
+        )
+        candidate = "近期几次里，我想先从较轻的节奏开始，再根据当下感受决定是否变化。"
+    else:
+        dialogue = (
+            f"只看这一次：{current['temperature_summary']}，{current['pressure_summary']}。"
+            "这些只是当时的记录，不代表固定偏好。哪一段最接近你自己的感受？"
+        )
+        candidate = "这一次，慢慢开始和清楚地收尾让我更容易听见自己的感受。"
+    return dialogue, candidate
 
 
 def _stub(summary: CloudSummary) -> CloudActionEnvelope:

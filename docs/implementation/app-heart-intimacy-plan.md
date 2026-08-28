@@ -1,153 +1,166 @@
-# App 心绪与亲密时刻实施记录
+# App 心绪、亲密时刻与 B 层实施记录
 
 更新时间：2026-08-28
-分支：feat/app-heart-intimacy
-状态：心绪/亲密 UI 与协议骨架已完成；B 层 9B Agent、模板、记忆和 IRPI 联调骨架已落地，生产链路待实施
+当前分支：`feat/body-notes-insight`
+基线：`origin/main` (`65be10e`)
+状态：共享 Web UI 和 Android 壳框架已存在；B 层 Agent 联调骨架与身体笔记纵向切片已完成，生产持久化、真实模型网关和实时语音仍待联调
 
-## 目标
+## 当前软件形态
 
-交付 Android 优先的 Flutter 交互骨架，完成心绪、亲密时刻和我的三层入口。心绪记录与身体笔记本轮只保存在当前 App 运行内，不接云端、SQLCipher 或完整 BLE 扫描流程。
+控制端已经从历史 Flutter 方案迁移为两部分：
 
-## 实施清单
+- `software/app/`：FastAPI 托管的共享 Web UI / PWA，负责心绪、亲密时刻、我的、`Governor` 和唯一设备命令入口 `sendCommand()`。
+- `software/app-android/`：Android WebView 壳和原生 GATT 桥，展示同一套 Web UI，不在 Kotlin 中复制页面、Agent 或安全总督。
 
-- [x] 保留已有心绪页面、知识卡、收藏和分享预览
-- [x] 增加五种心绪的内存记录与连续天数
-- [x] 增加亲密时刻入口、情境漫游和身体笔记
-- [x] 将控制页命名为“我的节奏”，保留停止优先和 Governor 约束
-- [x] 将底部导航调整为“心绪 / 亲密时刻 / 我的”
-- [x] 将 mood_tone 写入协议契约并生成跨端产物
-- [x] 锁定 B 层实时 API 主模型为 `Qwen/Qwen3.5-9B`，服务端逻辑别名为 `nascent-chat-9b` 与 `nascent-control-9b`
-- [x] 完成 B 层三层 Prompt、Persona 隔离、记忆确认/删除和 Waifu 边界文档
-- [x] 完成温度/压力摘要进入 `sensor_context` 的数据流设计
-- [x] 完成实时语音延迟预算、超时回退和停止优先策略设计
-- [x] 确认身体笔记为与情境漫游、我的节奏平行的独立模块，并设计“只看这一次 / 参考近期记录”两个自我探索入口
-- [ ] 接入真实 `Qwen/Qwen3.5-9B` API、WebSocket 流式输出和 Schema 校验
-- [ ] 将温度/压力趋势聚合接入 Agent 请求上下文
-- [ ] 实现 Persona、会话、身体笔记和关系记忆的持久化与删除 API
-- [ ] 实现本地 ASR/VAD、TTS、barge-in 与 Rive/Waifu 表现适配
-- [ ] 运行 Dart 分析与 Flutter 测试（环境阻塞：本机没有 Flutter/Dart SDK）
-- [ ] 构建 Android debug APK（环境阻塞：本机没有 Flutter/Android SDK，仓库也没有 android 平台目录）
-- [x] 完成 Draft PR（PR #1）
+亲密时刻保持三个并列模块：
+
+```text
+亲密时刻
+├─ 情境漫游
+├─ 我的节奏
+└─ 身体笔记
+```
+
+选择页与实际使用页保持分离。身体笔记也使用独立导航，不与情境选择或控制页合并。
+
+## 本分支已完成
+
+### B 层基础架构
+
+- [x] Chat 9B 与 Control 9B 使用两个逻辑模型配置，可先指向同一个 `Qwen/Qwen3.5-9B` 服务，部署时再拆副本。
+- [x] 新增 `POST /v1/agent/parallel-turn`，同一回合用 `asyncio.gather` 并行启动 Chat 与 Control；总等待接近较慢通道而不是两段超时相加。
+- [x] 两条通道独立降级：Chat 异常只回退安全台词，Control 异常只返回 `hold`，不会互相取消，也不进入设备停止链路。
+- [x] 并行响应返回可供 UI 展示的脱敏 `data_flow`，只显示数据阶段，不泄露 Prompt、原始采样或内部记忆文本。
+- [x] Persona 预置模板、自定义草稿、确认后使用和删除接口骨架。
+- [x] 关系记忆按用户与 Persona 隔离，只有确认后写入，并支持逐条、按 Persona 和全量删除。
+- [x] Control 9B 只生成受限建议，`action` 强制为空；失控模式、未同意、数据过期或质量未知时返回 `hold`。
+- [x] 温度与压力只以聚合趋势和数据质量进入模型，不上传原始 12 Hz 数组、音频、设备地址、密钥或安全词。
+- [x] OpenAI-compatible HTTP 适配器、严格 JSON 解析、短超时和本地安全回退。
+
+### 身体笔记纵向切片
+
+- [x] 页面分层：`使用记录列表 -> 单次记录详情 -> 了解自己对话`。
+- [x] 单次详情展示日期、模式、时长、数据完整度、低频档位/压力图、温感趋势、压力趋势和用户反馈。
+- [x] 详情页底部固定两个同级按钮：`只看这一次` 与 `参考近期记录`。
+- [x] `只看这一次` 只发送当前 `session_id`。
+- [x] `参考近期记录` 默认选择最近 5 次可用记录、最多 10 次，并在进入前展示确切日期、模式和时长。
+- [x] 微信式临时对话页面持续显示当前读取范围和数据来源。
+- [x] 临时对话默认不持久化，只有点击 `保存这条发现` 才创建可删除的 `body_note`。
+- [x] 单次记录和单条发现都有可见删除入口与二次确认。
+- [x] 在线后端删除失败时 UI 不再假装成功；只有纯静态演示允许本地内存删除。
+- [x] 自我探索输出只允许 `dialogue` 和 `insight_candidate`，设备控制、Skill、诊断、确定性愉悦结论和固定偏好话术会被拒绝。
+- [x] PWA 缓存已加入 `js/body-notes.js`。
+
+## 身体笔记 API
+
+```text
+GET    /v1/body-notes/sessions
+GET    /v1/body-notes/sessions/{session_id}
+DELETE /v1/body-notes/sessions/{session_id}
+POST   /v1/body-notes/sessions/{session_id}/note
+PATCH  /v1/body-notes/{note_id}
+DELETE /v1/body-notes/{note_id}
+POST   /v1/body-notes/insight-turn
+```
+
+当前 `InMemoryBodyNotesStore` 是可替换的联调实现。生产版必须增加登录用户归属校验、数据库迁移、删除审计和多实例一致性，不能把进程内存当作正式存储。
+
+## AI 数据走向
+
+```text
+ESP32 12 Hz 采样
+  -> 固件滤波与本地安全判断
+  -> Web UI / App 生成低频趋势与质量
+  -> 用户在身体笔记中选择读取范围
+  -> 后端按显式 session_id 取已授权记录
+  -> 只生成来源标识 + 数据质量 + 温感/压力聚合趋势
+  -> Chat 9B 严格 JSON 输出
+  -> UI 展示临时对话
+  -> 用户主动点击“保存这条发现”后才写入笔记
+```
+
+不会发送给身体笔记模型的字段：档位时间线、原始温度/压力数组、音频、MAC、密钥、安全词、BLE 命令、Skill、停止闩锁和失控计时器。
+
+## 双模型与延迟预算
+
+| 角色 | 责任 | 默认超时 | 失败行为 |
+| --- | --- | --- | --- |
+| Chat 9B | 对话、人设草稿、身体笔记自我探索 | 8.0 秒 | 返回本地短句，不产生动作 |
+| Control 9B | 只读趋势上的受限节奏建议 | 2.5 秒 | `decision=hold`，不改变当前状态 |
+
+情境漫游的单轮编排：
+
+```text
+同一用户事件
+  ├─ Chat lane: 用户输入 + 已授权记忆 -> Chat 9B -> 台词/人设表现
+  └─ Control lane: 聚合温压趋势 + Skill 白名单 -> Control 9B -> 待确认建议
+
+待确认建议 -> 用户确认 -> Governor -> sendCommand() -> 设备安全规则
+```
+
+两条 lane 并行执行但不共享输出：Chat 不能读取 Control 的档位建议，Control 不能读取完整聊天记忆。身体笔记的自我探索不属于设备使用回合，因此只调用 Chat lane，不启动 Control lane。
+
+两个角色通过以下环境变量配置：
+
+```text
+NASCENT_LLM_API_KEY
+NASCENT_LLM_BASE_URL
+NASCENT_LLM_MODEL
+NASCENT_CHAT_LLM_MODEL
+NASCENT_CONTROL_LLM_MODEL
+NASCENT_CHAT_LLM_TIMEOUT_S
+NASCENT_CONTROL_LLM_TIMEOUT_S
+```
+
+仓库只提交空白 `.env.example`。聊天中出现过的密钥视为已泄露，不得用于联调或写入命令；必须先在服务商控制台撤销并生成替换密钥，然后只放进被 Git 忽略的 `software/backend/.env`。真实联调还需要确认服务商的 OpenAI-compatible `base URL` 和准确模型 ID。
 
 ## 安全边界
 
-- 所有设备指令只通过 senderProvider 发送。
-- stop 在任何状态下都可发送；App 不提供远程 resume。
-- 断连、遥测过期或 link_lost 时，Governor 只放行 stop。
-- 情境漫游本轮不自动调档；未来自动调档必须标记 automatic: true。
-- 不把环境温度当作安全过温通道。
-- 心绪和身体笔记文案不做诊断或异常判断。
-- 9B 只接收经过聚合的温度/压力趋势和数据质量，不接收原始 12Hz 数组、压力原始值、PCM、真实设备 MAC、密钥或安全词原文。
-- 9B 不得直接控制 BLE、档位、灯光、PWM、停止闩锁、失控计时或删除数据；任何动作建议都必须经过 `Governor` 与 `senderProvider`。
-- 温度/压力只影响表达、询问和情景节奏；用户明确表达优先，`unknown` 或质量不足时不猜测。
+- 所有设备指令只走 Web UI 的 `sendCommand()`，由 `Governor` 先检查；Android 壳不旁路。
+- `stop` 始终优先；App 和云端不提供远程 `resume`。
+- 身体笔记历史页不包含恢复、调档、延时或设备动作。
+- 失控模式的最终计时和停止由设备持有，AI、后端和 WebSocket 都不能延长或解除。
+- Chat 9B 和 Control 9B 都不是安全控制器；网络、模型或解析失败不得阻塞本地停止路径。
+- 温感、压力和 IRPI 权重只能形成待确认观察，不得直接断言性功能、高潮、异常或固定偏好。
+- 删除记录后必须立即从 Agent 可检索范围移除；生产版还需用鉴权与数据库事务实现这一约束。
 
-## 验收记录
+## 验证记录
 
-### 协议
+截至 2026-08-28，本分支已运行：
 
-- 契约版本：0.2.0-demo
-- 新增枚举：quiet、open、warm、bright、tired
-- UserTags.mood：enum:mood_tone
-- BLE 指令、传感器字段和设备安全规则：未改变
+- `node software/app/tests/run.mjs`：27 passed，0 failed。
+- `python -m pytest software/backend/tests -q`：15 passed（包含双模型同时启动、单 lane 故障隔离和独立超时隔离）。
+- `python -m ruff check software/backend/app software/backend/tests`：通过。
+- `python -m compileall -q software/backend/app software/backend/tests`：通过。
+- `python protocol/tools/gen.py --check`：通过，契约仍为 `0.2.0-demo`。
+- `git diff --check`：通过。
 
-### B 层 9B Agent 设计与联调记录
+浏览器在 360 x 800 视口完成了记录列表、单次详情和“只看这一次”独立聊天页检查：底部两个同级入口可见，页面无横向溢出，聊天回复显示来源范围和“保存这条发现”按钮。近期范围选择、后端失败不误删和纯静态本地删除由前端自动化测试覆盖；删除确认没有在浏览器中实际执行，以免改动联调数据。
 
-- 主模型：`Qwen/Qwen3.5-9B`
-- 服务端别名：`nascent-realtime-9b`
-- 调用模式：关闭 Thinking、严格 JSON Schema、短句流式输出；App 不依赖供应商模型名
-- Prompt 结构：固定安全系统层 + 当前 Persona 层 + 会话动态层（最近 6 轮、滚动摘要、已授权记忆、`sensor_context`、本轮输入）
-- 输出分流：`dialogue/avatar` 进入 TTS/Waifu；`action` 进入 App `Governor`；`memory_proposals` 必须由用户确认后写入
-- 失控模式：默认不生成关系记忆；不使用 AI 作为计时器、停止器或恢复器
-- 失败回退：超时、非法 JSON、审核拒绝或记忆服务失败时使用本地安全短句，`action=null`
+本分支没有增加 BLE 跨端字段，因此没有修改 `protocol/contract.yaml`。身体笔记请求/响应属于后端应用层契约，不应伪装成设备协议字段。
 
-### 温度/压力到 AI 的数据流
+## Android 状态
 
-```text
-ESP32 12Hz 采样
-  -> 固件滤波与安全判断
-  -> App 约 1Hz 趋势聚合
-  -> 每 5-10 秒或状态变化生成 CloudSummary/sensor_context
-  -> 只读注入 Qwen3.5-9B Prompt
-  -> 只影响台词、询问和场景节奏
-```
+- Android 使用 `software/app-android/` WebView 壳展示同一套页面。
+- 本轮前端改动不要求在 Kotlin 中复制 UI。
+- 2026-08-28 实机环境检查：Android Studio 安装于 `D:\Program Files\Android\Android Studio`，自带 JBR 可运行；用户 SDK 当前只发现 `android-37.0`。
+- 仓库的 `software/app-android/` 缺少 `gradlew`、`gradlew.bat` 和 Wrapper JAR，工程又声明 `compileSdk 34`；因此本轮没有可复现的命令行 Gradle 入口，也没有生成 APK，不宣称构建成功。
+- 后续需由 Android Studio 同步并补齐 SDK 34/Gradle Wrapper，再执行 `gradlew.bat assembleDebug`，将真实 APK 路径写回本文件和 PR。
+- 浏览器/Android 壳的最终真机验收仍需覆盖 360px 单手布局、键盘弹出、删除确认、两种读取范围和返回路径。
 
-云端只收到 `temp_state`、`pressure_rhythm`、质量和当前会话状态等摘要，不收到原始数组或音频。当前仓库尚未完成这条真实运行链路，本节记录的是实施契约而非已接通状态。
+## 尚未完成
 
-### 后端联调验证
+- 真实 9B 网关、替换密钥和模型 ID 的联调与延迟压测。
+- WebSocket 流式响应、VAD、ASR、TTS、barge-in 和 Waifu/Rive 表现层。
+- 身体笔记、Persona、关系记忆和偏好快照的生产数据库、鉴权、导出和删除审计。
+- 情境漫游完整微信式会话列表、独立人设选择页、使用前确认页和实际使用页。
+- Control 9B 的 Skill 确认 UI 与 `sendCommand(..., { automatic: true })` 映射。
+- 失控模式设备本地计时的协议字段、固件实现和真机验收。
+- Android Gradle 构建和真机 GATT 联调。
 
-- `pytest software/backend/tests -q`：6 passed
-- `ruff check software/backend/app software/backend/tests`：通过
-- `python -m compileall -q software/backend/app software/backend/tests`：通过
-- FastAPI 路由装配：包含 `/v1/agent/turn`、`/v1/agent/control-decision`、模板、记忆和偏好接口
+## Git 交付
 
-### Android 构建
-
-- flutter pub get：未执行，本机没有 flutter 命令
-- dart analyze：未执行，本机没有 dart 命令
-- flutter test：未执行，本机没有 Flutter/Dart SDK
-- flutter build apk --debug：未执行，本机没有 Flutter/Android SDK，仓库没有 android 平台目录
-- APK 路径：暂无；不能把未构建结果当作 APK 交付
-
-### Git 交付
-
-- 提交：16d09c3 feat: add heart and intimacy app framework
-- Draft PR：#1
-
-### 已完成检查
-
-- protocol/tools/gen.py --check：通过
-- Python 生成协议模块 py_compile：通过
-- git diff --check：通过
-
-## 本轮不包含
-
-- BLE 扫描、连接 UI 和 Android 12+ 权限申请
-- 云端 HTTPS、SQLCipher、本地持久化迁移
-- 情境剧本驱动设备的自动调档
-- 远程解除停止状态
-
-## 开源 Agent 选型与模板实现（2026-08-28）
-
-- [x] 新增 `docs/architecture/开源Agent与情感对话方案评估.md`，记录 Mem0、Pipecat、Letta、Open-LLM-VTuber 和 LiveKit Agents 的适用范围、许可证核对和不直接整包合并的原因。
-- [x] 增加 `MemoryProvider`：按 `user_id + persona_id` 隔离，支持检索、逐条删除、按人设删除和用户全量删除；默认是本地内存实现，接口预留 Mem0/SQLCipher 替换。
-- [x] 增加 `AgentTurn` 严格 JSON 契约：对话、Waifu 表现、场景控制、待确认记忆候选和 `skill_proposals` 分流；`action` 强制为 null。
-- [x] 增加预置模板和用户自定义模板生命周期：`draft -> confirmed`；聊天生成只能得到草稿，必须由用户确认后保存。
-- [x] 增加受限硬件 Skill 白名单：只允许参数化节奏段/波形建议，不能声明 BLE、停止、恢复、延长失控时长或安全阈值。
-- [x] 增加 `/v1/agent/turn`、`/v1/agent/templates/*` 和 `/v1/agent/memory*` 本地联调接口。
-- [x] 增加 Qwen 9B OpenAI-compatible HTTP 适配器；未配置网关、超时、非法 JSON 时回退本地短句，设备状态不受影响。
-- [x] 增加 IRPI 偏好服务：明确反馈优先、传感器质量门控、偏好快照隔离和删除。
-- [x] 增加 `/v1/agent/preferences/observe`、`GET/DELETE /v1/agent/preferences` 联调接口。
-
-### 模板交互口径
-
-1. 选择页只展示预置模板和已确认的自定义模板。
-2. 创建页是独立的聊天页，用户用自然语言描述节奏，Agent 返回模板草稿。
-3. 预览页展示名称、语气、Skill、档位范围、时长和“需要确认”的提示；这里不启动设备。
-4. 用户确认后模板才进入使用页；Skill 调度仍由 App `Governor + senderProvider` 执行。
-5. 删除入口位于模板管理页；删除模板后可级联删除该 Persona 的关系记忆，不能再检索。
-
-### 本轮仍未完成
-
-- 内存适配器还没有换成持久化数据库或自托管 Mem0。
-- Agent API 尚未接入生产鉴权、内容审核服务和 WebSocket 流式传输。
-- Flutter 使用页尚未接上 `skill_proposals` 的确认弹层和 Skill 到 `senderProvider` 的映射。
-- 本机没有 Flutter/Dart/Android SDK，无法宣称 Android APK 已构建。
-
-## 后续 B 层补充方案（仍未实施）
-
-以下设计已写入架构文档，但尚未接入 Flutter/持久化/协议字段：
-
-- `我的节奏 / 失控模式` 使用用户选择的有限时长，计时起点以设备确认开始为准。
-- `我的节奏` 采用三个主入口：`常用人设`、`新建人设`、`定时失控`；采用 2+1 布局，入口位于单手拇指热区。
-- 失控模式不使用语音安全词作为结束条件，但实体停止、设备急停、温度/电量保护、链路看门狗和固件硬超时不可关闭。
-- 最终计时器由 K10/固件持有；App 和后端只显示、记录和接收状态，不能远程延长或恢复。
-- 新增后端事实数据设计：`session_control`、`session_event`、`session_trend` 和 `body_note`。
-- 新增 UI 删除入口：单条记忆、单次会话数据、身体笔记、Persona、Persona 关系记忆和全部数据。
-- `身体笔记` 后续实现为“使用记录列表 -> 单次记录详情 -> 了解自己对话”；详情页使用两个同级按钮：`只看这一次` 仅授权当前记录，`参考近期记录` 在用户确认具体日期和模式后授权最近 5 次、最多 10 次记录。
-- 自我探索对话复用 Chat 9B，但采用不含动作字段的独立输出契约；默认不持久化整段对话，只有用户点击“保存这条发现”才写入可编辑、可删除的身体笔记。
-- 失控模式会话默认不自动写入关系记忆，只有用户逐条确认后才能保存。
-- 两份 B 层技术方案已统一：主逻辑以 `docs/architecture/B层情景模式技术实现.md` 为准，Agent 与语音文档作为配套附录。
-- `docs/architecture/B层Agent提示词契约.md` 已作为 9B Prompt、输出 JSON、记忆边界和 Waifu 输入的独立契约；实现时不得由客户端自由拼接系统 Prompt。
-- 9B API 的部署地域、网关、模型快照和密钥尚未登记到联调环境；这些信息不进入仓库。
-
-下一轮实施前必须先将计时、删除和数据字段写入 `protocol/contract.yaml`，再运行协议生成器，并补充数据库迁移、权限检查和 Android UI 验收。
+- 当前短分支：`feat/body-notes-insight`。
+- 计划提交：`feat: add body notes insight flow`。
+- 只显式暂存本任务文件，不使用 `git add .` 或 `git add -A`。
+- 推送后创建或更新 Draft PR，不自动合并。

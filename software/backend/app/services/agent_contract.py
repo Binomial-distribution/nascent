@@ -142,20 +142,26 @@ class ControlDecisionRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=128)
     session_mode: Literal["scenario", "free", "wild"] = "scenario"
     template_id: str | None = Field(default=None, max_length=128)
-    template_skill_allowlist: list[Literal["rhythm_segment", "set_pattern", "hold_current"]] = Field(default_factory=list, max_length=12)
+    template_skill_allowlist: list[
+        Literal["rhythm_segment", "set_pattern", "hold_current"]
+    ] = Field(default_factory=list, max_length=12)
     current_level: int = Field(default=0, ge=0, le=8)
     remaining_seconds: int | None = Field(default=None, ge=0)
     consent_state: Literal["unknown", "confirmed", "withdrawn"] = "confirmed"
     sensor_context: dict[str, object] = Field(default_factory=dict)
     explicit_user_signal: str = Field(default="", max_length=500)
-    recent_feedback: Literal["unknown", "comfortable", "slow_down", "pause", "keep"] = "unknown"
+    recent_feedback: Literal["unknown", "comfortable", "slow_down", "pause", "keep"] = (
+        "unknown"
+    )
 
 
 class ControlDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decision: Literal["hold", "recommend", "ask"] = "hold"
-    recommended_skill_id: Literal["rhythm_segment", "set_pattern", "hold_current"] | None = None
+    recommended_skill_id: (
+        Literal["rhythm_segment", "set_pattern", "hold_current"] | None
+    ) = None
     recommended_level: int | None = Field(default=None, ge=1, le=8)
     recommended_pattern: str | None = Field(default=None, max_length=32)
     hold_seconds: int = Field(default=30, ge=1, le=900)
@@ -163,3 +169,62 @@ class ControlDecision(BaseModel):
     reason_codes: list[str] = Field(default_factory=list, max_length=8)
     requires_user_confirmation: Literal[True] = True
     action: None = None
+
+
+class ParallelAgentTurnRequest(BaseModel):
+    """Inputs for the Chat and Control lanes of one experience turn."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chat: AgentTurnRequest
+    control: ControlDecisionRequest
+
+    @model_validator(mode="after")
+    def validate_shared_context(self) -> "ParallelAgentTurnRequest":
+        if self.chat.user_id != self.control.user_id:
+            raise ValueError("chat and control user_id must match")
+        if self.chat.session_mode != self.control.session_mode:
+            raise ValueError("chat and control session_mode must match")
+        if self.chat.active_template is not None:
+            if self.chat.active_template.template_id != self.control.template_id:
+                raise ValueError("chat and control template_id must match")
+        return self
+
+
+class ParallelDataFlow(BaseModel):
+    """Sanitized stages that the UI can display without exposing prompts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chat: list[str] = Field(
+        default_factory=lambda: [
+            "用户输入与已授权记忆",
+            "Chat 9B",
+            "台词与人设表现",
+        ]
+    )
+    control: list[str] = Field(
+        default_factory=lambda: [
+            "聚合传感趋势与 Skill 白名单",
+            "Control 9B",
+            "待确认节奏建议",
+        ]
+    )
+    device: list[str] = Field(
+        default_factory=lambda: [
+            "用户确认",
+            "Governor",
+            "sendCommand()",
+            "设备安全规则",
+        ]
+    )
+
+
+class ParallelAgentTurnResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution: Literal["parallel"] = "parallel"
+    elapsed_ms: int = Field(ge=0)
+    chat: AgentTurn
+    control: ControlDecision
+    data_flow: ParallelDataFlow = Field(default_factory=ParallelDataFlow)
