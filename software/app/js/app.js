@@ -1,6 +1,6 @@
 import { BleDownlink, NlCmd, NlConst, NlInsertState, NlMode } from "./protocol.js";
-import { currentShell } from "./ble.js";
-import { ble, getConnected, getUplink, sendCommand, subscribe } from "./session.js";
+import { CHANNEL, CHANNEL_LABEL, currentShell } from "./transport.js";
+import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import {
   isOnboardingDone,
@@ -110,7 +110,7 @@ function loadDevices() {
   try {
     const raw = JSON.parse(localStorage.getItem(DEVICE_KEY) || "{}");
     return {
-      k10Serial: raw.k10Serial || "NL-K10-7F2A",
+      k10Serial: raw.k10Serial || "NL-TOY-7F2A",
       k10Battery: raw.k10Battery ?? 100,
       bandConnected: Boolean(raw.bandConnected),
       bandSerial: raw.bandSerial || "MI-WT-9C41",
@@ -120,7 +120,7 @@ function loadDevices() {
     };
   } catch {
     return {
-      k10Serial: "NL-K10-7F2A",
+      k10Serial: "NL-TOY-7F2A",
       k10Battery: 100,
       bandConnected: false,
       bandSerial: "MI-WT-9C41",
@@ -566,14 +566,18 @@ function pad(n) {
 }
 
 function connectHint() {
-  const shell = currentShell();
-  if (shell === "android-app") {
-    return "App 会用系统蓝牙直连行空板 K10。WebView 没有 Web Bluetooth，这是刻意走原生桥。";
+  const reason = link.unavailableReason;
+  if (reason) return reason;
+
+  if (link.channel === CHANNEL.WIFI) {
+    return link.address
+      ? `将连接 ${link.address}，玩具需要和你在同一个 2.4GHz 局域网内。`
+      : "请先在下面填写玩具的地址。WiFi 是备用通道，平时用蓝牙就好。";
   }
-  if (ble.available) {
-    return "网站通过 Web Bluetooth 直连行空板 K10。请用 Chrome / Edge，并打开 localhost 或 HTTPS。";
+  if (currentShell() === "android-app") {
+    return "App 用系统蓝牙直连玩具。WebView 没有 Web Bluetooth，这是刻意走原生桥。";
   }
-  return "当前浏览器不能直连行空板。请改用 Chrome / Edge，或安装 Nascent App。";
+  return "网站通过 Web Bluetooth 直连玩具。请用 Chrome / Edge，并从 localhost 或 HTTPS 打开。";
 }
 
 function renderSettings() {
@@ -581,8 +585,24 @@ function renderSettings() {
   const installRow = shell === "website"
     ? `<button class="list-row" data-act="install-pwa">
         <strong>安装为 App</strong>
-        <small>与网站同一套 Web UI，装到主屏幕后仍直连行空板。</small>
+        <small>与网站同一套 Web UI，装到主屏幕后仍直连玩具。</small>
       </button>`
+    : "";
+  const channelRow = `<div class="list-row">
+      <strong>通道</strong>
+      <small>${Object.values(CHANNEL).map((c) => `
+        <button class="chip${link.channel === c ? " active" : ""}" data-act="channel" data-channel="${c}">${CHANNEL_LABEL[c]}</button>
+      `).join("")}</small>
+    </div>`;
+  const addressRow = link.channel === CHANNEL.WIFI
+    ? `<div class="list-row">
+        <strong>玩具地址</strong>
+        <small>
+          <input id="toy-address" type="text" inputmode="url" spellcheck="false"
+                 placeholder="192.168.1.20 或 nascent.local" value="${escapeHtmlApp(link.address)}">
+          只保存在本次运行内，刷新页面需要重填。
+        </small>
+      </div>`
     : "";
 
   // —— 入口（Web UI demo 暂隐，保留勿删）——
@@ -590,7 +610,7 @@ function renderSettings() {
   //   <div class="group">入口</div>
   //   <div class="list-row">
   //     <strong>当前是${SHELL_LABEL[shell]}</strong>
-  //     <small>网站和 App 共用这一份页面。连的都是行空板 K10，不是玩具侧那块板。</small>
+  //     <small>网站和 App 共用这一份页面，连的都是玩具本身——中间已经没有别的板子了。</small>
   //   </div>
   //   ${installRow}
   // `;
@@ -599,8 +619,10 @@ function renderSettings() {
   <main class="page">
     <div class="group">设备</div>
     <div class="device-block">
-      <p class="device-section-label">主设备 · 行空板 K10</p>
+      <p class="device-section-label">主设备 · 玩具</p>
       ${statusBar({ connectable: true })}
+      ${channelRow}
+      ${addressRow}
     </div>
     <div class="device-block">
       <p class="device-section-label">健康手环 · 默认小米手表</p>
@@ -615,6 +637,11 @@ function renderSettings() {
       <strong>安全词管理</strong>
       <small>${safewordSummary()}</small>
     </button>
+    <div class="list-row">
+      <strong>停止后如何恢复</strong>
+      <small>只能长按玩具上的 BOOT 键两秒。网站和 App 都无法远程恢复，这是刻意的——
+      设备固件里根本没有「远程恢复」这条路径，不是我们没做入口。</small>
+    </div>
     <button class="list-row" data-act="toggle-app-lock">
       <strong>打开时需要输入锁屏密码</strong>
       <small>${ui.appLock ? "已开启" : "已关闭"} · 点击切换</small>
@@ -1264,6 +1291,12 @@ async function onClick(event) {
   else if (act === "compose-note") composeNote();
   else if (act === "connect") connectOrDisconnect();
   else if (act === "connect-band") connectOrDisconnectBand();
+  else if (act === "channel") {
+    // 切通道前先把输入框里的地址收下来，否则用户填完直接点「蓝牙」再回来会丢。
+    readToyAddress();
+    await link.setChannel(t.dataset.channel);
+    render();
+  }
   else if (act === "install-pwa") installPwa();
   else if (act === "clear-local") {
     // 旧入口已迁至 #/settings/data → clear-all-local
@@ -1333,20 +1366,28 @@ async function installPwa() {
   toast("用浏览器菜单里的「添加到主屏幕」，即可得到同一套 Web UI 的 App。");
 }
 
+/** 设置页的地址输入框只在 WiFi 通道下存在，读不到就什么都不做。 */
+function readToyAddress() {
+  const input = root.querySelector("#toy-address");
+  if (input) link.address = input.value;
+}
+
 async function connectOrDisconnect() {
   if (getConnected()) {
-    await ble.disconnect();
+    await link.disconnect();
     toast("已断开主设备");
     render();
     return;
   }
+  readToyAddress();
   try {
-    await ble.connect();
-    if (!ui.devices.k10Serial) ui.devices.k10Serial = "NL-K10-7F2A";
+    await link.connect();
+    if (!ui.devices.k10Serial) ui.devices.k10Serial = "NL-TOY-7F2A";
     saveDevices();
     toast(`已连接：${ui.devices.k10Serial}`);
     render();
   } catch (err) {
+    // 用户在系统蓝牙选择器里点了取消，不是错误，不要弹提示。
     if (err?.name === "NotFoundError") return;
     toast(err.message || String(err));
   }

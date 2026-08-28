@@ -18,6 +18,7 @@
 #include "ao3400.h"
 #include "ble_peripheral.h"
 #include "boot_key.h"
+#include "command_mailbox.h"
 #include "config.h"
 #include "insert_state.h"
 #include "led_ws2812.h"
@@ -29,6 +30,7 @@
 #include "sensors/mpu6050.h"
 #include "transport.h"
 #include "uplink_json.h"
+#include "wifi_ws.h"
 
 namespace {
 
@@ -43,10 +45,14 @@ SafetyGovernor g_safety;
 BootKey g_boot_key;
 
 BlePeripheral g_ble;
+WifiWs g_wifi;
 
-// 当前生效的那条传输。B3 接入 WiFi WebSocket 之后这个指针会在两者之间切换，
-// 但同一时刻只有一条在跑——ESP32-S3 只有一路射频。
+// 当前生效的那条传输。同一时刻只有一条在跑——ESP32-S3 只有一路 2.4GHz 射频，
+// 两栈共存要靠时分，12Hz 的上行会开始抖，而这条链路上跑着停机指令。
 Transport *g_link = &g_ble;
+
+// 当前通道空闲这么久且另一条可用，才切过去。切换的前提见下面 maybeSwitchTransport。
+uint32_t g_link_idle_since_ms = 0;
 
 char g_uplink_buf[384];
 
@@ -66,6 +72,8 @@ bool g_boot_power_check_done = false;
 volatile bool g_stop_verify_pending = false;
 volatile uint32_t g_stop_verify_at_ms = 0;
 
+CommandMailbox g_mailbox;
+
 // 停机的执行器动作。远端 stop 指令与 BOOT 键短按共用这一段，
 // 区别只在闩锁记的 alert 是 safeword 还是 estop。
 void applyStopNow(uint32_t now) {
@@ -78,14 +86,54 @@ void applyStopNow(uint32_t now) {
   g_stop_verify_pending = true;
 }
 
-// BLE 的写回调在协议栈任务上下文里跑，只做转发，重活留给主循环。
-void onCommand(const nl_command_t &cmd) {
-  uint32_t now = millis();
+// 传输层回调（BLE 在 Bluedroid 任务，WiFi 在主循环的 tick 里）只允许入队。
+// applyStopNow 与总督判定在 drainCommands 里跑；requestLevel 仍在 loop 后段，
+// 且必须发生在 drain 之后，这样 stop 不会被加档顶掉。
+void onCommand(const nl_command_t &cmd) { g_mailbox.post(cmd); }
 
-  // stop 不等下一轮 loop。从收到指令到断电必须是这一行里发生的事。
+void drainCommands(uint32_t now) {
+  nl_command_t cmd;
+  if (!g_mailbox.take(cmd)) return;
   if (cmd.cmd == NL_CMD_STOP) applyStopNow(now);
-
   g_safety.onCommand(cmd, now);
+}
+
+// BLE 与 WiFi 二选一。默认优先蓝牙，只有在 BLE 长时间无人连接、
+// 且本机配了 WiFi 凭据时才切过去；WiFi 上也没人就再切回来。
+//
+// **安全状态跨传输保持。** 这里只动 g_link，不碰 g_safety：
+// 换一条线连上来不是"新的一次会话"，更不是解除停机的理由。
+// 闩锁、档位、模式全都留在原处，恢复仍然只有 BOOT 键长按一条路。
+void maybeSwitchTransport(uint32_t now) {
+  if (!WifiWs::configured()) return;  // 没配 WiFi，永远待在 BLE
+
+  if (g_link->up(now)) {
+    g_link_idle_since_ms = now;
+    return;
+  }
+  if (now - g_link_idle_since_ms < NL_TRANSPORT_IDLE_SWITCH_MS) return;
+
+  Transport *next = (g_link == &g_ble) ? static_cast<Transport *>(&g_wifi)
+                                       : static_cast<Transport *>(&g_ble);
+
+  Serial.printf("[transport] %s 空闲超过 %lu ms，切到 %s\n", g_link->name(),
+                static_cast<unsigned long>(NL_TRANSPORT_IDLE_SWITCH_MS), next->name());
+
+  g_link->end();
+  g_link_idle_since_ms = now;
+
+  if (!next->begin(onCommand)) {
+    // 切过去起不来（比如 WiFi 连不上路由器）就退回原来那条。
+    // 不能两条都不在：那样连停机指令都收不到了。
+    Serial.printf("[transport] %s 启动失败，退回 %s\n", next->name(), g_link->name());
+    g_link->begin(onCommand);
+    return;
+  }
+  g_link = next;
+
+  // 新传输刚起来还没人连，闩锁状态要立刻同步过去，
+  // 否则闩锁期间的第一条非 stop 指令会被放过。
+  g_link->setStopLatched(g_safety.latched());
 }
 
 // BOOT 键是本板唯一的本地物理入口，也是**唯一**能解除停机闩锁的地方。
@@ -254,12 +302,17 @@ void setup() {
 
   g_safety.begin(millis());
 
+  // 默认起 BLE：默认优先蓝牙，而且它不依赖任何本地配置就能用。
   if (!g_link->begin(onCommand)) {
     Serial.printf("[toy-sidecar] 传输 %s 初始化失败\n", g_link->name());
+  }
+  if (WifiWs::configured()) {
+    Serial.println("[toy-sidecar] 已配置 WiFi 凭据，BLE 长时间无人连接时会自动切到 WebSocket");
   }
   Serial.println("[toy-sidecar] 等待手机连接；停机后需长按 BOOT 键 2 秒才能恢复");
 
   g_last_tick_ms = millis();
+  g_link_idle_since_ms = g_last_tick_ms;
 }
 
 void loop() {
@@ -271,6 +324,7 @@ void loop() {
   g_button.tick(now);
   g_led.render(now);
   g_link->tick(now);
+  drainCommands(now);  // WiFi 本轮入队的，以及两次 loop 之间 BLE 写下的
 
   if (now - g_last_tick_ms < NL_UPLINK_PERIOD_MS) {
     delay(1);
@@ -300,6 +354,14 @@ void loop() {
 
   // 闩锁状态同步给传输层，让"闩锁期间只放 stop"这条拒绝发生在解析层。
   g_link->setStopLatched(g_safety.latched());
+
+  // 放在安全判定之后：切换要基于本轮已经算出的链路状态，
+  // 而且切换过程中的那几百毫秒里，档位早已因断链归零。
+  maybeSwitchTransport(now);
+
+  // 采样期间 BLE 可能又写下一条。requestLevel 之前必须再排空一次，
+  // 否则这里读到旧档位、发出加档，把已经入队的 stop 顶掉。
+  drainCommands(now);
 
   // --- 执行：这是全板唯一一处调用 requestLevel 的地方 ---
   uint8_t level = g_safety.level();

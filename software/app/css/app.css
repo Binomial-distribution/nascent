@@ -485,6 +485,34 @@ input[type="range"] {
 .list-row small { color: var(--muted); }
 .group { color: var(--coral); font-size: 0.8rem; margin: 24px 0 4px; }
 
+/* 通道切换（蓝牙 / WiFi）。沿用 .modes button 的选中样式，
+   免得同一个界面里出现两种"被选中"的视觉语言。 */
+.chip {
+  border-radius: 999px;
+  padding: 6px 14px;
+  margin: 4px 8px 4px 0;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.chip.active {
+  background: #f4a7b926;
+  outline: 1.5px solid var(--coral);
+}
+
+.list-row input[type="text"] {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--field-bg);
+  color: var(--text);
+  font-size: 0.95rem;
+  border: 1px solid var(--line);
+}
+
 .primary, .ghost {
   width: 100%;
   border-radius: 12px;

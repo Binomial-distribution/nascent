@@ -28,7 +28,9 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 /**
- * 把行空板 GATT 接到 Web UI。UUID 一律由页面从 protocol.js 传入，这里不抄契约。
+ * 把玩具的 GATT 接到 Web UI。UUID 与设备名一律由页面从 protocol.js 传入，
+ * 这里不抄契约——0.3.0 把广播名从 Nascent-K10 改成 Nascent-Toy，
+ * 正因为名字是页面传来的，这个文件一行都不用动。
  */
 class BleBridge(
     private val activity: MainActivity,
@@ -80,7 +82,7 @@ class BleBridge(
     fun onPermissionResult(granted: Boolean) {
         val config = pendingConfig
         if (!granted || config == null) {
-            rejectConnect("需要蓝牙权限才能连接行空板")
+            rejectConnect("需要蓝牙权限才能连接玩具")
             return
         }
         startScan(config)
@@ -128,7 +130,7 @@ class BleBridge(
         scanner.startScan(filters, settings, callback)
         main.postDelayed({
             scanner.stopScan(callback)
-            if (connecting && gatt == null) rejectConnect("没有找到行空板 $name")
+            if (connecting && gatt == null) rejectConnect("没有找到玩具 $name")
         }, 15_000)
     }
 

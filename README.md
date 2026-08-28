@@ -1,8 +1,10 @@
 # Nascent
 
-智能情趣按摩玩具的软硬件工程仓库。当前处于**验证期双板 Demo** 阶段。
+智能情趣按摩玩具的软硬件工程仓库。当前处于**验证期单板 Demo** 阶段：手机直连玩具侧那块 ESP32-S3，中间没有别的板。
 
 产品架构（仓库内权威副本）：[`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)。飞书讨论稿：<https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd>（改架构必须同步回仓库）。
+
+**如果你上一次拉代码是在 `0.2.0-demo`，先读 [`docs/0.3.0 单板改造交接.md`](docs/0.3.0%20单板改造交接.md)。** 那次改造删掉了行空板 K10 与摇杆，协议是破坏性变更，文档里逐条写了你那一侧要不要跟。
 
 ## 三层运行架构
 
@@ -17,15 +19,16 @@ flowchart TB
     FSM["会话状态机"]
     DB["本次运行内存归档"]
   end
-  subgraph fw [ESP32 实时层]
-    K10["k10-controller: HW504 摇杆 + 屏 + BLE"]
+  subgraph fw ["ESP32 实时层（玩具侧唯一一块板）"]
     Toy["toy-sidecar: DHT11 / MPU6050 / FSR402 / WS2812B"]
+    Boot["BOOT 键 GPIO0：短按急停 / 长按 2s 解闩锁"]
   end
   Board["原产品控制板 + 三路振动"]
 
   cloud <-->|"状态摘要 / 动作契约"| app
-  app <-->|"BLE GATT（网站 Web Bluetooth / App 原生桥）"| K10
-  K10 <-->|"ESP-NOW"| Toy
+  app <-->|"BLE GATT（默认；网站 Web Bluetooth / App 原生桥）"| Toy
+  app <-->|"WiFi WebSocket（备用；与 BLE 运行时互斥）"| Toy
+  Boot -->|"本地停机；恢复只有这一条路"| Toy
   Toy -->|"AO3400A 并联原按键"| Board
 ```
 
@@ -33,21 +36,24 @@ flowchart TB
 
 - **云端**只产出台词与剧本推进，永远看不到原始传感器流与音频。
 - **浏览器控制端** 是安全总督，在 LLM 之外硬编码封顶、过温拒绝加档、安全词后丢弃一切非 stop 动作。
-- **固件**负责实时闭环。安全词、急停拉环、过温熔断、90% 强度封顶**不依赖 App 与网络**。
+- **固件**负责实时闭环。安全词、急停、过温熔断、90% 强度封顶**不依赖 App 与网络**。
+
+两条设备通道承载完全相同的 JSON，但**同一时刻只开一条**：ESP32-S3 只有一路 2.4GHz 射频，共存要靠时分，12Hz 上行会开始抖，而这条链路上跑着停机指令。默认 BLE，当前通道长时间空闲且另一条已配置才切换，切换不重置闩锁、档位与模式。
 
 ## 目录
 
 | 目录 | 内容 | 成熟度 |
 |---|---|---|
-| [`protocol/`](protocol/) | 三端唯一事实来源：契约、生成器、JSON Schema | 已冻结 `0.1.0-demo` |
-| [`hardware/k10-controller/`](hardware/k10-controller/) | 行空板 K10：摇杆、屏、BLE Peripheral、ESP-NOW 网关 | 功能完整 |
-| [`hardware/toy-sidecar/`](hardware/toy-sidecar/) | 玩具侧 ESP32-S3：传感、入体推断、灯效、原按键模拟 | 功能完整 |
+| [`protocol/`](protocol/) | 三端唯一事实来源：契约、生成器、JSON Schema | 已冻结 `0.3.0-demo` |
+| [`hardware/toy-sidecar/`](hardware/toy-sidecar/) | 玩具侧 ESP32-S3，**唯一一块板**：传感、入体推断、灯效、原按键模拟、BLE 与 WiFi 两条传输 | 功能完整 |
 | [`software/app/`](software/app/) | 浏览器控制端（网站 + PWA） | 框架骨架 |
 | [`software/app-android/`](software/app-android/) | 同一套 Web UI 的 Android 壳 | 框架骨架 |
 | [`software/backend/`](software/backend/) | FastAPI 后端（同时托管网站） | 框架骨架 |
 | [`datasheets/`](datasheets/) | 已选型器件的厂商 datasheet | — |
 | [`docs/`](docs/) | 协作与提交规范 | — |
-| [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.3 已归档 |
+| [`docs/architecture/`](docs/architecture/) | 产品架构（权威副本） | V1.4 已归档 |
+
+`hardware/` 下原来还有一个 `k10-controller/`（行空板 K10：摇杆、屏、BLE Peripheral、ESP-NOW 网关），协议 `0.3.0-demo` 起已整个删除，手机改为直连玩具侧。目录名里的 "sidecar" 是双板时期留下的，暂不改名以免牵动所有路径引用。
 
 ## 上手
 
@@ -57,9 +63,10 @@ flowchart TB
 # 协议：改完 contract.yaml 后必须重新生成
 cd protocol && python3 tools/gen.py
 
-# 固件（需要 PlatformIO）
-cd hardware/toy-sidecar && pio run
-cd hardware/k10-controller && pio run
+# 固件（需要 PlatformIO）。WiFi 备用通道要先填凭据，不填则只有 BLE
+cd hardware/toy-sidecar
+cp include/local_config.h.example include/local_config.h   # 可选，已被 gitignore
+pio run
 
 # 后端 + 网站
 cd software/backend
@@ -78,12 +85,14 @@ Windows 上开发没有额外步骤：仓库全 ASCII 文件名、`.gitattribute
 
 | 器件 | 接哪块板 | 建议引脚 | 用途 |
 |---|---|---|---|
-| HW504 摇杆 | K10 | P0/P8/P9 = GPIO1/8/9 | 回中式换档，摇一次一档 |
 | DHT11 | 玩具侧 | GPIO4 单总线 | 玩具环境温湿度，**非安全通道** |
 | MPU6050 | 玩具侧 | I2C GPIO8/9 @0x68 | 入体状态推断 |
 | FSR402 | 玩具侧 | GPIO1 ADC | 贴合与 1–2 Hz 节律 |
 | WS2812B ×8 | 玩具侧 | GPIO6 RMT | 模式配色 + 档位颗数 |
 | AO3400A | 玩具侧 | GPIO7 | 并联原按键走原板九档，漏极串 10kΩ 限流 |
+| BOOT 键 | 玩具侧 | GPIO0，板载 | 短按急停，长按 2 秒解除停机闩锁。不需要接线 |
+
+HW504 摇杆随 `hardware/k10-controller/` 一起删除，datasheet 只留档不再接线：它换来的只有「手机断连也能换档」，而原产品的实体按键本来就给了这条退路。
 
 datasheet 与接线摘要见 [`datasheets/README.md`](datasheets/README.md)。
 
@@ -104,6 +113,9 @@ App 与后端不做 vendored——`pubspec.lock` 和 `requirements.txt` 已经�
 - **原始 12 Hz 传感器流与麦克风音频不出设备与 App。** 上云的只有离散枚举摘要。
 - **按键支路不驱动电机。** 它只并联原按键，电机始终由原产品控制板驱动。
   AO3400A 的漏极串了 10kΩ，支路电流封在 0.37mA，这是物理保证而不只是纪律。
-- **停机不能远程解除。** 安全词或急停之后，恢复的唯一途径是在 K10 上物理双键确认。
-  App 与云端都发不出 `resume`。用户喊过停之后设备自己重新动起来，
-  是这个产品最坏的失败模式。
+- **停机不能远程解除。** 安全词或急停之后，恢复的唯一途径是长按玩具侧板上的 BOOT 键 2 秒。
+  这一条不靠「各处记得过滤 `resume`」来保证：固件里根本没有那条指令分支，
+  `clearLatch()` 只有 BOOT 键的处理函数会调。过滤会漏，不存在的代码路径不会漏。
+  用户喊过停之后设备自己重新动起来，是这个产品最坏的失败模式。
+- **手机断连即归零。** 玩具侧唯一的本地入口是 BOOT 键，它只能停不能开，
+  断连之后没有任何东西能再降档，所以断连的默认行为必须是停下来。

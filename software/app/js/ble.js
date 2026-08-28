@@ -1,4 +1,5 @@
-import { BleUplink, NlBle, NlConst } from "./protocol.js";
+import { ChannelBase } from "./channel.js";
+import { NlBle } from "./protocol.js";
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -14,33 +15,25 @@ export function hasNativeBle() {
   return typeof window !== "undefined" && typeof window.NascentNative?.connect === "function";
 }
 
-/** website | pwa | android-app */
-export function currentShell() {
-  if (hasNativeBle()) return "android-app";
-  if (typeof window !== "undefined" && window.matchMedia?.("(display-mode: standalone)").matches) {
-    return "pwa";
-  }
-  return "website";
-}
-
 /**
- * 与行空板 K10 的 BLE 连接。
+ * 与玩具侧 ESP32-S3 的 BLE 连接 —— 默认通道。
+ *
+ * 0.3.0 之前手机连的是行空板 K10，由它经 ESP-NOW 转发给玩具侧。
+ * K10 已删除，现在直连玩具侧那块板。UUID 一个都没改：服务只是换了宿主，
+ * 逻辑身份没变。设备名从 `Nascent-K10` 变成 `Nascent-Toy`。
  *
  * UUID、设备名全部来自 contract.yaml 生成的 NlBle。
  * 网站 / PWA 走 Web Bluetooth；Android App 壳走原生 GATT 桥
  *（系统 WebView 没有 navigator.bluetooth）。
  */
-export class BleClient {
+export class BleClient extends ChannelBase {
   constructor() {
+    super();
     this._device = null;
     this._server = null;
     this._downChar = null;
     this._upChar = null;
-    this._token = null;
-    this._connected = false;
     this._usingNative = false;
-    this._uplinkListeners = new Set();
-    this._connectedListeners = new Set();
 
     if (typeof window !== "undefined") {
       window.__nascentNativeOnUplink = (raw) => this._onNativeUplink(raw);
@@ -48,26 +41,14 @@ export class BleClient {
     }
   }
 
-  get token() {
-    return this._token;
-  }
-
-  get connected() {
-    return this._connected;
-  }
-
   get available() {
     return hasNativeBle() || (typeof navigator !== "undefined" && Boolean(navigator.bluetooth));
   }
 
-  onUplink(fn) {
-    this._uplinkListeners.add(fn);
-    return () => this._uplinkListeners.delete(fn);
-  }
-
-  onConnected(fn) {
-    this._connectedListeners.add(fn);
-    return () => this._connectedListeners.delete(fn);
+  /** 当前环境不可用时的原因，直接给用户看。可用时返回 null。 */
+  get unavailableReason() {
+    if (this.available) return null;
+    return "当前浏览器不能直连玩具。请改用 Chrome / Edge 并从 localhost 或 HTTPS 打开，或安装 Nascent App。";
   }
 
   async connect() {
@@ -149,7 +130,7 @@ export class BleClient {
 
   async _connectWebBluetooth() {
     if (typeof navigator === "undefined" || !navigator.bluetooth) {
-      throw new Error("当前环境不能连行空板。请用 Chrome / Edge 打开网站，或使用 Nascent App。");
+      throw new Error(this.unavailableReason);
     }
 
     const device = await navigator.bluetooth.requestDevice({
@@ -180,31 +161,19 @@ export class BleClient {
     this._setConnected(true);
   }
 
-  _acceptInfo(info) {
-    this._token = info.token ?? null;
-    const proto = info.proto;
-    const deviceMajor = Number.parseInt(String(proto ?? "").split(".")[0], 10);
-    if (deviceMajor !== NlConst.versionMajor) {
-      throw new Error(`协议主版本不一致：设备 ${proto}，控制端 ${NlConst.protoVersion}`);
-    }
-  }
-
   _onNativeUplink(raw) {
     try {
-      const json = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const uplink = BleUplink.fromJson(json);
-      for (const fn of this._uplinkListeners) fn(uplink);
+      this._emitUplink(typeof raw === "string" ? JSON.parse(raw) : raw);
     } catch {
-      // 单帧解析失败就丢掉。
+      // 解不出 JSON 的帧直接丢掉。
     }
   }
 
   _onNotify = (event) => {
     try {
-      const uplink = BleUplink.fromJson(bytesToJson(event.target.value));
-      for (const fn of this._uplinkListeners) fn(uplink);
+      this._emitUplink(bytesToJson(event.target.value));
     } catch {
-      // 单帧解析失败就丢掉。12Hz 下一帧很快就到。
+      // 解不出 JSON 的帧直接丢掉。
     }
   };
 
@@ -220,11 +189,5 @@ export class BleClient {
     this._upChar = null;
     this._server = null;
     this._device = null;
-  }
-
-  _setConnected(ok) {
-    if (this._connected === ok) return;
-    this._connected = ok;
-    for (const fn of this._connectedListeners) fn(ok);
   }
 }

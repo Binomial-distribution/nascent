@@ -17,7 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
  * 同一份 Web UI 的 Android 壳。
  *
  * 页面仍是 software/app/ 那套网站；系统 WebView 没有 Web Bluetooth，
- * 所以连行空板走 [BleBridge] 原生 GATT。
+ * 所以连玩具走 [BleBridge] 原生 GATT。
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
