@@ -4,7 +4,7 @@
 > 日期：2026-08-28
 > 范围：Nascent Love 共享 Web UI + Android WebView 壳、FastAPI Agent、Qwen 9B 双模型、压力 / 产品表面温感 / 心率趋势、情景漫游、我的节奏、身体笔记
 > 关键词：人设、模板 Skill、Chat 9B、Control 9B、SensorSnapshot、有限自动适配、WellnessAssessment、IRPI、记忆隔离、可删除、低延迟
-> 本文件是 B 层软件的权威规格。页面导航、传感器类型和自动适配规则以本节为准；BLE 设备命令仍以 [`protocol/contract.yaml`](../../protocol/contract.yaml) 为准，不要把 Agent 类型写进设备协议。
+> 本文件是 B 层软件的权威规格。页面导航、传感器类型和自动适配规则以本节为准；BLE 设备命令仍以 [`protocol/contract.yaml`](../../protocol/contract.yaml) 为准，不要把 Agent 类型写进设备协议。实施计划原文见 [`docs/implementation/B层完整软件实施计划-B3.0.md`](../implementation/B层完整软件实施计划-B3.0.md)。
 
 ### 当前仓库对照（2026-08-28）
 
