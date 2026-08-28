@@ -18,7 +18,7 @@
 - [x] 将 mood_tone 写入协议契约并生成跨端产物
 - [ ] 运行 Dart 分析与 Flutter 测试（环境阻塞：本机没有 Flutter/Dart SDK）
 - [ ] 构建 Android debug APK（环境阻塞：本机没有 Flutter/Android SDK，仓库也没有 android 平台目录）
-- [ ] 完成 Draft PR
+- [x] 完成 Draft PR（PR #1）
 
 ## 安全边界
 
@@ -45,6 +45,11 @@
 - flutter test：未执行，本机没有 Flutter/Dart SDK
 - flutter build apk --debug：未执行，本机没有 Flutter/Android SDK，仓库没有 android 平台目录
 - APK 路径：暂无；不能把未构建结果当作 APK 交付
+
+### Git 交付
+
+- 提交：16d09c3 feat: add heart and intimacy app framework
+- Draft PR：#1
 
 ### 已完成检查
 
