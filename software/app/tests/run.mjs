@@ -59,6 +59,21 @@ import {
   shouldBargeIn,
 } from "../js/live-call.js";
 import { accelMag, connectionDiagnostic, fsrContact, imuHealth, insertCopy, sensorLogicView, uplinkStatCopy } from "../js/lab.js";
+import {
+  CLOUD_STORE_KEY,
+  clearCloudConfig,
+  cloudSummary,
+  hasConnectionShell,
+  loadCloudConfig,
+  loadRuntimeToken,
+  maskSecret,
+  normalizeLlmBaseUrl,
+  runtimeAuthHeaders,
+  saveCloudConfig,
+  saveRuntimeToken,
+  toRuntimePayload,
+} from "../js/cloud-config.js";
+
 
 let failed = 0;
 let passed = 0;
@@ -962,6 +977,38 @@ assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same cale
   assert(!shouldApplyLevel(6, 3), "stale pending must not jump more than one level");
   assert(!shouldApplyLevel(3, 3), "same-level pending is a no-op and discarded");
   assert(!shouldApplyLevel(NlConst.levelMax + 1, NlConst.levelMax), "over-max pending is discarded not clamped");
+}
+
+{
+  const store = new Map();
+  const storage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+  assert(normalizeLlmBaseUrl("https://cloud.siliconflow.cn/") === "https://api.siliconflow.cn/v1", "siliconflow console URL becomes the OpenAI-compatible root");
+  assert(maskSecret("sk-abcdefghijklmnop") === "sk-a••••mnop", "API keys are masked in summaries");
+  const saved = saveCloudConfig({
+    llmBaseUrl: "https://api.siliconflow.cn/v1",
+    llmApiKey: "sk-from-settings",
+    llmModel: "Qwen/Qwen3.5-9B",
+    minimaxApiKey: "mm-key",
+  }, storage);
+  assert(storage.getItem(CLOUD_STORE_KEY).includes("sk-from-settings"), "cloud config persists locally");
+  assert(loadCloudConfig(storage).llmApiKey === "sk-from-settings", "cloud config reloads the stored key");
+  const payload = toRuntimePayload(saved);
+  assert(payload.llm_api_key === "sk-from-settings" && payload.llm_base_url.endsWith("/v1"), "runtime payload keeps key and normalized URL");
+  assert(!JSON.stringify(payload).includes("runtime"), "runtime payload does not include the local token");
+  saveRuntimeToken("local-runtime-token", storage);
+  assert(loadRuntimeToken(storage) === "local-runtime-token", "runtime token persists on this device");
+  assert(!storage.getItem(CLOUD_STORE_KEY).includes("local-runtime-token"), "runtime token is not stored with API keys");
+  const headers = runtimeAuthHeaders(storage);
+  assert(headers["X-Nascent-Runtime-Token"] === "local-runtime-token", "POST headers carry the local token");
+  assert(cloudSummary(saved, { llm_configured: true, tts_configured: true }) === "对话已接通", "summary prefers live backend status");
+  assert(hasConnectionShell({ NascentShell: { openConnectionSettings() {} } }), "Android shell can reopen the site URL form");
+  assert(!hasConnectionShell({}), "browser shell has no native site URL form");
+  clearCloudConfig(storage);
+  assert(loadCloudConfig(storage).llmApiKey === "", "clearing cloud config drops the stored key");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -52,6 +52,19 @@ import {
   subscribePlugin,
 } from "./ai-plugin.js";
 import { patchLabDom, renderLab, saveCheck } from "./lab.js";
+import {
+  clearCloudConfig,
+  cloudSummary,
+  fetchCloudStatus,
+  hasConnectionShell,
+  loadCloudConfig,
+  loadRuntimeToken,
+  runtimeAuthHeaders,
+  saveCloudConfig,
+  saveRuntimeToken,
+  syncCloudConfig,
+  toRuntimePayload,
+} from "./cloud-config.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import { heartRate, hrChipText, nativeHeartRateAvailable, nightHeartLog } from "./hr.js";
 import {
@@ -138,6 +151,7 @@ const ui = {
     lastSensorKey: "",
     generation: 0,
   },
+  cloudStatus: null,
 };
 
 const PREFS_KEY = "nascent.prefs";
@@ -1501,6 +1515,11 @@ function renderSettings() {
       <strong>连接我的 AI</strong>
       <small>${pluginSummary({ connected: getConnected(), invite: loadInvite() })}</small>
     </button>
+    <div class="group">连接与云端</div>
+    <button class="list-row" data-act="cloud-settings">
+      <strong>云端接口</strong>
+      <small>${cloudSettingsSummary()}</small>
+    </button>
     <div class="group">通用</div>
     <button class="list-row" data-act="notify-settings">
       <strong>通知</strong>
@@ -1611,6 +1630,138 @@ function confirmOpenPlugin() {
       toast(err.message || "打不开插件");
     }
   };
+}
+
+function cloudSettingsSummary() {
+  return cloudSummary(loadCloudConfig(), ui.cloudStatus);
+}
+
+function renderCloudSettings() {
+  const cfg = loadCloudConfig();
+  const remote = ui.cloudStatus;
+  const shellRow = hasConnectionShell()
+    ? `<button class="list-row" data-act="change-site-url">
+        <strong>更改网站地址</strong>
+        <small>重新填写 Android 壳加载的页面地址。首次启动也是这一项。</small>
+      </button>`
+    : `<div class="list-row">
+        <strong>网站地址</strong>
+        <small>当前就是这份页面。Android 壳首次启动会先填一次，之后也在这里改。</small>
+      </div>`;
+  const llmHint = remote?.llm_api_key_set
+    ? "已接通。留空则不改，只改本机新填写的密钥。"
+    : "硅基流动等 OpenAI 兼容接口。密钥只留本机，不进仓库、不进数据导出。";
+  const ttsHint = remote?.minimax_configured
+    ? "语音已接通。留空不改。"
+    : "情景通话要用。可与对话密钥分开。";
+  const status = remote?.llm_configured
+    ? (remote.tts_configured ? "对话与语音都已接通" : "对话已接通，语音还没配")
+    : "还没接通，情景聊天会走本地回退台词";
+  return `${topbar("云端接口", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="sub">${status}</p>
+    ${shellRow}
+    <div class="list-row">
+      <strong>对话 API 地址</strong>
+      <small>
+        <input id="cloud-llm-url" type="text" inputmode="url" spellcheck="false" autocomplete="off"
+               placeholder="https://api.siliconflow.cn/v1"
+               value="${escapeHtmlApp(cfg.llmBaseUrl || remote?.llm_base_url || "")}">
+      </small>
+    </div>
+    <div class="list-row">
+      <strong>对话 API Key</strong>
+      <small>
+        ${llmHint}
+        <input id="cloud-llm-key" type="password" autocomplete="off"
+               placeholder="${remote?.llm_api_key_set || cfg.llmApiKey ? "已保存，留空不改" : "sk-…"}"
+               value="">
+      </small>
+    </div>
+    <div class="list-row">
+      <strong>模型 ID</strong>
+      <small>
+        <input id="cloud-llm-model" type="text" spellcheck="false" autocomplete="off"
+               placeholder="Qwen/Qwen3.5-9B"
+               value="${escapeHtmlApp(cfg.llmModel || remote?.llm_model || "")}">
+        发给供应商的 ID，不是 nascent-chat-9b 这种逻辑别名。
+      </small>
+    </div>
+    <div class="list-row">
+      <strong>MiniMax 语音 Key</strong>
+      <small>
+        ${ttsHint}
+        <input id="cloud-minimax-key" type="password" autocomplete="off"
+               placeholder="${remote?.minimax_configured || cfg.minimaxApiKey ? "已保存，留空不改" : "可选"}"
+               value="">
+      </small>
+    </div>
+    <div class="list-row">
+      <strong>本机口令</strong>
+      <small>
+        对应后端 NASCENT_RUNTIME_TOKEN。只留本机，不进数据导出。局域网验证期手机要填这个才能改云端接口。
+        <input id="cloud-runtime-token" type="password" autocomplete="off"
+               placeholder="${loadRuntimeToken() ? "已保存，留空不改" : "X-Nascent-Runtime-Token"}"
+               value="">
+      </small>
+    </div>
+    <button class="primary" data-act="cloud-save">保存到本机并接通</button>
+    <button class="ghost" data-act="cloud-clear" style="margin-top:8px">清除本机密钥</button>
+  </main>`;
+}
+
+async function refreshCloudStatus() {
+  try {
+    ui.cloudStatus = await fetchCloudStatus();
+  } catch {
+    /* 后端没起来时设置页仍可填 */
+  }
+}
+
+async function saveCloudFromForm() {
+  const stored = loadCloudConfig();
+  const llmKey = String(root.querySelector("#cloud-llm-key")?.value || "").trim();
+  const minimaxKey = String(root.querySelector("#cloud-minimax-key")?.value || "").trim();
+  const cfg = saveCloudConfig({
+    llmBaseUrl: String(root.querySelector("#cloud-llm-url")?.value || "").trim(),
+    llmModel: String(root.querySelector("#cloud-llm-model")?.value || "").trim(),
+    llmApiKey: llmKey || stored.llmApiKey,
+    minimaxApiKey: minimaxKey || stored.minimaxApiKey,
+  });
+  const tokenInput = String(root.querySelector("#cloud-runtime-token")?.value || "").trim();
+  if (tokenInput) saveRuntimeToken(tokenInput);
+  try {
+    const response = await fetch("/v1/runtime-config", {
+      method: "POST",
+      headers: runtimeAuthHeaders(),
+      body: JSON.stringify(toRuntimePayload(cfg)),
+    });
+    if (!response.ok) {
+      toast(response.status === 403 ? "需要本机口令才能写到后端" : "没能写到后端，密钥已留在本机");
+      render();
+      return;
+    }
+    ui.cloudStatus = await response.json();
+    toast(ui.cloudStatus.llm_configured ? "已接通云端接口" : "已保存，但仍缺地址或密钥");
+  } catch {
+    toast("后端暂时连不上，密钥已留在本机");
+  }
+  render();
+}
+
+async function clearCloudFromForm() {
+  clearCloudConfig();
+  try {
+    ui.cloudStatus = await fetch("/v1/runtime-config", {
+      method: "POST",
+      headers: runtimeAuthHeaders(),
+      body: JSON.stringify({ reset: true }),
+    }).then((res) => res.json());
+  } catch {
+    ui.cloudStatus = null;
+  }
+  toast("已清除本机密钥，后端回到启动时的配置");
+  render();
 }
 
 function renderLocalData() {
@@ -2661,6 +2812,7 @@ function render() {
     else if (page === "notify") root.innerHTML = renderNotifySettings();
     else if (page === "appearance") root.innerHTML = renderAppearanceSettings();
     else if (page === "tts") root.innerHTML = renderTtsSettings();
+    else if (page === "cloud") root.innerHTML = renderCloudSettings();
     else if (page === "subscribe") root.innerHTML = renderSubscribeSettings();
     else if (page === "storage") root.innerHTML = renderStorageSettings();
     else if (page === "plugin") root.innerHTML = renderAiPlugin();
@@ -3116,6 +3268,15 @@ async function onClick(event) {
     render();
   }
   else if (act === "tts-settings") go("#/settings/tts");
+  else if (act === "cloud-settings") {
+    refreshCloudStatus();
+    go("#/settings/cloud");
+  }
+  else if (act === "change-site-url") {
+    window.NascentShell?.openConnectionSettings?.();
+  }
+  else if (act === "cloud-save") await saveCloudFromForm();
+  else if (act === "cloud-clear") await clearCloudFromForm();
   else if (act === "tts-set") {
     ui.prefs.ttsProvider = t.dataset.provider === "mimo" ? "mimo" : "minimax";
     savePrefs();
@@ -3646,6 +3807,10 @@ if ("serviceWorker" in navigator) {
 if (!location.hash) location.hash = isOnboardingDone() ? "#/heart" : "#/onboarding";
 else render();
 loadPersonas();
+syncCloudConfig().then((status) => {
+  if (status) ui.cloudStatus = status;
+  if (route().tab === "settings") render();
+}).catch(() => {});
 bodyNotes.load().then(() => render());
 
 if ("wakeLock" in navigator) {

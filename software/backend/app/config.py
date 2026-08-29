@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     )
 
     debug: bool = False
+    # 设置页 POST /v1/runtime-config 的本机口令。未配置则公网 POST 一律 403。
+    runtime_token: str = ""
 
     # openai = OpenAI 兼容（硅基等）；anthropic = Claude Messages API
     llm_provider: str = "openai"
