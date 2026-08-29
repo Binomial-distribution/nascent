@@ -124,6 +124,7 @@ class Cmd(str, Enum):
     SET_PATTERN = "set_pattern"
     SET_LED = "set_led"
     RESUME = "resume"
+    PRESS_KEY = "press_key"
 
     @property
     def wire(self) -> int:
@@ -131,6 +132,20 @@ class Cmd(str, Enum):
 
     @classmethod
     def from_wire(cls, i: int) -> "Cmd":
+        members = list(cls)
+        return members[i] if 0 <= i < len(members) else members[0]
+
+
+class KeyPress(str, Enum):
+    TAP = "tap"
+    HOLD = "hold"
+
+    @property
+    def wire(self) -> int:
+        return list(KeyPress).index(self)
+
+    @classmethod
+    def from_wire(cls, i: int) -> "KeyPress":
         members = list(cls)
         return members[i] if 0 <= i < len(members) else members[0]
 
@@ -335,6 +350,7 @@ class BleDownlink(BaseModel):
     pattern: Pattern | None = None
     mode: Mode | None = None
     led: LedState | None = None
+    key: KeyPress | None = None  # 仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机
     auth: str  # session token；缺失或过期整包丢弃
 
 

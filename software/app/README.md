@@ -38,8 +38,9 @@ js/
   governor.js     浏览器侧安全总督
   session.js      发指令的唯一入口（`sendCommand`）
   heart.js        心绪、科普卡片、身体笔记（本次运行内）
+  lab.js          硬件联调页（#/lab，从「我的」进入）
   app.js          A/B/C 三层界面
-tests/run.mjs     总督与心绪的回归
+tests/run.mjs     总督、心绪与联调页传感器逻辑的回归
 ```
 
 ### 三层的边界是有意的
@@ -83,6 +84,10 @@ cd protocol && python3 tools/gen.py
 Web Bluetooth 直接不可用；而一旦给网站上 HTTPS，`ws://` 又会被混合内容拦掉。
 Android 壳没有这个矛盾（明文放行 + 原生 GATT 桥），所以 **WiFi 通道以 Android 壳
 与桌面 Chrome 为主要验证路径**，手机浏览器上以 BLE 为准。
+
+### 硬件联调
+
+产品 App 还没做完时，从「我的」最下方进入 **硬件联调**（`#/lab`）验板：直连 `Nascent-Toy`、看 DHT/FSR/IMU、对照使用状态融合规则、调档/灯语、核对 BOOT 停机。发指令仍走 `sendCommand()`，页面点「试远程恢复」必须被总督拒绝。
 
 ### 恢复不在页面里
 

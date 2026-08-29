@@ -92,14 +92,26 @@ enum NlAlert {
 }
 
 enum NlCmd {
-  stop, setMode, setLevel, setPattern, setLed, resume;
+  stop, setMode, setLevel, setPattern, setLed, resume, pressKey;
 
-  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume'];
+  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume', 'press_key'];
   String get wireName => _wire[index];
   static NlCmd fromWire(int i) => (i >= 0 && i < _wire.length) ? NlCmd.values[i] : NlCmd.values.first;
   static NlCmd fromWireName(String? n) {
     final i = _wire.indexOf(n ?? '');
     return i < 0 ? NlCmd.values.first : NlCmd.values[i];
+  }
+}
+
+enum NlKeyPress {
+  tap, hold;
+
+  static const List<String> _wire = ['tap', 'hold'];
+  String get wireName => _wire[index];
+  static NlKeyPress fromWire(int i) => (i >= 0 && i < _wire.length) ? NlKeyPress.values[i] : NlKeyPress.values.first;
+  static NlKeyPress fromWireName(String? n) {
+    final i = _wire.indexOf(n ?? '');
+    return i < 0 ? NlKeyPress.values.first : NlKeyPress.values[i];
   }
 }
 
@@ -396,6 +408,8 @@ class BleDownlink {
   final NlPattern? pattern;
   final NlMode? mode;
   final NlLedState? led;
+  /// 仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机
+  final NlKeyPress? key;
   /// session token；缺失或过期整包丢弃
   final String auth;
   const BleDownlink({
@@ -404,6 +418,7 @@ class BleDownlink {
     this.pattern,
     this.mode,
     this.led,
+    this.key,
     required this.auth,
   });
 
@@ -413,6 +428,7 @@ class BleDownlink {
     pattern: j['pattern'] == null ? null : NlPattern.fromWireName(j['pattern'] as String),
     mode: j['mode'] == null ? null : NlMode.fromWireName(j['mode'] as String),
     led: j['led'] == null ? null : NlLedState.fromWireName(j['led'] as String),
+    key: j['key'] == null ? null : NlKeyPress.fromWireName(j['key'] as String),
     auth: j['auth'] as String,
   );
 
@@ -422,6 +438,7 @@ class BleDownlink {
     'pattern': pattern?.wireName,
     'mode': mode?.wireName,
     'led': led?.wireName,
+    'key': key?.wireName,
     'auth': auth,
   };
 }

@@ -27,11 +27,13 @@ AO3400A 本体能过 5.7A，所以那颗电阻是安全论证的一部分，不�
 | AO3400A 栅极 | GPIO7 | HIGH = 导通 = 等效按下原按键；串 1k，栅极 47k 下拉 |
 | FSR402 左 | GPIO1 | ADC1_CH0，3V3—FSR—ADC—10k—GND |
 | FSR402 右 | GPIO2 | ADC1_CH1，demo 未接（`TOY_HAS_FSR_R=0`） |
-| MPU6050 SDA | GPIO8 | 400kHz |
+| MPU6050 SDA | GPIO8 | 100kHz；内部上拉；同时扫 0x68/0x69 |
 | MPU6050 SCL | GPIO9 | |
 | BOOT 键 | GPIO0 | 开发板自带，无需接线。短按急停，长按 2s 解除闩锁 |
 
 改引脚要同步改 `include/config.h` 和这张表，两处不一致比两处都错更难查。
+
+传感器怎么接到行为上（接触、体动、静止暂停、DHT 不做熔断）见 [`src/sensors/sensor_logic.md`](src/sensors/sensor_logic.md)。
 
 GPIO0 是 strapping 脚：**上电时按住会进下载模式**，那种情况下固件根本不会跑，
 所以它不构成安全风险；运行期当普通输入读没有问题。

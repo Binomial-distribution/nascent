@@ -5,7 +5,21 @@
 
 #include "config.h"
 
-void InsertInference::update(const ImuSample &imu, bool contact, uint32_t dt_ms) {
+void InsertInference::update(const ImuSample &imu, bool contact, uint32_t dt_ms, bool imu_ok) {
+  if (!imu_ok) {
+    // 没有六轴就没有体动证据。全零加速度看起来像「完全静止」，
+    // 会把未接线的板子误判成 not_inserted，并触发 30s 静止暂停。
+    still_ = false;
+    still_ms_ = 0;
+    inserted_evidence_ms_ = 0;
+    released_evidence_ms_ = 0;
+    hist_fill_ = 0;
+    hist_idx_ = 0;
+    accel_var_ = 0;
+    state_ = NL_INSERT_STATE_UNKNOWN;
+    return;
+  }
+
   // 用加速度模长而不是单轴：玩具在使用中朝向不固定，单轴阈值没有意义。
   int32_t ax = imu.accel_mg[0], ay = imu.accel_mg[1], az = imu.accel_mg[2];
   uint32_t mag_sq = static_cast<uint32_t>(ax * ax + ay * ay + az * az);

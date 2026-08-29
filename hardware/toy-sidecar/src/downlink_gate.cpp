@@ -104,6 +104,7 @@ bool DownlinkGate::accept(const char *data, size_t len, uint32_t now_ms, nl_comm
   out.pattern = NL_PATTERN_SOFT_MIN;
   out.led_state = NL_LED_STATE_MODE_DEFAULT;
   out.flags = 0;  // 保留位，原 bit0/bit1 是已删除的摇杆使能
+  out.key_press = NL_KEY_PRESS_TAP;
 
   if (doc["mode"].is<const char *>()) {
     int m = enumFromName(NL_MODE_NAMES, NL_MODE_COUNT, doc["mode"]);
@@ -150,6 +151,17 @@ bool DownlinkGate::accept(const char *data, size_t len, uint32_t now_ms, nl_comm
       return false;
     }
     out.level = static_cast<uint8_t>(lv);
+  }
+
+  if (cmd == NL_CMD_PRESS_KEY) {
+    int k = enumFromName(NL_KEY_PRESS_NAMES, NL_KEY_PRESS_COUNT,
+                         doc["key"] | static_cast<const char *>(nullptr));
+    if (k < 0) {
+      ++rejected_;
+      alert_ = NL_ALERT_BAD_CMD;
+      return false;
+    }
+    out.key_press = static_cast<uint8_t>(k);
   }
 
   return true;

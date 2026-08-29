@@ -146,7 +146,8 @@
         "set_level",
         "set_pattern",
         "set_led",
-        "resume"
+        "resume",
+        "press_key"
       ]
     },
     "level": {
@@ -211,6 +212,21 @@
           "type": "null"
         }
       ]
+    },
+    "key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "tap",
+            "hold"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机"
     },
     "auth": {
       "type": "string",

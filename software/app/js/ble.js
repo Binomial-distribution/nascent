@@ -34,6 +34,7 @@ export class BleClient extends ChannelBase {
     this._downChar = null;
     this._upChar = null;
     this._usingNative = false;
+    this._uplinkWatch = null;
 
     if (typeof window !== "undefined") {
       window.__nascentNativeOnUplink = (raw) => this._onNativeUplink(raw);
@@ -73,6 +74,7 @@ export class BleClient extends ChannelBase {
   }
 
   async disconnect() {
+    this._stopUplinkWatch();
     if (this._usingNative) {
       try {
         window.NascentNative.disconnect();
@@ -157,27 +159,62 @@ export class BleClient extends ChannelBase {
     this._upChar = await service.getCharacteristic(NlBle.uplinkUuid);
     this._upChar.addEventListener("characteristicvaluechanged", this._onNotify);
     await this._upChar.startNotifications();
+    this._startUplinkWatch();
 
     this._setConnected(true);
   }
 
   _onNativeUplink(raw) {
+    const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
+    this._noteNotify(text.length);
     try {
       this._emitUplink(typeof raw === "string" ? JSON.parse(raw) : raw);
-    } catch {
-      // 解不出 JSON 的帧直接丢掉。
+    } catch (err) {
+      this._noteUplinkError(err);
     }
   }
 
   _onNotify = (event) => {
+    const value = event.target.value;
+    this._noteNotify(value?.byteLength ?? 0);
     try {
-      this._emitUplink(bytesToJson(event.target.value));
-    } catch {
-      // 解不出 JSON 的帧直接丢掉。
+      this._emitUplink(bytesToJson(value));
+    } catch (err) {
+      this._noteUplinkError(err);
     }
   };
 
+  /**
+   * Windows Chrome 偶发：CCCD 写成功但 characteristicvaluechanged 永不触发。
+   * Notify 一旦进来就停；否则隔一会儿读一次最新值（固件上行特征可读）。
+   */
+  _startUplinkWatch() {
+    this._stopUplinkWatch();
+    const startedAt = Date.now();
+    this._uplinkWatch = setInterval(async () => {
+      if (!this._upChar || this._uplinkStats.parsed > 0) {
+        this._stopUplinkWatch();
+        return;
+      }
+      if (Date.now() - startedAt < 800) return;
+      try {
+        const value = await this._upChar.readValue();
+        this._onNotify({ target: { value } });
+      } catch {
+        // 旧固件可能不可读，仍等 Notify。
+      }
+    }, 400);
+  }
+
+  _stopUplinkWatch() {
+    if (this._uplinkWatch) {
+      clearInterval(this._uplinkWatch);
+      this._uplinkWatch = null;
+    }
+  }
+
   _onDisconnected = () => {
+    this._stopUplinkWatch();
     this._usingNative = false;
     this._forgetLink();
     this._setConnected(false);

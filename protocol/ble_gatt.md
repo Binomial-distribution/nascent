@@ -15,11 +15,14 @@ BLE 是默认通道。WiFi WebSocket 是备用通道，载荷完全相同，见 
 | 角色 | UUID | 属性 | 说明 |
 |---|---|---|---|
 | Service | `a1b2c000-5f3e-4c8a-9b1d-0e7f2a6c9d10` | — | Nascent 主服务 |
-| Uplink | `a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10` | Notify | 遥测上行，12 Hz |
+| Uplink | `a1b2c001-5f3e-4c8a-9b1d-0e7f2a6c9d10` | Notify + Read | 遥测上行，12 Hz。Read 是 Windows 浏览器 Notify 丢事件时的退路 |
 | Downlink | `a1b2c002-5f3e-4c8a-9b1d-0e7f2a6c9d10` | Write | 指令下行，事件驱动 |
 | Info | `a1b2c003-5f3e-4c8a-9b1d-0e7f2a6c9d10` | Read | 协议版本、固件版本、会话令牌 |
 
-广播名 `Nascent-Toy`。建议 MTU 协商到 ≥ 185，否则上行 JSON 需要分包。
+广播名 `Nascent-Toy`。一帧完整上行 JSON 大约 210 字节，ATT 还要扣 3 字节。
+`contract.yaml` 的 `min_mtu: 185` 是历史下限，**不够装当前这一帧**。
+固件本地 MTU 上限必须高于帧长（ESP32 允许 517）；若把 `BLEDevice::setMTU` 钉在 185，
+Notify 会失败，App 只能读到 Info 令牌、永远看不到 `ts`。尚未做分包。
 
 Info 读出的会话令牌由玩具侧生成，TTL 为 `SESSION_TOKEN_TTL_MS`。
 0.3.0 之前它由 K10 生成，现在生成方跟着 GATT 服务一起挪过来了。
@@ -63,9 +66,9 @@ Info 读出的会话令牌由玩具侧生成，TTL 为 `SESSION_TOKEN_TTL_MS`。
 { "cmd": "set_level", "level": 3, "pattern": "wave", "auth": "<session_token>" }
 ```
 
-`cmd` 只允许 `stop | set_mode | set_level | set_pattern | set_led`。
+`cmd` 只允许 `stop | set_mode | set_level | set_pattern | set_led | press_key`。
 
-枚举里还有第六个值 `resume`，但**它不是任何链路上的合法指令**。
+枚举里还有 `resume`，但**它不是任何链路上的合法指令**。
 固件的 `SafetyGovernor::onCommand` 已经不再识别这个值——解除闩锁只能由玩具侧
 BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置 `alert = "bad_cmd"`。
 理由见下面「停机之后怎么恢复」。
@@ -81,6 +84,7 @@ BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置
 | `set_level` | `level`、可选 `pattern` |
 | `set_pattern` | `pattern` |
 | `set_led` | `led`（只含 state 语义，不接受逐帧灯效） |
+| `press_key` | `key`：`tap` 点按切档（约 120ms），`hold` 长按开关机（约 1.2s）。联调页用，模拟原实体键 |
 
 ### 固件侧的硬性拒绝规则
 

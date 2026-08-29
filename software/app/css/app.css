@@ -927,3 +927,47 @@ button:disabled {
   text-align: center;
   cursor: pointer;
 }
+
+.lab-page .stop { margin: 8px 0 16px; }
+.lab-card {
+  background: var(--bg-soft);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+.lab-card h3 {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+.lab-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 0.88rem;
+}
+.lab-kv span { color: var(--muted); }
+.lab-kv strong { text-align: right; font-weight: 600; }
+.lab-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 6px 0 0;
+  text-align: left;
+}
+.lab-leds { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 16px; }
+.lab-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+  text-align: left;
+}
+.lab-check input { margin-top: 3px; }
+.lab-reject {
+  color: var(--coral);
+  font-size: 0.85rem;
+  margin: 8px 0 12px;
+  text-align: left;
+}
