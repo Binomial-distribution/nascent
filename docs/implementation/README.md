@@ -8,6 +8,7 @@
 | [`app-heart-intimacy-plan.md`](app-heart-intimacy-plan.md) | 当前分支落地记录：已实现 vs 后续短 PR |
 | [`B3.0-PR6收口审查.md`](B3.0-PR6收口审查.md) | B3.0 对照仓库后的收口审查（规格升级范围，不自动合并 PR） |
 | [`PR16-台词情感与语音修复.md`](PR16-台词情感与语音修复.md) | Chat `tts_style`、MiniMax / 小米 MiMo 可选 TTS、自定义声线假克隆 |
+| [`mi-band7-gadgetbridge-bridge.md`](mi-band7-gadgetbridge-bridge.md) | 验证期小米手环 7：Gadgetbridge 伴随 APK 的心率 IPC 合同；主 App 只消费 BPM |
 | [`codex-plans/`](codex-plans/) | 此前 GPT Codex 为心绪 / 亲密时刻 / PR #6 写过的实施计划归档 |
 
 `codex-plans/` 里的 Flutter 骨架方案、心率接入方案和完整纵向 UI 方案都是历史讨论稿。其中未落地部分按 B3.0 拆后续短 PR，不在 Draft PR #6 一次做完。

@@ -46,3 +46,5 @@ software/app-android/.gradle/
 software/app-android/build/
 software/app-android/app/build/
 software/app-android/local.properties
+secrets.properties
+*.authkey

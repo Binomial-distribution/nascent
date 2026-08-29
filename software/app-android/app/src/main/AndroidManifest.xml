@@ -13,6 +13,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <permission
+        android:name="love.nascent.permission.RECEIVE_HEART_RATE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="love.nascent.permission.RECEIVE_HEART_RATE" />
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_logo"

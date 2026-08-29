@@ -38,6 +38,7 @@ js/
   governor.js     浏览器侧安全总督
   session.js      发指令的唯一入口（`sendCommand`）
   heart.js        心绪与科普卡片状态
+  hr.js           手环心率：平滑、基线、断流；只产出趋势，不发指令
   body-notes.js   使用记录、笔记、临时对话和后端同步状态
   onboarding.js   首次引导
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS

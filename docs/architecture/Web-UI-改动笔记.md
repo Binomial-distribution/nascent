@@ -34,3 +34,24 @@
    玩具配对后增加「连接健康手环」；可模拟连接或暂时跳过。
 
 **未改：** 悬置项见 `Web-UI-悬置项.md`。
+
+## 2026-08-29 · 小米手环 7 实时心率（AI 对话，不控机）
+
+**分支：** `feat/app-mi-band7-hr-bridge`
+
+**改动：**
+
+1. **Android 壳接收 Gadgetbridge Broadcast**
+   Action `love.nascent.action.HEART_RATE_SAMPLE`，签名权限 `love.nascent.permission.RECEIVE_HEART_RATE`。样本经 WebView 回调进页面，不走玩具 GATT。
+
+2. **Web `hr.js`**
+   5 点中位数、60 秒基线、10 秒断流。趋势映射到已有 `rhythm`：`steady` / `increasing` / `decreasing`。原始 BPM 只显示在本机。
+
+3. **AI 上下文**
+   `buildSensorContext()` 填入真实 `hr_trend` / `hr_quality` / `hr_source`。心率路径不调用 `sendCommand()`。
+
+4. **Onboarding / 设置**
+   Android 壳上改为等待真实样本；网站仍可模拟连接。Service Worker 缓存升至 `nascent-shell-v17`（main 上 #19 已是 v16，本分支加入 `hr.js`）。
+
+**未改：** `protocol/contract.yaml`、玩具侧固件、Gadgetbridge fork 源码（独立 APK，见 `docs/implementation/mi-band7-gadgetbridge-bridge.md`）。
+

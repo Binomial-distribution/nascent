@@ -1,6 +1,7 @@
 /** 情景漫游会话：头像压缩、通话后的 9B 文字回合。麦克风 PCM 只走 /v1/speech；传感只发脱敏趋势。 */
 
 import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalizeTtsStyle } from "./persona-cards.js";
+import { heartRate as defaultHeartRate } from "./hr.js";
 
 export const THREAD_KEY = "nascent.scenario.threads";
 const THREAD_KEEP = 40;
@@ -40,19 +41,20 @@ export function ingestUplinkSample(uplink) {
   }
 }
 
-export function buildSensorContext(uplink, { bandConnected = false } = {}) {
+export function buildSensorContext(uplink, { bandConnected = false, heartRate = defaultHeartRate } = {}) {
   const connected = Boolean(uplink);
   const temp = contactOrEnvTemp(uplink);
   const hasContact = uplink?.tempA != null && Number.isFinite(Number(uplink.tempA));
+  const hr = heartRate.sensorFields({ bandConnected });
   return {
     temperature_state: temperatureState(temp),
     temperature_quality: !connected || temp == null ? "unknown" : hasContact ? "valid" : "partial",
     temperature_source: hasContact ? "contact" : temp != null ? "environment" : "none",
     pressure_rhythm: pressureRhythm(),
     pressure_quality: pressWindow.length >= 3 ? "partial" : connected ? "unknown" : "unknown",
-    hr_trend: "unknown",
-    hr_quality: bandConnected ? "unknown" : "unknown",
-    hr_source: bandConnected ? "wearable_connected_no_health_connect" : "none",
+    hr_trend: hr.hr_trend,
+    hr_quality: hr.hr_quality,
+    hr_source: hr.hr_source,
     insert_state: uplink?.insertState || "unknown",
     current_level: Number.isFinite(Number(uplink?.level)) ? Number(uplink.level) : 0,
     data_age_ms: connected && uplink?.ts != null ? 0 : null,

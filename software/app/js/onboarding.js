@@ -5,6 +5,8 @@
  * 问卷与既有步骤的合并关系见 docs/architecture/Web-UI-改动笔记.md。
  */
 
+import { heartRate, nativeHeartRateAvailable } from "./hr.js";
+
 const STORAGE_KEY = "nascent.onboarding.done";
 const DRAFT_KEY = "nascent.onboarding.draft";
 
@@ -425,20 +427,33 @@ export function mountOnboarding(root, { onComplete }) {
             </button>
             <button class="ghost ob-cta" data-ob="pair-skip">暂时跳过</button>
           </div>`;
-      case "pairing-band":
+      case "pairing-band": {
+        const native = nativeHeartRateAvailable();
+        const live = heartRate.snapshot.live;
+        if (live) state.draft.bandPaired = true;
+        const paired = state.draft.bandPaired;
+        const primary = paired
+          ? "继续"
+          : native
+            ? "等待 Gadgetbridge 心率…"
+            : "模拟连接健康手环";
+        const sub = native
+          ? "打开已配对的 Gadgetbridge 并开始实时心率。收到样本后会自动标记已连接，也可暂时跳过。"
+          : "网站没有手环桥，可模拟连接。Android App 会接收 Gadgetbridge 的实时心率。";
         return `
           <div class="ob-stack">
             <p class="ob-kicker">设备配对</p>
             <h2>连接健康手环</h2>
-            <p class="ob-sub">默认对接小米手表。连接后可在「我的」里查看状态，也可稍后设置。</p>
-            <div class="ob-pair ${state.draft.bandPaired ? "ok" : ""}">
-              ${state.draft.bandPaired ? "已连接健康手环" : "尚未连接"}
+            <p class="ob-sub">${sub}</p>
+            <div class="ob-pair ${paired ? "ok" : ""}">
+              ${paired ? "已连接健康手环" : "尚未连接"}
             </div>
-            <button class="primary ob-cta" data-ob="${state.draft.bandPaired ? "next" : "pair-band"}">
-              ${state.draft.bandPaired ? "继续" : "模拟连接健康手环"}
+            <button class="primary ob-cta" data-ob="${paired ? "next" : "pair-band"}" ${!paired && native ? "disabled" : ""}>
+              ${primary}
             </button>
             <button class="ghost ob-cta" data-ob="pair-band-skip">暂时跳过</button>
           </div>`;
+      }
       case "guide:clean":
       case "guide:store":
       case "guide:boundary": {
@@ -719,6 +734,7 @@ export function mountOnboarding(root, { onComplete }) {
         return;
       }
       if (act === "pair-band") {
+        if (nativeHeartRateAvailable()) return;
         state.draft.bandPaired = true;
         persist();
         if (navigator.vibrate) navigator.vibrate(40);
@@ -755,8 +771,17 @@ export function mountOnboarding(root, { onComplete }) {
 
   paint();
 
+  const stopHr = heartRate.subscribe((snap) => {
+    if (stepId() !== "pairing-band") return;
+    if (!snap.live || state.draft.bandPaired) return;
+    state.draft.bandPaired = true;
+    persist();
+    paint();
+  });
+
   return {
     destroy() {
+      stopHr();
       stopListening();
       root.onclick = null;
     },

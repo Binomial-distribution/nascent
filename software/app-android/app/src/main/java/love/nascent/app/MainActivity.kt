@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var setup: LinearLayout
     private lateinit var urlField: EditText
     private lateinit var bridge: BleBridge
+    private lateinit var heartRate: HeartRateBridge
     private var pendingMicRequest: PermissionRequest? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -75,6 +76,8 @@ class MainActivity : AppCompatActivity() {
 
         bridge = BleBridge(this, webView)
         webView.addJavascriptInterface(bridge, "NascentNative")
+        heartRate = HeartRateBridge(this, webView)
+        webView.addJavascriptInterface(heartRate, "NascentHeartRate")
 
         val stored = prefs().getString(KEY_URL, "") ?: ""
         if (stored.isBlank()) {
@@ -117,6 +120,16 @@ class MainActivity : AppCompatActivity() {
         }
         if (requestCode != BleBridge.REQ) return
         bridge.onPermissionResult(grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED })
+    }
+
+    override fun onStart() {
+        super.onStart()
+        heartRate.start()
+    }
+
+    override fun onStop() {
+        heartRate.stop()
+        super.onStop()
     }
 
     override fun onDestroy() {

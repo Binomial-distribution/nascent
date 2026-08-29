@@ -3,6 +3,12 @@ import { Governor } from "../js/governor.js";
 import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
 import { toyWsUrl } from "../js/ws.js";
+import {
+  HeartRateState,
+  HR_SOURCE,
+  medianBpm,
+  trendFromDelta,
+} from "../js/hr.js";
 import { BodyNotesState } from "../js/body-notes.js";
 import { NAV_TABS, parseHash, legacyNotesTarget, SCENARIO_FLOW } from "../js/routes.js";
 import {
@@ -403,7 +409,62 @@ ingestUplinkSample({ ...risingPress, pressL: 0.7, pressR: 0.7 });
 const sensors = buildSensorContext({ ...risingPress, pressL: 0.7, pressR: 0.7 }, { bandConnected: false });
 assert(sensors.pressure_rhythm === "increasing", "pressure trend is derived locally");
 assert(!("press_l" in sensors) && !("pressL" in sensors), "raw pressure is not sent to the 9B context");
-assert(sensors.hr_trend === "unknown", "heart-rate trend stays unknown without Health Connect");
+assert(sensors.hr_trend === "unknown", "heart-rate trend stays unknown without wearable samples");
+assert(sensors.hr_source === "none", "heart-rate source is none when the band is not connected");
+
+const waiting = buildSensorContext(risingPress, { bandConnected: true });
+assert(waiting.hr_source === "wearable_connected_waiting", "a simulated band without samples still does not invent a trend");
+assert(waiting.hr_trend === "unknown", "simulated band connection does not fill hr_trend");
+
+assert(medianBpm([80, 70, 90, 72, 71]) === 72, "bpm smoother uses the median of five samples");
+assert(trendFromDelta(2) === "steady", "small deltas stay steady");
+assert(trendFromDelta(8) === "increasing", "a rise above the deadband is increasing");
+assert(trendFromDelta(-8) === "decreasing", "a drop below the deadband is decreasing");
+
+let nowMs = 1_000_000;
+const hr = new HeartRateState({ now: () => nowMs });
+assert(!hr.ingest({ bpm: 10, timestampMs: nowMs }), "bpm below 30 is rejected");
+assert(!hr.ingest({ bpm: 70, timestampMs: 0 }), "non-positive timestamps are rejected");
+assert(hr.ingest({ bpm: 70, timestampMs: nowMs, source: HR_SOURCE }), "a valid sample is accepted");
+assert(!hr.ingest({ bpm: 71, timestampMs: nowMs - 1 }), "timestamps that go backwards are rejected");
+for (let i = 1; i <= 4; i += 1) {
+  nowMs += 1_000;
+  hr.ingest({ bpm: 70 + i, timestampMs: nowMs, source: HR_SOURCE });
+}
+assert(hr.snapshot.collectingBaseline, "the first 60 seconds collect a baseline");
+assert(hr.snapshot.trend === "unknown", "trend stays unknown until the baseline is frozen");
+assert(hr.snapshot.bpm === 72, "live bpm is the median of the recent window");
+
+nowMs = 1_000_000 + 60_000;
+hr.ingest({ bpm: 70, timestampMs: nowMs, source: HR_SOURCE });
+assert(hr.snapshot.baseline != null, "baseline freezes after 60 seconds");
+assert(hr.snapshot.trend === "steady", "near-baseline bpm is steady");
+
+nowMs += 1_000;
+hr.ingest({ bpm: 90, timestampMs: nowMs, source: HR_SOURCE });
+nowMs += 1_000;
+hr.ingest({ bpm: 91, timestampMs: nowMs, source: HR_SOURCE });
+nowMs += 1_000;
+hr.ingest({ bpm: 92, timestampMs: nowMs, source: HR_SOURCE });
+nowMs += 1_000;
+hr.ingest({ bpm: 93, timestampMs: nowMs, source: HR_SOURCE });
+nowMs += 1_000;
+hr.ingest({ bpm: 94, timestampMs: nowMs, source: HR_SOURCE });
+assert(hr.snapshot.trend === "increasing", "a sustained rise maps to increasing");
+
+const liveSensors = buildSensorContext(risingPress, { bandConnected: true, heartRate: hr });
+assert(liveSensors.hr_source === HR_SOURCE, "valid samples publish xiaomi_smart_band_7");
+assert(liveSensors.hr_quality === "valid", "fresh samples are valid");
+assert(liveSensors.hr_trend === "increasing", "sensor_context carries the mapped rhythm");
+assert(!("bpm" in liveSensors), "raw bpm is not sent to the 9B context");
+
+nowMs += 11_000;
+assert(hr.snapshot.quality === "stale", "10 seconds without samples is stale");
+assert(hr.snapshot.trend === "unknown", "stale heart rate does not keep the old trend");
+assert(hr.snapshot.bpm == null, "stale snapshots hide the last bpm");
+const staleSensors = buildSensorContext(risingPress, { heartRate: hr });
+assert(staleSensors.hr_quality === "stale", "sensor_context reports stale after dropout");
+assert(staleSensors.hr_trend === "unknown", "stale samples do not drive AI trend");
 assert(nextExperiencePhase("approaching", { sceneCtrl: "next", userText: "你好" }) === "rising", "a first reply in approaching can move into rising");
 assert(nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "你好" }) === "rising", "talking in approaching still leads into rising");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "" }) === "rising", "sensors or silence do not auto-declare climax");
