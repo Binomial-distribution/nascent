@@ -28,6 +28,7 @@ import {
 import {
   ScenarioChatState,
   buildConversationSummary,
+  chatRestoreDecision,
   buildSensorContext,
   experienceSummary,
   foldOldTurns,
@@ -73,7 +74,12 @@ import {
   saveRuntimeToken,
   toRuntimePayload,
 } from "../js/cloud-config.js";
-
+import {
+  PERSONA_SWIPE_HOLD_MS,
+  sortScenarioItems,
+  togglePinnedKey,
+  visibleScenarioItems,
+} from "../js/persona-list.js";
 
 let failed = 0;
 let passed = 0;
@@ -1009,6 +1015,26 @@ assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same cale
   assert(!hasConnectionShell({}), "browser shell has no native site URL form");
   clearCloudConfig(storage);
   assert(loadCloudConfig(storage).llmApiKey === "", "clearing cloud config drops the stored key");
+}
+
+assert(chatRestoreDecision({ hasHistory: false }).kind === "open", "chat restore skips the prompt when there is no thread");
+assert(chatRestoreDecision({ hasHistory: true, skipAsk: true, lastChoice: "fresh" }).kind === "fresh", "chat restore reuses last choice after never-ask");
+assert(chatRestoreDecision({ hasHistory: true }).showNeverAsk === false, "never-ask stays hidden until the first restore choice");
+assert(chatRestoreDecision({ hasHistory: true, askedOnce: true }).showNeverAsk === true, "never-ask appears after the first restore choice");
+
+{
+  const items = [
+    { key: "persona:playful", name: "俏皮男友" },
+    { key: "custom:1", name: "自己写的" },
+    { key: "persona:gentle", name: "Natsu" },
+  ];
+  const visible = visibleScenarioItems(items, ["persona:playful"]);
+  assert(visible.map((item) => item.key).join("/") === "custom:1/persona:gentle", "hidden personas leave the list");
+  const pinned = sortScenarioItems(visible, ["persona:gentle"]);
+  assert(pinned[0].name === "Natsu", "focused personas sort to the top");
+  assert(togglePinnedKey(["custom:1"], "persona:gentle")[0] === "persona:gentle", "new focus is inserted first");
+  assert(togglePinnedKey(["persona:gentle"], "persona:gentle").length === 0, "tapping focus again unpins");
+  assert(PERSONA_SWIPE_HOLD_MS === 3000, "swipe actions stay open for 3 seconds");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -10,6 +10,19 @@ export const TURN_SEND = 12;
 export const SUMMARY_DIALOGUE_MAX = 1600;
 export const SUMMARY_TOTAL_MAX = 2000;
 
+/** 进入情景聊天时：无记录直接打开；已勾选不再询问则套用上次选择；否则弹窗。 */
+export function chatRestoreDecision({
+  hasHistory = false,
+  skipAsk = false,
+  lastChoice = "restore",
+  askedOnce = false,
+} = {}) {
+  const last = lastChoice === "fresh" ? "fresh" : "restore";
+  if (!hasHistory) return { kind: "open", showNeverAsk: false };
+  if (skipAsk) return { kind: last, showNeverAsk: false };
+  return { kind: "ask", showNeverAsk: Boolean(askedOnce) };
+}
+
 const MAX_AVATAR_PX = 192;
 const MAX_AVATAR_CHARS = 120_000;
 
