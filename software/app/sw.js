@@ -1,8 +1,8 @@
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   // 缓存名带版本号：0.3.0 拆出了 transport / ws / channel 三个模块，
-  // 沿用 v1 会让老客户端拿着一份缺文件的缓存，import 直接 404。
-  event.waitUntil(caches.open("nascent-shell-v6").then((cache) => cache.addAll([
+  // 沿用旧版本会让老客户端拿着一份缺文件的缓存，import 直接 404。
+  event.waitUntil(caches.open("nascent-shell-v7").then((cache) => cache.addAll([
     "/",
     "/css/app.css",
     "/js/app.js",
@@ -28,7 +28,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v6")
+      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v7")
         .map((n) => caches.delete(n)),
     );
     await self.clients.claim();
@@ -40,7 +40,12 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/v1/") || url.pathname === "/docs" || url.pathname === "/healthz" || url.pathname === "/redoc") {
     return;
   }
+  // 开发预览优先走网络，避免旧脚本卡在缓存里。
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
+    fetch(event.request).then((res) => {
+      const copy = res.clone();
+      caches.open("nascent-shell-v7").then((cache) => cache.put(event.request, copy)).catch(() => {});
+      return res;
+    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
   );
 });
