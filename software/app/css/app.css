@@ -1448,6 +1448,54 @@ button:disabled {
 .persona-row .chev { margin-left: auto; color: var(--muted); }
 .persona-row.selected { outline: 1px solid var(--coral); }
 
+.persona-row strong .icon {
+  width: 14px;
+  height: 14px;
+  fill: var(--coral);
+  stroke: var(--coral);
+  vertical-align: -2px;
+  margin-left: 4px;
+}
+
+.persona-swipe {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  touch-action: pan-y;
+}
+.persona-swipe .persona-row {
+  margin-bottom: 0;
+  position: relative;
+  z-index: 1;
+  background: var(--bg-card);
+  touch-action: pan-y;
+}
+.persona-swipe-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  z-index: 0;
+}
+.persona-swipe-actions button {
+  width: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #fff;
+  font-size: 0.72rem;
+}
+.persona-swipe-actions .icon {
+  stroke: #fff;
+  fill: none;
+}
+.persona-swipe-pin { background: #e8a0b0; }
+.persona-swipe-pin.on { background: #d85f68; }
+.persona-swipe-pin.on .icon { fill: #fff; }
+.persona-swipe-delete { background: #c45c5c; }
+
 .form-label {
   display: block;
   margin: 16px 0 8px;

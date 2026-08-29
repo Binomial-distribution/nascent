@@ -604,6 +604,24 @@ def test_custom_persona_uploads_and_lists_for_selection():
     assert "陆予" in names
     other = client.get("/v1/persona/custom", params={"user_id": "other-user"})
     assert other.json() == []
+    second = client.post(
+        "/v1/persona/custom",
+        json={
+            "user_id": "quiz-user",
+            "name": "阿北",
+            "source": "free",
+            "card": {"assistant_name": "阿北"},
+        },
+    )
+    assert second.status_code == 200
+    one = client.delete(
+        f"/v1/persona/custom/{body['id']}",
+        params={"user_id": "quiz-user"},
+    )
+    assert one.status_code == 200
+    assert one.json()["deleted"] is True
+    remaining = client.get("/v1/persona/custom", params={"user_id": "quiz-user"}).json()
+    assert [item["name"] for item in remaining] == ["阿北"]
     deleted = client.delete("/v1/persona/custom", params={"user_id": "quiz-user"})
     assert deleted.status_code == 200
     assert deleted.json()["deleted_count"] >= 1

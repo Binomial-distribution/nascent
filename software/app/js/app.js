@@ -12,6 +12,7 @@ import {
   resetSensorWindow,
   scenarioChat,
   THREAD_KEY,
+  chatRestoreDecision,
   speakDialogue,
   startRingtone,
   stopRingtone,
@@ -51,6 +52,13 @@ import {
   startBridge,
   subscribePlugin,
 } from "./ai-plugin.js";
+import {
+  PERSONA_SWIPE_HOLD_MS,
+  PERSONA_SWIPE_PX,
+  sortScenarioItems,
+  togglePinnedKey,
+  visibleScenarioItems,
+} from "./persona-list.js";
 import { patchLabDom, renderLab, saveCheck } from "./lab.js";
 import {
   clearCloudConfig,
@@ -131,6 +139,7 @@ const ui = {
   appLock: loadAppLock(),
   prefs: loadPrefs(),
   insightSending: false,
+  personaSwipeMoved: false,
   scenarioHandoff: false,
   draftAvatar: null,
   draftPersonaCard: null,
@@ -173,6 +182,9 @@ function loadPrefs() {
       privacyWants: Array.isArray(raw.privacyWants) ? raw.privacyWants : [],
       intent: raw.intent || "",
       companionPace: raw.companionPace || "",
+      chatRestoreSkip: Boolean(raw.chatRestoreSkip),
+      chatRestoreLast: raw.chatRestoreLast === "fresh" ? "fresh" : "restore",
+      chatRestoreAskedOnce: Boolean(raw.chatRestoreAskedOnce),
     };
   } catch {
     return {
@@ -187,6 +199,9 @@ function loadPrefs() {
       privacyWants: [],
       intent: "",
       companionPace: "",
+      chatRestoreSkip: false,
+      chatRestoreLast: "restore",
+      chatRestoreAskedOnce: false,
     };
   }
 }
@@ -258,6 +273,8 @@ function loadPersonaSettings() {
       model: raw.model || "gpt-4o-mini",
       customs: Array.isArray(raw.customs) ? raw.customs.map(normalizeCustomPersona) : [],
       activeCustomId: raw.activeCustomId || null,
+      pinnedKeys: Array.isArray(raw.pinnedKeys) ? raw.pinnedKeys.map(String) : [],
+      hiddenKeys: Array.isArray(raw.hiddenKeys) ? raw.hiddenKeys.map(String) : [],
       editingId: null, // session only
     };
   } catch {
@@ -268,6 +285,8 @@ function loadPersonaSettings() {
       model: "gpt-4o-mini",
       customs: [],
       activeCustomId: null,
+      pinnedKeys: [],
+      hiddenKeys: [],
       editingId: null,
     };
   }
@@ -579,13 +598,18 @@ function toast(text) {
   ui.toastTimer = setTimeout(() => el.remove(), 2400);
 }
 
-function openSheet(html) {
+function openSheet(html, { onDismiss } = {}) {
   closeSheet();
   const wrap = document.createElement("div");
   wrap.className = "sheet-bg";
   wrap.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
   wrap.addEventListener("click", (e) => {
-    if (e.target === wrap) closeSheet();
+    if (e.target === wrap) {
+      closeSheet();
+      onDismiss?.();
+      return;
+    }
+    onClick(e);
   });
   document.body.appendChild(wrap);
   ui.sheet = wrap;
@@ -877,7 +901,10 @@ function scenarioCatalog() {
       text: item.description || "",
       kind: "template",
     }));
-  return [...customs, ...personas, ...templates];
+  return sortScenarioItems(
+    visibleScenarioItems([...customs, ...personas, ...templates], ui.persona.hiddenKeys),
+    ui.persona.pinnedKeys,
+  );
 }
 
 function cardSubtitle(text) {
@@ -891,6 +918,149 @@ function findScenarioPersona(key) {
   return scenarioCatalog().find((item) => item.key === key) || null;
 }
 
+let personaSwipeHoldTimer = 0;
+
+function clearPersonaSwipeHold() {
+  window.clearTimeout(personaSwipeHoldTimer);
+  personaSwipeHoldTimer = 0;
+}
+
+function schedulePersonaSwipeHold(wrap) {
+  clearPersonaSwipeHold();
+  if (!wrap?.classList.contains("open")) return;
+  personaSwipeHoldTimer = window.setTimeout(() => {
+    personaSwipeHoldTimer = 0;
+    closePersonaSwipes();
+  }, PERSONA_SWIPE_HOLD_MS);
+}
+
+function closePersonaSwipes(except) {
+  root.querySelectorAll(".persona-swipe.open").forEach((wrap) => {
+    if (wrap === except) return;
+    wrap.classList.remove("open");
+    const front = wrap.querySelector(".persona-swipe-front");
+    if (front) {
+      front.style.transition = "transform 180ms ease";
+      front.style.transform = "translateX(0)";
+    }
+  });
+  if (!except?.classList.contains("open")) clearPersonaSwipeHold();
+}
+
+function pinScenarioPersona(key) {
+  ui.persona.pinnedKeys = togglePinnedKey(ui.persona.pinnedKeys, key);
+  savePersonaSettings();
+  toast(ui.persona.pinnedKeys.includes(key) ? "已重点关注" : "已取消关注");
+  render();
+}
+
+async function deleteScenarioPersona(key, kind, id) {
+  const hiding = kind !== "custom";
+  if (!window.confirm(hiding ? "确定隐藏这个人设？可在人设设置里恢复。" : "确定删除这个人设？")) return;
+  scenarioChat.clear(key);
+  if (ui.activePersona?.key === key) ui.activePersona = null;
+  ui.persona.pinnedKeys = (ui.persona.pinnedKeys || []).filter((item) => item !== key);
+  if (kind === "custom") {
+    ui.persona.customs = ui.persona.customs.filter((item) => item.id !== id);
+    if (ui.persona.activeCustomId === id) ui.persona.activeCustomId = ui.persona.customs[0]?.id || null;
+    savePersonaSettings();
+    try {
+      await fetch(`/v1/persona/custom/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+        method: "DELETE",
+      });
+    } catch { /* 本机已经删了 */ }
+  } else if (kind === "template") {
+    ui.templates = (ui.templates || []).filter((item) => item.template_id !== id);
+    ui.persona.hiddenKeys = [...new Set([...(ui.persona.hiddenKeys || []), key])];
+    savePersonaSettings();
+    try {
+      await fetch(`/v1/agent/templates/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+        method: "DELETE",
+      });
+    } catch { /* ignore */ }
+  } else {
+    ui.persona.hiddenKeys = [...new Set([...(ui.persona.hiddenKeys || []), key])];
+    savePersonaSettings();
+  }
+  toast(hiding ? "已隐藏" : "已删除");
+  render();
+}
+
+function unhideScenarioPersona(key) {
+  ui.persona.hiddenKeys = (ui.persona.hiddenKeys || []).filter((item) => item !== key);
+  savePersonaSettings();
+  toast("已恢复显示");
+  render();
+}
+
+function bindPersonaSwipe() {
+  clearPersonaSwipeHold();
+  const rows = root.querySelectorAll(".persona-swipe");
+  if (!rows.length) return;
+  rows.forEach((wrap) => {
+    const front = wrap.querySelector(".persona-swipe-front");
+    if (!front) return;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+    let tracking = false;
+    let axis = null;
+    const opened = () => wrap.classList.contains("open");
+    const origin = () => (opened() ? -PERSONA_SWIPE_PX : 0);
+    const apply = (x, animate) => {
+      front.style.transition = animate ? "transform 180ms ease" : "none";
+      front.style.transform = `translateX(${x}px)`;
+    };
+    const settle = (dx) => {
+      const next = origin() + dx;
+      const open = next < -PERSONA_SWIPE_PX / 2;
+      wrap.classList.toggle("open", open);
+      apply(open ? -PERSONA_SWIPE_PX : 0, true);
+      if (open) schedulePersonaSwipeHold(wrap);
+      else clearPersonaSwipeHold();
+    };
+    front.addEventListener("pointerdown", (event) => {
+      if (event.button) return;
+      closePersonaSwipes(wrap);
+      startX = event.clientX;
+      startY = event.clientY;
+      lastX = startX;
+      tracking = true;
+      axis = null;
+      ui.personaSwipeMoved = false;
+      front.setPointerCapture?.(event.pointerId);
+    });
+    front.addEventListener("pointermove", (event) => {
+      if (!tracking) return;
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      if (!axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        if (axis === "y") tracking = false;
+      }
+      if (axis !== "x") return;
+      event.preventDefault();
+      lastX = event.clientX;
+      const x = Math.max(-PERSONA_SWIPE_PX, Math.min(0, origin() + dx));
+      if (Math.abs(dx) > 6) ui.personaSwipeMoved = true;
+      apply(x, false);
+    });
+    const end = () => {
+      if (!tracking && axis !== "x") {
+        tracking = false;
+        axis = null;
+        return;
+      }
+      if (axis === "x") settle(lastX - startX);
+      tracking = false;
+      axis = null;
+    };
+    front.addEventListener("pointerup", end);
+    front.addEventListener("pointercancel", end);
+  });
+}
+
 function renderScenario() {
   const { sessionId } = route();
   if (sessionId === "new") return renderPersonaForm();
@@ -902,20 +1072,28 @@ function renderScenario() {
 
 function renderPersonaList() {
   const items = scenarioCatalog();
+  const pinned = new Set(ui.persona.pinnedKeys || []);
   return `${topbar("情景模式", { back: true })}
   <main class="page">
     <h2 class="lead">选择人设</h2>
+    <p class="sub">左滑可关注或隐藏。不舒服随时可以说停。</p>
     <button class="persona-row persona-new-row" data-act="persona-new">
       <div class="avatar">${icon("plus")}</div>
       <div><strong>自己写一个ta</strong><small>名字、脾气、开场白都自己填，也可上传设定文件。</small></div>
       <span class="chev">${icon("chevron")}</span>
     </button>
     ${items.map((item) => `
-      <button class="persona-row ${ui.activePersona?.key === item.key ? "selected" : ""}" data-act="pick-persona" data-key="${escapeHtml(item.key)}">
-        ${personaAvatarHtml(item)}
-        <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.subtitle)}</small></div>
-        <span class="chev">${icon("chevron")}</span>
-      </button>
+      <div class="persona-swipe" data-key="${escapeHtml(item.key)}">
+        <div class="persona-swipe-actions">
+          <button type="button" class="persona-swipe-pin${pinned.has(item.key) ? " on" : ""}" data-act="pin-persona" data-key="${escapeHtml(item.key)}" aria-label="${pinned.has(item.key) ? "取消关注" : "重点关注"}">${icon("heart")}<span>关注</span></button>
+          <button type="button" class="persona-swipe-delete" data-act="delete-persona" data-key="${escapeHtml(item.key)}" data-kind="${escapeHtml(item.kind)}" data-id="${escapeHtml(item.id)}" aria-label="隐藏">${icon("trash")}<span>隐藏</span></button>
+        </div>
+        <button class="persona-row persona-swipe-front ${ui.activePersona?.key === item.key ? "selected" : ""}" data-act="pick-persona" data-key="${escapeHtml(item.key)}">
+          ${personaAvatarHtml(item)}
+          <div><strong>${escapeHtml(item.name)}${pinned.has(item.key) ? ` ${icon("heart")}` : ""}</strong><small>${escapeHtml(item.subtitle)}</small></div>
+          <span class="chev">${icon("chevron")}</span>
+        </button>
+      </div>
     `).join("")}
     ${items.length ? "" : `<p class="microcopy">还没有自己的人设时，可以用上面的自定义，或点选预置人设，他会打给你。</p>`}
   </main>`;
@@ -1815,6 +1993,8 @@ function confirmClearLocalData() {
       model: "gpt-4o-mini",
       customs: [],
       activeCustomId: null,
+      pinnedKeys: [],
+      hiddenKeys: [],
       editingId: null,
     };
     savePersonaSettings();
@@ -1826,6 +2006,19 @@ function confirmClearLocalData() {
 
 function renderPersonaHub() {
   const customCount = ui.persona.customs.length;
+  const hiddenKeys = ui.persona.hiddenKeys || [];
+  const hiddenRows = hiddenKeys.map((key) => {
+    const presetId = key.startsWith("persona:") ? key.slice("persona:".length) : "";
+    const card = presetId ? PERSONA_CARDS[presetId] : null;
+    const custom = key.startsWith("custom:")
+      ? ui.persona.customs.find((item) => item.id === key.slice("custom:".length))
+      : null;
+    const name = card?.name || custom?.name || (presetId === "gentle" ? "Natsu" : key);
+    return `<button class="list-row" data-act="unhide-persona" data-key="${escapeHtml(key)}">
+      <strong>恢复 ${escapeHtml(name)}</strong>
+      <small>已从情景列表隐藏，点此重新显示</small>
+    </button>`;
+  }).join("");
   return `${topbar("人设设置", { back: true, backTo: "#/settings" })}
   <main class="page">
     <p class="lead">选择人设方式</p>
@@ -1842,6 +2035,7 @@ function renderPersonaHub() {
       <strong>新建自定义人设</strong>
       <span>写他是谁、怎么叫你，或上传已有设定文件。</span>
     </button>
+    ${hiddenKeys.length ? `<div class="group">已隐藏的人设</div>${hiddenRows}` : ""}
   </main>`;
 }
 
@@ -2285,11 +2479,11 @@ function beginScenarioCall(persona) {
     <h2>这次是否开启设备自动调节？</h2>
     <p class="sub" style="text-align:left">开启后，会根据对话和身体状态温和调整。离开情景或连接中断时会自动关闭。</p>
     <button class="primary" data-act="scenario-start-auto">开启自动调节</button>
-    <button class="ghost" data-act="scenario-start-manual">仅陪伴，不自动控制</button>
+    <button class="ghost" data-act="scenario-start-manual" style="margin-top:8px">仅陪伴，不自动控制</button>
   `);
 }
 
-function startScenarioCall(persona, { automationAuthorized = false } = {}) {
+function startScenarioCall(persona, { automationAuthorized = false, enterChat = false } = {}) {
   if (!persona) return;
   closeSheet();
   ui.pendingScenarioPersona = null;
@@ -2306,7 +2500,46 @@ function startScenarioCall(persona, { automationAuthorized = false } = {}) {
   delete root.dataset.sceneCall;
   unlockSpeechPlayback();
   startScenarioAutomation(persona, automationAuthorized);
-  go("#/intimacy/scenario/call");
+  if (enterChat) enterScenarioChat({ onCancel: leaveScenarioCall });
+  else go("#/intimacy/scenario/call");
+}
+
+function enterScenarioChat({ onCancel } = {}) {
+  stopRingtone();
+  stopLiveCall();
+  const key = ui.activePersona?.key;
+  const decision = chatRestoreDecision({
+    hasHistory: Boolean(key && scenarioChat.messages(key).length),
+    skipAsk: ui.prefs.chatRestoreSkip,
+    lastChoice: ui.prefs.chatRestoreLast,
+    askedOnce: ui.prefs.chatRestoreAskedOnce,
+  });
+  if (decision.kind === "fresh" && key) scenarioChat.clear(key);
+  if (decision.kind !== "ask") {
+    go("#/intimacy/scenario/chat");
+    return;
+  }
+  openSheet(`
+    <h2>是否恢复以前的聊天？</h2>
+    <p class="sub" style="text-align:left">这段对话保存在本机。恢复会接着上次说；重新开始会清掉这段记录。</p>
+    <button class="primary" data-act="chat-restore">恢复</button>
+    <button class="ghost" data-act="chat-fresh" style="margin-top:8px">重新开始</button>
+    ${decision.showNeverAsk ? `<button class="ghost" data-act="chat-restore-never" style="margin-top:8px">以后都不询问</button>` : ""}
+  `, { onDismiss: onCancel });
+}
+
+function finishChatRestore(choice, { neverAsk = false } = {}) {
+  const key = ui.activePersona?.key;
+  const resolved = neverAsk
+    ? (ui.prefs.chatRestoreLast === "fresh" ? "fresh" : "restore")
+    : (choice === "fresh" ? "fresh" : "restore");
+  if (!neverAsk) ui.prefs.chatRestoreLast = resolved;
+  ui.prefs.chatRestoreAskedOnce = true;
+  if (neverAsk) ui.prefs.chatRestoreSkip = true;
+  savePrefs();
+  if (key && resolved === "fresh") scenarioChat.clear(key);
+  closeSheet();
+  go("#/intimacy/scenario/chat");
 }
 
 function stopScenarioAutomation() {
@@ -2880,6 +3113,7 @@ function bind() {
   if (docInput) docInput.addEventListener("change", onPersonaDocPicked);
   bindHoldMic();
   bindCallSwipe();
+  bindPersonaSwipe();
   root.querySelectorAll("[data-act=lab-check]").forEach((el) => {
     el.addEventListener("change", () => saveCheck(el.dataset.id, el.checked));
   });
@@ -3322,7 +3556,16 @@ async function onClick(event) {
     startScenarioCall(ui.pendingScenarioPersona, { automationAuthorized: true });
   }
   else if (act === "scenario-start-manual") {
-    startScenarioCall(ui.pendingScenarioPersona, { automationAuthorized: false });
+    startScenarioCall(ui.pendingScenarioPersona, { automationAuthorized: false, enterChat: true });
+  }
+  else if (act === "chat-restore") {
+    finishChatRestore("restore");
+  }
+  else if (act === "chat-fresh") {
+    finishChatRestore("fresh");
+  }
+  else if (act === "chat-restore-never") {
+    finishChatRestore(ui.prefs.chatRestoreLast, { neverAsk: true });
   }
   else if (act === "power-on") {
     await toggleOriginalPower("正在开启设备");
@@ -3345,7 +3588,21 @@ async function onClick(event) {
     go("#/settings/persona/custom");
   }
   else if (act === "pick-persona") {
+    const wrap = t.closest(".persona-swipe");
+    if (wrap?.classList.contains("open") || ui.personaSwipeMoved) {
+      closePersonaSwipes();
+      return;
+    }
     beginScenarioCall(findScenarioPersona(t.dataset.key));
+  }
+  else if (act === "pin-persona") {
+    pinScenarioPersona(t.dataset.key);
+  }
+  else if (act === "delete-persona") {
+    await deleteScenarioPersona(t.dataset.key, t.dataset.kind, t.dataset.id);
+  }
+  else if (act === "unhide-persona") {
+    unhideScenarioPersona(t.dataset.key);
   }
   else if (act === "answer-call") {
     if (skipAnswerClick) {

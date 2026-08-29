@@ -94,6 +94,13 @@ async def upsert_custom_persona(payload: CustomPersonaIn) -> CustomPersona:
     return saved
 
 
+@router.delete("/custom/{persona_id}")
+async def delete_one_custom_persona(persona_id: str, user_id: str) -> dict[str, bool]:
+    items = _CUSTOM.get(user_id, {})
+    existed = items.pop(persona_id, None) is not None
+    return {"deleted": existed}
+
+
 @router.delete("/custom")
 async def delete_custom_personas(user_id: str) -> dict[str, int]:
     count = len(_CUSTOM.pop(user_id, {}))
