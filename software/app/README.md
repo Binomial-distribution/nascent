@@ -40,7 +40,7 @@ js/
   heart.js        心绪与科普卡片状态
   body-notes.js   使用记录、笔记、临时对话和后端同步状态
   onboarding.js   首次引导
-  scenario-session.js  情景聊天回合、头像压缩与本地 TTS 回退
+  scenario-session.js  情景聊天回合、头像压缩与云端 TTS
   live-call.js         通话连续听：VAD 切句、云端转写与播报
   app.js          A/B/C 三层界面与身体笔记独立导航
 tests/run.mjs     总督、心绪、链路与身体笔记状态回归

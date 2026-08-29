@@ -291,6 +291,9 @@ def test_prompt_includes_sensor_trends_and_aftercare():
 
     assert "事后抚慰" in SYSTEM_PROMPT
     assert "Chat 9B" in SYSTEM_PROMPT
+    assert "前戏" in SYSTEM_PROMPT
+    assert "升温" in SYSTEM_PROMPT
+    assert "仅当用户自己" in SYSTEM_PROMPT
     messages = build_messages(
         AgentTurnRequest(
             user_id="u",
@@ -310,6 +313,61 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert "increasing" in blob
     assert "hr_trend" in blob
     assert "press_l" not in blob
+    assert "顾深" in messages[0]["content"]
+    assert "角色卡" in messages[0]["content"]
+    assert "请依据以下受控上下文" not in messages[1]["content"]
+
+
+def test_persona_card_uses_waifu_profile_fields():
+    from app.services.prompt_builder import format_persona_card
+
+    card = format_persona_card({
+        "user_name": "宝贝",
+        "assistant_name": "顾深",
+        "profile": ["你是黏人的甜系男友"],
+        "skills": ["用短句增加温度"],
+        "background": ["阳台上种着薄荷"],
+        "rules": ["你就是顾深"],
+        "prologue": "晚上九点半靠在沙发上",
+    })
+    assert "assistant_name: 顾深" in card
+    assert "user_name: 宝贝" in card
+    assert "甜系男友" in card
+    assert "薄荷" in card
+
+
+def test_custom_persona_uploads_and_lists_for_selection():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    created = client.post(
+        "/v1/persona/custom",
+        json={
+            "user_id": "quiz-user",
+            "name": "陆予",
+            "source": "quiz",
+            "card": {
+                "assistant_name": "陆予",
+                "user_name": "宝贝",
+                "profile": ["你是稳、会照顾人的男友"],
+                "spoken": "我在。你先靠近就好。",
+            },
+            "text": "assistant_name: 陆予",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["name"] == "陆予"
+    assert body["source"] == "quiz"
+    assert body["card"]["assistant_name"] == "陆予"
+    listed = client.get("/v1/persona/custom", params={"user_id": "quiz-user"})
+    assert listed.status_code == 200
+    names = [item["name"] for item in listed.json()]
+    assert "陆予" in names
+    other = client.get("/v1/persona/custom", params={"user_id": "other-user"})
+    assert other.json() == []
 
 
 def test_siliconflow_console_url_normalizes_to_api_root():
@@ -402,3 +460,170 @@ def test_tts_rejects_json_error_payload():
         _require_audio(SimpleNamespace(headers={"content-type": "application/json"}, content=b'{"error":"no"}'))
     audio = _require_audio(SimpleNamespace(headers={"content-type": "audio/mpeg"}, content=b"ID3" + b"\x00" * 40))
     assert audio.startswith(b"ID3")
+
+
+def test_fish_tts_payload_has_no_instruct():
+    from app.services.providers.speech import tts_payload
+
+    payload = tts_payload(
+        "我在",
+        model="fishaudio/fish-speech-1.5",
+        voice="fishaudio/fish-speech-1.5:claire",
+    )
+    assert payload["model"] == "fishaudio/fish-speech-1.5"
+    assert payload["voice"] == "fishaudio/fish-speech-1.5:claire"
+    assert payload["input"] == "我在"
+    assert "<|endofprompt|>" not in payload["input"]
+
+
+def test_cosyvoice_tts_payload_wraps_instruct():
+    from app.services.providers.speech import COSYVOICE_INSTRUCT, tts_payload
+
+    payload = tts_payload(
+        "我在",
+        model="FunAudioLLM/CosyVoice2-0.5B",
+        voice="FunAudioLLM/CosyVoice2-0.5B:claire",
+    )
+    assert payload["input"].startswith(COSYVOICE_INSTRUCT)
+    assert payload["input"].endswith("我在")
+    assert "<|endofprompt|>" in payload["input"]
+
+
+def test_fish_billing_errors_fall_back_to_cosyvoice():
+    from app.services.providers.speech import should_fallback_to_cosyvoice
+
+    assert should_fallback_to_cosyvoice(402, "fishaudio/fish-speech-1.5")
+    assert should_fallback_to_cosyvoice(403, "fishaudio/fish-speech-1.5")
+    assert should_fallback_to_cosyvoice(404, "fishaudio/fish-speech-1.5")
+    assert not should_fallback_to_cosyvoice(500, "fishaudio/fish-speech-1.5")
+    assert not should_fallback_to_cosyvoice(402, "FunAudioLLM/CosyVoice2-0.5B")
+
+
+@pytest.mark.asyncio
+async def test_synthesize_falls_back_when_fish_returns_402(monkeypatch):
+    import httpx
+
+    from app.config import settings
+    from app.services.providers import speech as speech_provider
+
+    payloads = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self._calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers=None, json=None, params=None):
+            payloads.append(json)
+            self._calls += 1
+            request = httpx.Request("POST", url)
+            if self._calls == 1:
+                return httpx.Response(
+                    402,
+                    headers={"content-type": "application/json"},
+                    content=b'{"error":"balance"}',
+                    request=request,
+                )
+            return httpx.Response(
+                200,
+                headers={"content-type": "audio/mpeg"},
+                content=b"ID3" + b"\x00" * 40,
+                request=request,
+            )
+
+    monkeypatch.setattr(settings, "tts_model", "fishaudio/fish-speech-1.5")
+    monkeypatch.setattr(settings, "tts_voice", "fishaudio/fish-speech-1.5:claire")
+    monkeypatch.setattr(settings, "tts_timeout_s", 1.0)
+    monkeypatch.setattr(settings, "speech_api_key", "test")
+    monkeypatch.setattr(settings, "speech_base_url", "https://api.siliconflow.cn/v1")
+    monkeypatch.setattr(settings, "minimax_api_key", "")
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    audio = await speech_provider.synthesize("我在")
+    assert audio.startswith(b"ID3")
+    assert payloads[0]["model"] == "fishaudio/fish-speech-1.5"
+    assert payloads[0]["input"] == "我在"
+    assert payloads[1]["model"] == "FunAudioLLM/CosyVoice2-0.5B"
+    assert payloads[1]["voice"] == "FunAudioLLM/CosyVoice2-0.5B:claire"
+    assert "<|endofprompt|>" in payloads[1]["input"]
+
+
+def test_minimax_payload_uses_free_system_voice():
+    from app.services.providers.speech import minimax_payload
+
+    payload = minimax_payload("我在", model="speech-02-turbo", voice="female-tianmei")
+    assert payload["model"] == "speech-02-turbo"
+    assert payload["text"] == "我在"
+    assert payload["voice_setting"]["voice_id"] == "female-tianmei"
+    assert payload["stream"] is False
+    assert "input" not in payload
+
+
+def test_minimax_hex_audio_decodes_and_rejects_vendor_errors():
+    from app.services.providers.speech import decode_minimax_audio
+
+    audio = b"ID3" + b"\x00" * 40
+    decoded = decode_minimax_audio({
+        "data": {"audio": audio.hex(), "status": 2},
+        "base_resp": {"status_code": 0, "status_msg": "success"},
+    })
+    assert decoded == audio
+    with pytest.raises(ValueError):
+        decode_minimax_audio({
+            "data": {"audio": audio.hex()},
+            "base_resp": {"status_code": 1004, "status_msg": "auth"},
+        })
+
+
+@pytest.mark.asyncio
+async def test_synthesize_uses_minimax_t2a_when_configured(monkeypatch):
+    import httpx
+
+    from app.config import settings
+    from app.services.providers import speech as speech_provider
+
+    audio = b"ID3" + b"\x00" * 40
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers=None, json=None, params=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["params"] = params
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"audio": audio.hex(), "status": 2},
+                    "base_resp": {"status_code": 0, "status_msg": "success"},
+                },
+                request=request,
+            )
+
+    monkeypatch.setattr(settings, "minimax_api_key", "test")
+    monkeypatch.setattr(settings, "minimax_group_id", "g1")
+    monkeypatch.setattr(settings, "minimax_base_url", "https://api.minimaxi.com")
+    monkeypatch.setattr(settings, "tts_model", "speech-02-turbo")
+    monkeypatch.setattr(settings, "tts_voice", "female-tianmei")
+    monkeypatch.setattr(settings, "tts_timeout_s", 1.0)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    result = await speech_provider.synthesize("我在")
+    assert result == audio
+    assert captured["url"] == "https://api.minimaxi.com/v1/t2a_v2"
+    assert captured["params"]["GroupId"] == "g1"
+    assert captured["json"]["voice_setting"]["voice_id"] == "female-tianmei"

@@ -48,7 +48,7 @@ async def transcribe(file: UploadFile = File(...)) -> TranscriptResponse:
 
 @router.post("/speak")
 async def speak(request: SpeakRequest) -> Response:
-    if not settings.speech_configured:
+    if not settings.tts_configured:
         raise HTTPException(status_code=503, detail="speech unavailable")
     try:
         audio = await speech_provider.synthesize(request.text)

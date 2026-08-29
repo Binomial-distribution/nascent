@@ -436,6 +436,70 @@ a { color: var(--coral); }
 
 .stop:hover { filter: brightness(1.05); }
 
+.control-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 52px - env(safe-area-inset-bottom));
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.control-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px 4px 8px;
+}
+
+.control-page .level {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 650;
+}
+
+.control-page input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 56px;
+  background: transparent;
+}
+
+.control-page input[type="range"]::-webkit-slider-runnable-track {
+  height: 22px;
+  border-radius: 999px;
+  background: var(--status-bg);
+}
+
+.control-page input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: var(--coral);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px #0004;
+}
+
+.control-page input[type="range"]::-moz-range-track {
+  height: 22px;
+  border-radius: 999px;
+  background: var(--status-bg);
+}
+
+.control-page input[type="range"]::-moz-range-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--coral);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px #0004;
+}
+
 .level {
   margin: 24px 0 8px;
   font-size: 1.2rem;
@@ -463,6 +527,22 @@ input[type="range"] {
 .modes button.active {
   background: #f4a7b926;
   outline: 1.5px solid var(--coral);
+}
+
+.control-page .modes {
+  margin-top: 8px;
+}
+
+.control-page .modes button {
+  padding: 18px 8px;
+  font-size: 1.05rem;
+}
+
+.control-page .hint {
+  text-align: left;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 14px 0 8px;
 }
 
 .hint {
@@ -1324,14 +1404,31 @@ button:disabled {
 .call-hangup { margin-top: 8px; }
 .call-text { margin-top: 4px; color: var(--muted); }
 .call-captions {
-  min-height: 64px;
-  max-width: 320px;
-  padding: 0 16px;
+  min-height: 88px;
+  max-width: 340px;
+  width: 100%;
+  padding: 0 8px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+.call-line {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.call-line.user { background: color-mix(in srgb, var(--coral) 18%, #1a141c); }
+.call-who {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
 }
 .call-captions p {
-  margin: 0 0 8px;
+  margin: 0;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   line-height: 1.45;
 }
 .call-captions [data-call-user] { color: var(--text); }
@@ -1345,7 +1442,10 @@ button:disabled {
   place-items: center;
   background: #302938;
   color: var(--coral);
+  touch-action: none;
+  user-select: none;
 }
+.chat-composer .hold-mic { background: #302938; color: var(--coral); }
 .hold-mic.listening { background: var(--coral); color: #2a1520; }
 
 @keyframes call-ring {
@@ -1355,6 +1455,86 @@ button:disabled {
 @keyframes call-insert {
   from { transform: translateY(-64px); }
   to { transform: translateY(8px); }
+}
+
+.persona-guide {
+  padding-bottom: 28px;
+}
+
+.persona-guide-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.persona-guide-thread .bubble-row {
+  margin: 0;
+}
+
+.persona-guide-thread .bubble {
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 14px;
+  max-width: 92%;
+}
+
+.persona-guide-thread .bubble-row.user .bubble {
+  background: color-mix(in srgb, var(--coral) 28%, var(--bg-elev));
+  color: var(--text);
+}
+
+.persona-vibe-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 4px;
+}
+
+button.persona-vibe {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+button.persona-vibe.on {
+  border-color: var(--coral);
+  background: #f4a7b918;
+  color: var(--text);
+}
+
+.persona-guide .ob-input {
+  min-height: 72px;
+}
+
+.quiz-link {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+button.text-link {
+  color: var(--coral);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+}
+
+.quiz-block {
+  margin: 0 0 18px;
+}
+
+.quiz-block h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.quiz-block .ob-field {
+  margin-top: 8px;
 }
 
 @media (max-width: 360px) {

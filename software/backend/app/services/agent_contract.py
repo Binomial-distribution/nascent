@@ -63,7 +63,7 @@ class AgentTurnRequest(BaseModel):
     consent_state: Literal["unknown", "confirmed", "withdrawn"] = "confirmed"
     memory_policy: Literal["ask_each_time", "off"] = "ask_each_time"
     sensor_context: dict[str, object] = Field(default_factory=dict)
-    recent_turns: list[dict[str, str]] = Field(default_factory=list, max_length=6)
+    recent_turns: list[dict[str, str]] = Field(default_factory=list, max_length=12)
     conversation_summary: str = Field(default="", max_length=2000)
     user_input: str = Field(min_length=1, max_length=2000)
     active_template: PersonaTemplate | None = None

@@ -13,14 +13,14 @@
 | 四栏底栏：心绪 / 亲密时刻 / 记录 / 我的 | 已实现 | 本轮 `feat/intimacy-records-ia` |
 | Chat / Control 双逻辑模型与 `parallel-turn` | 后端联调骨架 | 已实现 |
 | 身心记录长页 + 单一「聊聊自己」入口 | 已实现；旧 `#/intimacy/notes*` 重定向 | 本轮 |
-| 情景模式人设列表 + 自定义/新增 | 已有人设点选后经通话接入动画进入实时通话；新增走 C 层定义（可上传头像）再拨打 | 本轮 `feat/provider-live-voice` |
-| 情景语音输入 | 通话页连续听：浏览器 VAD 切句 → 云端 ASR → 转写文本进 Chat 9B → 云端 TTS 播报；PCM 不进 Prompt。这是相对「PCM 不上云」的明确产品决定。玩具侧安全词麦克风仍只在 ESP32 本地。 | 本轮 demo；Waifu 仍后续 |
+| 情景模式人设列表 + 自定义/新增 | 已有人设点选后经通话接入动画进入实时通话；预设与自定义都按 Waifu 角色卡（Profile / Skills / Background / Rules / Prologue）写台词，默认甜系女友「小柔」 | 本轮 `feat/tts-natural-voice` |
+| 情景语音输入 | 通话页连续听：开口后先显示「正在转成文字」，识别结果进字幕和 Chat 9B；文字页可按住说话，转写进气泡。PCM 不进 Prompt。玩具侧安全词麦克风仍只在 ESP32 本地。 | 本轮 demo；Waifu 仍后续 |
 | 自我控制：停止 + Slider + 失控 | 已实现；控制页已去掉情景按钮 | 失控独立确认页仍后续 |
 | `SensorSnapshot`、心率、Health Connect | 情景聊天已把脱敏 `sensor_context`（温感 / 压力节律 / 心率趋势）发给 Chat 9B；原始值和 Health Connect 仍未接入 | 聚合快照与手环后续 PR |
 | `ResponseAssessment` / `WellnessAssessment` | 未实现 | 后续 PR |
 | 有限自动适配执行 | Governor 仅拦截 `automatic` 且 insert 未知 | 后续 PR |
 | IRPI 六因子（含心率 0.05） | 代码仍是五因子 `0.45 / 0.25 / 0.15 / 0.10 / 0.05` | 后续 PR |
-| 按住说话 / TTS / Waifu | 台词走 `POST /v1/speech/speak`（CosyVoice）；失败才回退浏览器朗读。Waifu 未实现 | Waifu 后续 PR |
+| 按住说话 / TTS / Waifu | 台词走 `POST /v1/speech/speak`：默认 MiniMax `speech-02-turbo` + 免费系统音色 `female-tianmei`。失败再降硅基流动 CosyVoice。云端音频用已解锁的 AudioContext 播放；扬声器回声不立刻打断。失败只留字幕，不回退浏览器假人声。Waifu 未实现 | 本轮 `feat/tts-natural-voice` |
 
 ## 1. 摘要
 
