@@ -1,0 +1,16 @@
+item,designator,qty,mfr,mpn,description,package,unit_cny,ext_cny,datasheet,notes
+1,U1,1,Espressif 兼容开发板,ESP32-S3-N16R8,"16MB Flash / 8MB PSRAM / USB-C；板载 BOOT=GPIO0",DevKit,48.00,48.00,,玩具侧唯一主控。广播名 Nascent-Toy。不驱动电机
+2,U2,1,Aosong（奥松）兼容,DHT11,单总线温湿度数字传感器,3pin 模块,4.00,4.00,datasheets/DHT11_Aosong.pdf,GPIO4；4.7k 上拉到 3V3；采样 ≥1s；不做接触熔断、不宣称核心体温
+3,U3,1,InvenSense 兼容,MPU-6050 / GY-521,六轴 IMU（加速度+陀螺）,模块,9.00,9.00,datasheets/MPU-6050_ProductSpec_PS-MPU-6000A.pdf,I2C GPIO8/SDA GPIO9/SCL；AD0=GND → 0x68；入体推断与电机观测（只读）
+4,U4,1,Interlink,FSR402,0.5in 圆膜电阻式压力,薄膜传感器,22.00,22.00,datasheets/FSR402_Interlink.pdf,GPIO1 ADC1_CH0；3V3—FSR—ADC—10k—GND。右路 GPIO2 未焊（TOY_HAS_FSR_R=0）。不做高潮检测
+5,U5,1,Worldsemi,WS2812B×8,8 颗灯环 / 灯条,灯板,10.00,10.00,datasheets/WS2812B_Worldsemi.pdf,GPIO6 RMT → DIN；建议 5V 供电；档位=点亮颗数
+6,Q1,1,Alpha & Omega,AO3400A,30V N-MOS；Vgs(th) 典型 1.05V,SOT-23,0.80,0.80,datasheets/AO3400A_AOS.pdf,低边开关并联原按键。1=G / 2=S / 3=D。不接电机
+7,R1,1,通用,1kΩ ±5% 1/8W,栅极串联限流,直插碳膜,0.05,0.05,,GPIO7 — R1 — Q1 栅极
+8,R2,1,通用,47kΩ ±5% 1/8W,栅极下拉到 GND,直插碳膜,0.05,0.05,,必须先于触点飞线焊接。浮空栅极实测 D-S≈200k 会误开机
+9,R3,1,通用,10kΩ ±5% 1/8W,漏极限流（安全件）,直插碳膜,0.05,0.05,,Q1 漏极串 10k 后接原按键触点 A。3.7V/10k=0.37mA。不可省、不可减小
+10,R4,1,通用,10kΩ ±5% 1/8W,FSR402 下拉,直插碳膜,0.05,0.05,,与 U4 组成分压
+11,R5,1,通用,4.7kΩ ±5% 1/8W,DHT11 数据线上拉,直插碳膜,0.05,0.05,,模块板已带则可省
+12,W1,1,通用,飞线,原按键触点飞线（勿走面包板）,套,6.00,6.00,,触点支路对漏电流敏感
+13,J1,1,通用,USB-C 数据线,供电与烧录,线材,8.00,8.00,,开发板 USB 口
+14,HOST,1,萨福,原产品本体,原控制板 + 实体按键 + 三路振动执行器,成品,—,—,,"不计入本 BOM 采购额。本板只并联按键，电机始终由原板驱动"
+15,SW1,1,开发板自带,BOOT 键,GPIO0 板载按键,板载,0.00,0.00,,短按≤600ms 急停；长按 2s 解除停机闩锁。无需外接线
