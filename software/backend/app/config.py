@@ -29,6 +29,8 @@ def normalize_llm_base_url(url: str) -> str:
         return "https://api.siliconflow.cn/v1"
     if raw == "https://api.siliconflow.cn":
         return "https://api.siliconflow.cn/v1"
+    if host in {"api.anthropic.com", "anthropic.com", "www.anthropic.com"}:
+        return "https://api.anthropic.com"
     return raw
 
 
@@ -44,6 +46,8 @@ class Settings(BaseSettings):
 
     debug: bool = False
 
+    # openai = OpenAI 兼容（硅基等）；anthropic = Claude Messages API
+    llm_provider: str = "openai"
     llm_api_key: str = ""
     llm_base_url: str = ""
     # 两个逻辑角色：nascent-chat-9b / nascent-control-9b。
@@ -86,9 +90,27 @@ class Settings(BaseSettings):
         raw = str(value or "minimax").strip().lower()
         return raw if raw in {"minimax", "mimo"} else "minimax"
 
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def _normalize_llm_provider(cls, value: object) -> str:
+        raw = str(value or "openai").strip().lower()
+        if raw in {"anthropic", "claude"}:
+            return "anthropic"
+        return "openai"
+
     @property
     def llm_configured(self) -> bool:
-        return bool(self.llm_api_key and self.llm_base_url)
+        if not self.llm_api_key:
+            return False
+        if self.llm_provider == "anthropic":
+            return True
+        return bool(self.llm_base_url)
+
+    @property
+    def resolved_llm_base_url(self) -> str:
+        if self.llm_provider == "anthropic":
+            return self.llm_base_url or "https://api.anthropic.com"
+        return self.llm_base_url
 
     @property
     def resolved_speech_api_key(self) -> str:

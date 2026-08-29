@@ -51,6 +51,8 @@ class AgentTurn(BaseModel):
     action: None = None
     memory_proposals: list[MemoryProposal] = Field(default_factory=list)
     skill_proposals: list[SkillProposal] = Field(default_factory=list, max_length=4)
+    # model=真模型；stub=密钥/网络失败时的本地占位（前端据此提示用户）
+    fallback: Literal["none", "stub"] = "none"
 
     @field_validator("tts_style", mode="before")
     @classmethod

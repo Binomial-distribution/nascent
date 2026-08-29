@@ -65,7 +65,7 @@ async def complete(
         "stream": False,
         "response_format": JSON_OBJECT,
     })
-    async with httpx.AsyncClient(timeout=timeout_s) as client:
+    async with httpx.AsyncClient(timeout=timeout_s, trust_env=False) as client:
         response = await client.post(
             url,
             json=payload,

@@ -42,6 +42,7 @@ import {
   TURN_SEND,
 } from "../js/scenario-session.js";
 import {
+  cardForPersona,
   cardToPromptText,
   draftToCard,
   PERSONA_CARDS,
@@ -361,24 +362,27 @@ assert(await readableNotes.deleteSession("demo-session-01"), "legacy notes data 
 assert(readableNotes.getSession("demo-session-01") === null, "deleted notes records stay gone");
 
 const scenarioTurns = new ScenarioChatState({ fetchImpl: null });
-const reply = await scenarioTurns.send({ key: "persona:gentle", name: "温和", text: "缓慢、克制" }, "你好");
+const reply = await scenarioTurns.send({ key: "persona:gentle", name: "Natsu", text: "缓慢、克制" }, "你好");
 assert(Boolean(reply?.dialogue), "scenario chat falls back locally when the agent is offline");
 assert(scenarioTurns.messages("persona:gentle").length === 2, "a scenario turn stores user and assistant lines");
-assert(scenarioTurns.phase("persona:gentle") === "rising", "a first user line in approaching moves into rising");
+assert(scenarioTurns.phase("persona:gentle") === "approaching", "without toy start, chat stays in C2 daily");
 
 const climaxChat = new ScenarioChatState({ fetchImpl: null });
 await climaxChat.send({ key: "persona:playful", name: "阿北" }, "你好");
-assert(climaxChat.phase("persona:playful") === "rising", "stub next during approaching enters rising");
-await climaxChat.send({ key: "persona:playful", name: "阿北" }, "要到了");
+assert(climaxChat.phase("persona:playful") === "approaching", "idle chat does not enter C3");
+await climaxChat.send(
+  { key: "persona:playful", name: "阿北" },
+  "要到了",
+  { sensor_context: { current_level: 5, insert_state: "inserted" } },
+);
 assert(climaxChat.phase("persona:playful") === "climax_window", "要到了 still opens the climax window");
 
-const aftercare = await scenarioTurns.send({ key: "persona:gentle", name: "温和" }, "累了，想被抱一会儿");
+const aftercare = await scenarioTurns.send({ key: "persona:gentle", name: "Natsu" }, "累了，想被抱一会儿");
 assert(scenarioTurns.phase("persona:gentle") === "aftercare", "user asking to rest enters aftercare");
-assert(aftercare.dialogue.includes("陪"), "aftercare fallback stays with the user");
+assert(aftercare.dialogue.includes("歇") || aftercare.dialogue.includes("在"), "aftercare fallback stays with the user");
 
 const opening = personaOpeningLine({ id: "gentle" }, "approaching");
-assert(opening.includes("收工") || opening.includes("抱一会儿"), "preset opening uses the boyfriend greeting");
-assert(opening.includes("（") && opening.includes("）"), "opening keeps an unread stage aside");
+assert(opening.includes("怎么喊你") || opening.includes("抱一会儿"), "preset opening uses the builtin-001 greeting");
 assert(!opening.includes("慢慢靠近"), "opening is not the old coaching script");
 const caption = formatCaptionHtml("过来。（轻声）抱你");
 assert(caption.includes("class=\"aside\"") && caption.includes("（轻声）"), "captions keep asides visible");
@@ -386,17 +390,22 @@ assert(caption.startsWith("过来。"), "spoken words stay outside the aside spa
 assert(!formatCaptionHtml("<img>").includes("<img>"), "caption html escapes markup");
 stopRingtone();
 const payload = personaPayload({ id: "gentle" });
-assert(payload.assistant_name === "顾深" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.assistant_name === "Natsu" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.builtinId === "001", "gentle turn payload marks builtin 001 without uploading the prompt");
+assert(!payload.system_prompt, "turn payload does not upload the builtin system prompt");
+const customFallback = cardForPersona({ name: "小测", text: "她是自定义陪伴" });
+assert(customFallback.builtinId == null || customFallback.builtinId === "", "custom fallback cards do not inherit Natsu builtinId");
+assert(!customFallback.system_prompt, "custom fallback cards do not inherit Natsu system_prompt");
 assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");
-assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "顾深 uses the boyfriend MiniMax voice");
-assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "顾深 is a male MiniMax id");
+assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "Natsu uses the boyfriend MiniMax voice");
+assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "Natsu is a male MiniMax id");
 assert(PERSONA_CARDS.playful.tts.minimax === "male-qn-qingse", "阿北 uses a male MiniMax id");
 assert(PERSONA_CARDS.calm.tts.minimax === "danya_xuejie", "阿月 uses a female MiniMax id");
 assert(!/male-/i.test(PERSONA_CARDS.calm.tts.minimax), "阿月 is not a male MiniMax id");
-assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "顾深 speaks calmly");
+assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "Natsu speaks calmly");
 assert(PERSONA_CARDS.playful.tts.emotion === "happy", "阿北 speaks happily");
 assert(PERSONA_CARDS.calm.tts.emotion === "whisper", "阿月 uses a whisper emotion");
-assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "顾深 maps to MiMo Milo");
+assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "Natsu maps to MiMo Milo");
 assert(PERSONA_CARDS.playful.tts.mimo === "Dean", "阿北 maps to MiMo Dean");
 assert(PERSONA_CARDS.calm.tts.mimo === "茉莉", "阿月 maps to MiMo 茉莉");
 
@@ -438,10 +447,11 @@ assert(quizPayload.assistant_name === "顾深" && quizPayload.spoken.includes("�
 assert(quizPayload.tts?.minimax === "junlang_nanyou", "quiz card keeps the vibe MiniMax voice");
 
 const promptText = cardToPromptText(PERSONA_CARDS.gentle);
-assert(promptText.includes("人设:") && promptText.includes("怎么叫她:"), "character card text uses Chinese labels");
+assert(promptText.includes("Natsu") && promptText.includes("人设:"), "gentle local card text uses Chinese labels, not the server prompt");
+assert(!promptText.includes("biometric_response_system"), "the executable builtin prompt stays on the server");
 assert(!promptText.includes("Profile:"), "character card text does not use English Profile label");
 const approachingSummary = experienceSummary("approaching", {});
-assert(approachingSummary.includes("带她"), "phase summary talks about her, not him");
+assert(approachingSummary.includes("人设") || approachingSummary.includes("陪伴"), "phase summary keeps companion framing");
 assert(!approachingSummary.includes("带他"), "phase summary does not mix him into a female-oriented scene");
 
 function memoryStore() {
@@ -459,14 +469,14 @@ const threadFetch = async (_url, options = {}) => {
   return jsonResponse({ dialogue: "我在。", scene_ctrl: "stay" });
 };
 const firstThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
-await firstThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "今天过得怎么样");
+await firstThread.send({ key: "persona:gentle", id: "gentle", name: "Natsu" }, "今天过得怎么样");
 assert(firstThread.messages("persona:gentle").length === 2, "first send stores the opening turn");
 const resumedThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
 assert(
   resumedThread.messages("persona:gentle").length === 2,
   "a new ScenarioChatState hydrates prior turns from storage",
 );
-await resumedThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "过来陪我");
+await resumedThread.send({ key: "persona:gentle", id: "gentle", name: "Natsu" }, "过来陪我");
 const recent = turnBodies[1]?.recent_turns || [];
 assert(
   recent.some((item) => item.role === "user" && item.content === "今天过得怎么样")
@@ -480,7 +490,7 @@ const styleChat = new ScenarioChatState({
   fetchImpl: async () => jsonResponse({ dialogue: "过来。", scene_ctrl: "stay", tts_style: "低语" }),
   storage: styleStore,
 });
-const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "在吗");
+const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "Natsu" }, "在吗");
 assert(styled.tts_style === "低语", "send returns this turn's tts_style for TTS");
 styleChat.clearAll();
 assert(styleChat.messages("persona:gentle").length === 0, "clearAll drops in-memory scenario threads");
@@ -503,7 +513,7 @@ assert(folded.startsWith("更早的对话："), "old turns fold into a dialogue 
 assert(folded.includes("她0") && folded.includes("他1"), "the summary keeps lines that fell out of the window");
 assert(!folded.includes(`她${TURN_SEND}`), "the live window is not copied into the folded summary");
 const combinedSummary = buildConversationSummary(overflowItems, "rising", {});
-assert(combinedSummary.includes("更早的对话") && combinedSummary.includes("一起往前"), "summary keeps folded dialogue and phase goals");
+assert(combinedSummary.includes("更早的对话") && combinedSummary.includes("C3 暧昧"), "summary keeps folded dialogue and phase goals");
 assert(combinedSummary.length <= SUMMARY_TOTAL_MAX, "the combined summary stays within the contract limit");
 
 const overflowBodies = [];
@@ -660,8 +670,12 @@ assert(hr.snapshot.bpm == null, "stale snapshots hide the last bpm");
 const staleSensors = buildSensorContext(risingPress, { heartRate: hr });
 assert(staleSensors.hr_quality === "stale", "sensor_context reports stale after dropout");
 assert(staleSensors.hr_trend === "unknown", "stale samples do not drive AI trend");
-assert(nextExperiencePhase("approaching", { sceneCtrl: "next", userText: "你好" }) === "rising", "a first reply in approaching can move into rising");
-assert(nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "你好" }) === "rising", "talking in approaching still leads into rising");
+assert(nextExperiencePhase("approaching", { sceneCtrl: "next", userText: "你好" }) === "approaching", "model next alone does not leave C2");
+assert(nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "你好" }) === "approaching", "idle chat stays in C2 daily");
+assert(
+  nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "在吗", sensor: { current_level: 2 } }) === "rising",
+  "toy start moves C2 into C3",
+);
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "" }) === "rising", "sensors or silence do not auto-declare climax");
 assert(nextExperiencePhase("rising", { sceneCtrl: "next", userText: "" }) === "rising", "model next during rising does not open the climax window");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "要到了" }) === "climax_window", "user language can open the climax window");
