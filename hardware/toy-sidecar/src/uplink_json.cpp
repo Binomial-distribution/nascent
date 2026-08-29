@@ -27,14 +27,15 @@ size_t nl_build_uplink(char *buf, size_t cap, const nl_telemetry_t &t, nl_mode_t
   doc["press_r"] = t.press_r;
 
   JsonArray acc = doc["accel"].to<JsonArray>();
-  acc.add(t.accel_mg_x / 1000.0f);
-  acc.add(t.accel_mg_y / 1000.0f);
-  acc.add(t.accel_mg_z / 1000.0f);
+  // 保留 3 位小数（约 1mg），避免 ArduinoJson 把 float 打成一长串把 BLE 帧撑爆。
+  acc.add(static_cast<float>(t.accel_mg_x) / 1000.0f);
+  acc.add(static_cast<float>(t.accel_mg_y) / 1000.0f);
+  acc.add(static_cast<float>(t.accel_mg_z) / 1000.0f);
 
   JsonArray gyr = doc["gyro"].to<JsonArray>();
-  gyr.add(t.gyro_dps_x10_x / 10.0f);
-  gyr.add(t.gyro_dps_x10_y / 10.0f);
-  gyr.add(t.gyro_dps_x10_z / 10.0f);
+  gyr.add(static_cast<float>(t.gyro_dps_x10_x) / 10.0f);
+  gyr.add(static_cast<float>(t.gyro_dps_x10_y) / 10.0f);
+  gyr.add(static_cast<float>(t.gyro_dps_x10_z) / 10.0f);
 
   doc["insert_state"] = nl_insert_state_name(t.insert_state);
   doc["mode"] = nl_mode_name(mode);

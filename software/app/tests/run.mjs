@@ -40,6 +40,7 @@ import {
   pushVadFrame,
   shouldBargeIn,
 } from "../js/live-call.js";
+import { accelMag, fsrContact, imuHealth, insertCopy, sensorLogicView, uplinkStatCopy } from "../js/lab.js";
 
 let failed = 0;
 let passed = 0;
@@ -581,6 +582,54 @@ globalThis.speechSynthesis = {
 const failedSpeech = await speakDialogue("我在", { fetchImpl: async () => ({ ok: false }) });
 assert(!spokeLocal, "cloud TTS failure does not fake a browser voice");
 assert(failedSpeech.played === false && failedSpeech.interrupted === false, "failed cloud TTS reports not played");
+
+assert(insertCopy(NlInsertState.INSERTED) === "在使用中", "lab copy is in-use not medical insertion");
+assert(insertCopy(NlInsertState.UNKNOWN) === "不确定", "unknown insert copy");
+assert(accelMag([0, 0, 0]) < 0.15, "zero accel is empty");
+assert(imuHealth([0, 0, 0]).ok === false, "zero accel is I2C miss");
+assert(imuHealth([0, 0, 1]).ok === true, "1g z is a live IMU");
+assert(fsrContact(599, 0) === false, "below contact threshold");
+assert(fsrContact(600, 0) === true, "at contact threshold");
+
+{
+  const deadImu = sensorLogicView(uplink({ accel: [0, 0, 0], insert_state: "unknown" }));
+  assert(deadImu.fusion.includes("六轴未就绪"), "dead IMU keeps fusion unknown");
+}
+
+assert(
+  uplinkStatCopy({ connected: true, uplink: null, stats: { parsed: 0, notifies: 0 } }).includes("0 帧"),
+  "lab explains missing uplink while connected",
+);
+assert(
+  uplinkStatCopy({ connected: true, uplink: uplink(), stats: { parsed: 3, notifies: 3, lastBytes: 210 } }).includes("已解析 3 帧"),
+  "lab shows parsed frame count",
+);
+assert(
+  uplinkStatCopy({
+    connected: true,
+    uplink: null,
+    stats: { parsed: 0, notifies: 4, lastError: "Unexpected end of JSON" },
+  }).includes("解不出 JSON"),
+  "lab explains truncated notify payloads",
+);
+
+{
+  const govLab = new Governor();
+  govLab.ingest(uplink());
+  assert(
+    govLab.reject(new BleDownlink({ cmd: NlCmd.RESUME, auth: "" }))?.includes("BOOT"),
+    "lab resume path is rejected by governor",
+  );
+  assert(govLab.reject(new BleDownlink({ cmd: NlCmd.STOP, auth: "" })) == null, "lab stop is allowed");
+  assert(
+    govLab.reject(new BleDownlink({ cmd: NlCmd.PRESS_KEY, key: "hold", auth: "" })) == null,
+    "lab long-press key is allowed when linked",
+  );
+  assert(
+    govLab.reject(new BleDownlink({ cmd: NlCmd.PRESS_KEY, key: "tap", auth: "" })) == null,
+    "lab tap key is allowed when linked",
+  );
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

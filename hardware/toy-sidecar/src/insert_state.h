@@ -11,12 +11,13 @@
 #include <stdint.h>
 
 #include "nascent_protocol.h"
-#include "sensors/mpu6050.h"
+#include "sensors/imu_mpu6050.h"
 
 class InsertInference {
  public:
   // 12Hz 调用。contact 来自 FSR402。
-  void update(const ImuSample &imu, bool contact, uint32_t dt_ms);
+  // imu_ok=false 时不下 inserted/not_inserted，也不把全零加速度当成静止。
+  void update(const ImuSample &imu, bool contact, uint32_t dt_ms, bool imu_ok = true);
 
   nl_insert_state_t state() const { return state_; }
 

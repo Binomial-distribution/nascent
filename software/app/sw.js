@@ -1,7 +1,7 @@
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   // 缓存名带版本号：模块拆分后，沿用旧缓存会让客户端缺文件、import 404。
-  event.waitUntil(caches.open("nascent-shell-v18").then((cache) => cache.addAll([
+  event.waitUntil(caches.open("nascent-shell-v19").then((cache) => cache.addAll([
     "/",
     "/css/app.css",
     "/js/app.js",
@@ -11,6 +11,7 @@ self.addEventListener("install", (event) => {
     "/js/governor.js",
     "/js/heart.js",
     "/js/hr.js",
+    "/js/lab.js",
     "/js/live-call.js",
     "/js/onboarding.js",
     "/js/persona-cards.js",
@@ -29,7 +30,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v18")
+      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v19")
         .map((n) => caches.delete(n)),
     );
     await self.clients.claim();
@@ -45,7 +46,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request).then((res) => {
       const copy = res.clone();
-      caches.open("nascent-shell-v18").then((cache) => cache.put(event.request, copy)).catch(() => {});
+      caches.open("nascent-shell-v19").then((cache) => cache.put(event.request, copy)).catch(() => {});
       return res;
     }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
   );

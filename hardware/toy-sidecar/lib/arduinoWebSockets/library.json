@@ -17,6 +17,10 @@
     "license": "LGPL-2.1",
     "name": "WebSockets",
     "platforms": "*",
+    "dependencies": {
+        "WiFi": "*",
+        "WiFiClientSecure": "*"
+    },
     "repository": {
         "type": "git",
         "url": "https://github.com/Links2004/arduinoWebSockets.git"

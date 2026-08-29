@@ -115,15 +115,30 @@ typedef enum {
     NL_CMD_SET_LED = 4,
     NL_CMD_RESUME = 5,
     NL_CMD_SET_WIFI = 6,
-    NL_CMD_COUNT = 7
+    NL_CMD_PRESS_KEY = 7,
+    NL_CMD_COUNT = 8
 } nl_cmd_t;
 
 static const char *const NL_CMD_NAMES[] = {
-    "stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi"
+    "stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi", "press_key"
 };
 
 static inline const char *nl_cmd_name(uint8_t v) {
     return v < NL_CMD_COUNT ? NL_CMD_NAMES[v] : "?";
+}
+
+typedef enum {
+    NL_KEY_PRESS_TAP = 0,
+    NL_KEY_PRESS_HOLD = 1,
+    NL_KEY_PRESS_COUNT = 2
+} nl_key_press_t;
+
+static const char *const NL_KEY_PRESS_NAMES[] = {
+    "tap", "hold"
+};
+
+static inline const char *nl_key_press_name(uint8_t v) {
+    return v < NL_KEY_PRESS_COUNT ? NL_KEY_PRESS_NAMES[v] : "?";
 }
 
 typedef enum {
@@ -353,6 +368,7 @@ typedef struct {
     uint8_t pattern;
     uint8_t led_state;
     uint8_t flags;  // 保留，必须为 0（原 bit0/bit1 是已删除的摇杆使能）
+    uint8_t key_press;  // 仅 press_key：tap=点按切档，hold=长按开关机
 } nl_command_t;
 
 #pragma pack(pop)
@@ -360,7 +376,7 @@ typedef struct {
 #ifdef __cplusplus
 static_assert(sizeof(nl_wire_header_t) == 8, "wire header packing");
 static_assert(sizeof(nl_telemetry_t) == 42, "telemetry packing");
-static_assert(sizeof(nl_command_t) == 18, "command packing");
+static_assert(sizeof(nl_command_t) == 19, "command packing");
 #endif
 
 // ---- 帧头填充与校验 ----

@@ -24,12 +24,20 @@ class Ao3400 {
  public:
   void begin(uint8_t pin);
 
+  // BLE / WiFi 初始化之后调用：把栅极脚重新声明为输出。
+  // 无线电协议栈有时会改 GPIO 复用，外部 3.3V 能触发、固件却拉不动时就是这个。
+  void reclaimPin();
+
   // 每轮主循环调用，推进按键时序状态机。
   void tick(uint32_t now_ms);
 
   // 请求原板停在第 target 档（1..8，对应协议档位）。0 表示关机。
   // 内部自己算怎么按，调用方不需要关心原板当前在哪一档。
   void requestLevel(uint8_t target);
+
+  // 联调用：直接发一次原按键时序，不走开环档位状态机。
+  // hold=true 长按约 1.2s（电源取反）；false 点按约 120ms（开机后切一档）。
+  void requestRawPress(bool hold);
 
   // 立即关机。停机路径专用。
   //
@@ -72,4 +80,10 @@ class Ao3400 {
   uint8_t step_ = 0;  // 开环假设的原板当前档位，0 = 关机
   bool powered_ = false;
   bool needs_resync_ = false;
+  bool raw_queued_ = false;
+  bool raw_hold_ = false;
+
+  // 临界区里不能 printf。tick 退出后再打。
+  bool log_high_ = false;
+  bool log_low_ = false;
 };

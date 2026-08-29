@@ -1,4 +1,5 @@
 // MPU6050 六轴：electroniccats/MPU6050（I2Cdevlib 血统）的薄封装。
+// 文件不叫 mpu6050.h：Windows 大小写不敏感，会挡住 #include <MPU6050.h>。
 //
 // 封装只做单位换算：库给的是原始 LSB，协议要的是 mg 与 dps x10。
 // 量程与 DLPF 的选择理由写在 .cpp 里。

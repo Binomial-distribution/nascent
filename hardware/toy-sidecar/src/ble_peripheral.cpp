@@ -41,7 +41,10 @@ bool BlePeripheral::begin(CommandHandler handler) {
   g_self = this;
 
   BLEDevice::init(NL_BLE_DEVICE_NAME);
-  BLEDevice::setMTU(NL_BLE_MIN_MTU);
+  // contract 的 min_mtu=185 是下限，不是上限。一帧 BleUplink JSON 大约 210 字节，
+  // ATT 载荷还要扣 3 字节：把本地 MTU 钉在 185，协商结果就装不下，notify 会失败，
+  // 于是 App 只拿到 Info 令牌、永远看不到遥测。ESP32 允许的上限是 517。
+  BLEDevice::setMTU(517);
 
   g_server = BLEDevice::createServer();
   g_server->setCallbacks(new NlServerCallbacks());
@@ -49,7 +52,10 @@ bool BlePeripheral::begin(CommandHandler handler) {
   // 三个特征加上 CCCD 描述符，默认的 15 个句柄不够用。
   BLEService *svc = g_server->createService(BLEUUID(NL_BLE_SERVICE_UUID), 32, 0);
 
-  g_uplink = svc->createCharacteristic(NL_BLE_UPLINK_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  // Notify 是正路。Windows Chrome 有时订了 CCCD 仍不推事件，可读一次最新值作退路。
+  g_uplink = svc->createCharacteristic(
+      NL_BLE_UPLINK_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_READ);
   g_uplink->addDescriptor(new BLE2902());
 
   g_downlink = svc->createCharacteristic(NL_BLE_DOWNLINK_UUID, BLECharacteristic::PROPERTY_WRITE);
@@ -91,16 +97,45 @@ void BlePeripheral::tick(uint32_t) {
 bool BlePeripheral::up(uint32_t) const { return connected_; }
 
 void BlePeripheral::sendUplink(const char *json, size_t len) {
-  if (!connected_ || !g_uplink) return;
+  if (!connected_ || !g_uplink || json == nullptr || len == 0) return;
+
+  uint16_t peer_mtu = 23;
+  if (g_server != nullptr) {
+    uint16_t m = g_server->getPeerMTU(g_server->getConnId());
+    if (m >= 23) peer_mtu = m;
+  }
+  const uint16_t max_payload = peer_mtu > 3 ? static_cast<uint16_t>(peer_mtu - 3) : 20;
+  // peer MTU 仍是 23 时多半还在协商，硬丢会让 Windows 永远等不到第一帧。
+  // 已经协商到一个明确偏小的值（例如曾经的 185）才跳过，避免发截断 JSON。
+  if (peer_mtu > 23 && len > max_payload) {
+    static uint32_t last_warn_ms = 0;
+    uint32_t now = millis();
+    if (now - last_warn_ms > 2000) {
+      last_warn_ms = now;
+      Serial.printf("[ble] 上行 %u 字节 > MTU 载荷 %u（peer MTU %u），本帧丢弃\n",
+                    static_cast<unsigned>(len), static_cast<unsigned>(max_payload),
+                    static_cast<unsigned>(peer_mtu));
+    }
+    return;
+  }
+
   g_uplink->setValue(reinterpret_cast<uint8_t *>(const_cast<char *>(json)), len);
   g_uplink->notify();
+  static bool logged_ok = false;
+  if (!logged_ok) {
+    logged_ok = true;
+    Serial.printf("[ble] 首帧上行已 notify，%u 字节，peer MTU %u\n",
+                  static_cast<unsigned>(len), static_cast<unsigned>(peer_mtu));
+  }
 }
 
 void BlePeripheral::handleConnect(uint32_t now_ms) {
   connected_ = true;
   gate_.newSession(now_ms);
   publishInfo();
-  Serial.println("[ble] 手机已连接，已签发新会话令牌");
+  uint16_t peer = g_server ? g_server->getPeerMTU(g_server->getConnId()) : 0;
+  Serial.printf("[ble] 手机已连接，已签发新会话令牌；peer MTU %u（本地上限 %u）\n",
+                static_cast<unsigned>(peer), static_cast<unsigned>(BLEDevice::getMTU()));
 }
 
 void BlePeripheral::handleDisconnect() {

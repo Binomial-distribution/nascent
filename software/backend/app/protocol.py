@@ -125,6 +125,7 @@ class Cmd(str, Enum):
     SET_LED = "set_led"
     RESUME = "resume"
     SET_WIFI = "set_wifi"
+    PRESS_KEY = "press_key"
 
     @property
     def wire(self) -> int:
@@ -132,6 +133,20 @@ class Cmd(str, Enum):
 
     @classmethod
     def from_wire(cls, i: int) -> "Cmd":
+        members = list(cls)
+        return members[i] if 0 <= i < len(members) else members[0]
+
+
+class KeyPress(str, Enum):
+    TAP = "tap"
+    HOLD = "hold"
+
+    @property
+    def wire(self) -> int:
+        return list(KeyPress).index(self)
+
+    @classmethod
+    def from_wire(cls, i: int) -> "KeyPress":
         members = list(cls)
         return members[i] if 0 <= i < len(members) else members[0]
 
@@ -338,6 +353,7 @@ class BleDownlink(BaseModel):
     led: LedState | None = None
     wifi_ssid: str | None = None  # 仅 set_wifi；写入玩具 NVS，不上云、不上行
     wifi_psk: str | None = None  # 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
+    key: KeyPress | None = None  # 仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机
     auth: str  # session token；缺失或过期整包丢弃
 
 

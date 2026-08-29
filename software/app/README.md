@@ -41,10 +41,11 @@ js/
   hr.js           手环心率：平滑、基线、断流；只产出趋势，不发指令
   body-notes.js   使用记录、笔记、临时对话和后端同步状态
   onboarding.js   首次引导
+  lab.js          硬件联调页（#/lab，从「我的」最下方进入）
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS
   live-call.js         通话连续听：VAD 切句、云端转写与播报
   app.js          A/B/C 三层界面与身体笔记独立导航
-tests/run.mjs     总督、心绪、链路与身体笔记状态回归
+tests/run.mjs     总督、心绪、链路、联调页与身体笔记状态回归
 ```
 
 ### 三层的边界是有意的
@@ -92,6 +93,10 @@ Android 壳没有这个矛盾（明文放行 + 原生 GATT 桥），所以 **WiF
 网站、PWA 与 Android App 共用这一份「我的」页。连上玩具后可填写 2.4 GHz SSID，
 把 `set_wifi` 写入设备 NVS（密码不上云）。写入后断开蓝牙约 20 秒，再把通道切到
 WiFi 并填玩具地址。没有 NVS 时固件仍可回退到 `local_config.h`。
+
+### 硬件联调
+
+产品 App 还没做完时，从「我的」最下方进入 **硬件联调**（`#/lab`）验板：直连 `Nascent-Toy`、看 DHT/FSR/IMU、对照使用状态融合规则、调档/灯语、核对 BOOT 停机。发指令仍走 `sendCommand()`，页面点「试远程恢复」必须被总督拒绝。
 
 ### 恢复不在页面里
 

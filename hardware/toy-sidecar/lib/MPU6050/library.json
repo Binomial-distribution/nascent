@@ -1,0 +1,20 @@
+{
+  "name": "MPU6050",
+  "version": "1.4.5",
+  "description": "MPU-6050 6-axis accelerometer/gyroscope Arduino Library.",
+  "keywords": "mpu6050, imu, i2c",
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "*",
+  "headers": "MPU6050.h",
+  "dependencies": {
+    "Wire": "*"
+  },
+  "build": {
+    "srcFilter": [
+      "-<*>",
+      "+<I2Cdev.cpp>",
+      "+<MPU6050.cpp>"
+    ]
+  }
+}

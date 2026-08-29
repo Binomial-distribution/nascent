@@ -33,13 +33,28 @@ void Ao3400::begin(uint8_t pin) {
   step_ = 0;
   powered_ = false;
   needs_resync_ = false;
+  raw_queued_ = false;
+  raw_hold_ = false;
+  log_high_ = false;
+  log_low_ = false;
+}
+
+void Ao3400::reclaimPin() {
+  // 不用 gpio_reset_pin：它会短暂打开内部上拉，和栅极 47k 下拉分压
+  // 可能到 ~1.7V，超过 AO3400A 的 Vgs(th)，等于上电误按。
+  pinMode(pin_, OUTPUT);
+  digitalWrite(pin_, LOW);
+  Serial.printf("[ao3400] 已重新声明 GPIO%u 为推挽输出、默认低（不按键）\n",
+                static_cast<unsigned>(pin_));
 }
 
 void Ao3400::startPress(bool long_press, uint32_t now_ms) {
   pressing_long_ = long_press;
+  pinMode(pin_, OUTPUT);
   digitalWrite(pin_, HIGH);
   phase_ = Phase::kPressing;
   phase_until_ms_ = now_ms + (long_press ? BTN_LONG_MS : BTN_SHORT_MS);
+  log_high_ = true;
 }
 
 void Ao3400::finishPress() {
@@ -76,6 +91,7 @@ void Ao3400::requestOffNow() {
     // 停机打断了一次正在进行的按压。原板可能已经把它当成一次完整的
     // 短按或长按，也可能什么都没认到——此刻它是开还是关无法确定。
     // 保守按"可能是开着的"处理：立刻松手，随后走一次长按去关。
+    pinMode(pin_, OUTPUT);
     digitalWrite(pin_, LOW);
     pressing_long_ = false;
     phase_ = Phase::kGap;
@@ -97,6 +113,14 @@ void Ao3400::requestOffNow() {
     return;
   }
 
+  portEXIT_CRITICAL(&g_mux);
+}
+
+void Ao3400::requestRawPress(bool hold) {
+  portENTER_CRITICAL(&g_mux);
+  goal_active_ = false;
+  raw_queued_ = true;
+  raw_hold_ = hold;
   portEXIT_CRITICAL(&g_mux);
 }
 
@@ -134,74 +158,71 @@ void Ao3400::tick(uint32_t now_ms) {
   switch (phase_) {
     case Phase::kPressing:
       if (static_cast<int32_t>(now_ms - phase_until_ms_) >= 0) {
+        pinMode(pin_, OUTPUT);
         digitalWrite(pin_, LOW);
+        log_low_ = true;
         finishPress();
         phase_ = Phase::kGap;
         // 原板需要时间响应按键释放，间隔给够否则会漏按。
         // 开关机比切档慢，长按之后要多等一会儿。
         phase_until_ms_ = now_ms + (pressing_long_ ? BTN_POWER_GAP_MS : BTN_GAP_MS);
       }
-      portEXIT_CRITICAL(&g_mux);
-      return;
+      break;
 
     case Phase::kGap:
-      if (static_cast<int32_t>(now_ms - phase_until_ms_) < 0) {
-        portEXIT_CRITICAL(&g_mux);
-        return;
-      }
+      if (static_cast<int32_t>(now_ms - phase_until_ms_) < 0) break;
       phase_ = Phase::kIdle;
-      break;
-
+      [[fallthrough]];
     case Phase::kIdle:
+      if (phase_ == Phase::kIdle) {
+        if (raw_queued_) {
+          raw_queued_ = false;
+          startPress(raw_hold_, now_ms);
+        } else if (goal_active_) {
+        if (press_budget_ == 0) {
+          // 按了这么多下还没到位，说明开环跟踪已经不可信。停手等 resync，
+          // 而不是继续按下去——失控地连按原板按键比停在错档位危险得多。
+          goal_active_ = false;
+          needs_resync_ = true;
+        } else if (goal_step_ == 0) {
+          if (powered_) {
+            startPress(true, now_ms);  // 长按 = 关机
+          } else {
+            goal_active_ = false;
+          }
+        } else if (powered_ && (needs_resync_ || goal_step_ < step_)) {
+          startPress(true, now_ms);
+        } else if (!powered_) {
+          startPress(true, now_ms);  // 长按 = 开机，落在第 1 档
+        } else if (goal_step_ > step_) {
+          startPress(false, now_ms);  // 短按 = 升一档
+        } else {
+          goal_active_ = false;  // 到位
+        }
+        }
+      }
       break;
   }
 
-  if (!goal_active_) {
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  if (press_budget_ == 0) {
-    // 按了这么多下还没到位，说明开环跟踪已经不可信。停手等 resync，
-    // 而不是继续按下去——失控地连按原板按键比停在错档位危险得多。
-    goal_active_ = false;
-    needs_resync_ = true;
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  // 每一步都用最新的开环状态重新决策。
-  if (goal_step_ == 0) {
-    if (powered_) {
-      startPress(true, now_ms);  // 长按 = 关机
-    } else {
-      goal_active_ = false;
-    }
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  // 状态不可信、或者要降档：都得先回到"关机"这个唯一的已知点。
-  // 降档不靠短按绕一圈，那样中途必然经过原板第 9 档——也就是最强档。
-  // 用户在降档时被顶一下最大强度是真实的伤害风险，多花约 3 秒换掉它。
-  if (powered_ && (needs_resync_ || goal_step_ < step_)) {
-    startPress(true, now_ms);
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  if (!powered_) {
-    startPress(true, now_ms);  // 长按 = 开机，落在第 1 档
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  if (goal_step_ > step_) {
-    startPress(false, now_ms);  // 短按 = 升一档
-    portEXIT_CRITICAL(&g_mux);
-    return;
-  }
-
-  goal_active_ = false;  // 到位
+  const bool log_high = log_high_;
+  const bool log_low = log_low_;
+  const bool log_long = pressing_long_;
+  const uint8_t pin = pin_;
+  const uint8_t goal = goal_step_;
+  const uint8_t step = step_;
+  const bool powered = powered_;
+  log_high_ = false;
+  log_low_ = false;
   portEXIT_CRITICAL(&g_mux);
+
+  if (log_low) {
+    Serial.printf("[ao3400] GPIO%u LOW 松手\n", static_cast<unsigned>(pin));
+  }
+  if (log_high) {
+    const uint32_t hold = log_long ? BTN_LONG_MS : BTN_SHORT_MS;
+    Serial.printf("[ao3400] GPIO%u HIGH %s %lums（目标档 %u，开环%s 第%u档）\n",
+                  static_cast<unsigned>(pin), log_long ? "长按开机/关机" : "短按切档",
+                  static_cast<unsigned long>(hold), static_cast<unsigned>(goal),
+                  powered ? "已开机" : "关机", static_cast<unsigned>(step));
+  }
 }

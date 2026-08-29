@@ -104,7 +104,7 @@ export const NlAlert = Object.freeze((() => {
 })());
 
 export const NlCmd = Object.freeze((() => {
-  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi"];
+  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi", "press_key"];
   return {
     STOP: "stop",
     SET_MODE: "set_mode",
@@ -113,6 +113,21 @@ export const NlCmd = Object.freeze((() => {
     SET_LED: "set_led",
     RESUME: "resume",
     SET_WIFI: "set_wifi",
+    PRESS_KEY: "press_key",
+    values,
+    fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },
+    fromWireName(n) {
+      const i = values.indexOf(n ?? '');
+      return i < 0 ? values[0] : values[i];
+    },
+  };
+})());
+
+export const NlKeyPress = Object.freeze((() => {
+  const values = ["tap", "hold"];
+  return {
+    TAP: "tap",
+    HOLD: "hold",
     values,
     fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },
     fromWireName(n) {
@@ -480,6 +495,7 @@ export class BleDownlink {
     led = null,
     wifiSsid = null,
     wifiPsk = null,
+    key = null,
     auth,
   }) {
     this.cmd = cmd;
@@ -489,6 +505,7 @@ export class BleDownlink {
     this.led = led;
     this.wifiSsid = wifiSsid;
     this.wifiPsk = wifiPsk;
+    this.key = key;
     this.auth = auth;
   }
 
@@ -503,6 +520,8 @@ export class BleDownlink {
       wifiSsid: j["wifi_ssid"] == null ? null : String(j["wifi_ssid"]),
       // 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
       wifiPsk: j["wifi_psk"] == null ? null : String(j["wifi_psk"]),
+      // 仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机
+      key: j["key"] == null ? null : NlKeyPress.fromWireName(j["key"]),
       // session token；缺失或过期整包丢弃
       auth: String(j["auth"]),
     });
@@ -517,6 +536,7 @@ export class BleDownlink {
       "led": this.led,
       "wifi_ssid": this.wifiSsid,
       "wifi_psk": this.wifiPsk,
+      "key": this.key,
       "auth": this.auth,
     };
   }
