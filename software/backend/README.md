@@ -28,6 +28,8 @@ app/
   routers/session.py      POST /v1/session/summary
   routers/agent.py        B 层对话、模板草稿、记忆删除 API
   routers/persona.py      GET  /v1/persona
+  routers/plugin.py       「连接我的 AI」邀请、心跳与待处理建议
+  routers/mcp.py          外部 AI 用的 MCP 骨架（用户看不见这个名字）
   services/llm.py         Chat/Control Prompt、Schema 与安全回退
   services/providers/     OpenAI 兼容 Chat 与 ASR/TTS，换厂商只改密钥文件
   services/agent.py       Agent 编排与记忆检索
@@ -118,6 +120,15 @@ Skill 建议不能直接控制硬件；共享 Web UI 必须再次检查模板状
 
 `parallel-turn` 的两条模型链路由 `asyncio.gather` 同时启动，因此总等待时间接近较慢通道而不是两者相加。Chat 超时只回退台词；Control 超时只返回 `hold`。接口中的 `data_flow` 只列出脱敏阶段，不返回系统 Prompt、原始传感器数组或内部记忆内容。停止命令不经过这个接口。
 
+## 连接我的 AI（插件）
+
+用户侧是设置里的插件，底层才是 MCP。口径见 [`docs/architecture/连接我的AI-插件.md`](../../docs/architecture/连接我的AI-插件.md)。云端仍然只给建议，不碰设备链路。
+
+- `POST /v1/plugin/invite`：用户确认已成年后打开。返回邀请正文；密钥只在这一次给出。
+- `GET/DELETE /v1/plugin/invite/{id}`：查看是否仍有效、AI 是否已连上；收回后 MCP 立刻失效。
+- `PUT /v1/plugin/heartbeat`、`GET /v1/plugin/pending`、`POST /v1/plugin/result`：App 上报摘要、取建议、回报总督结果。
+- `POST /mcp`：JSON-RPC 工具 `how_is_it_going` / `ease_up` / `a_bit_stronger` / `please_stop`。没有 resume。建议仍要过 App `Governor`。
+
 ## 身体笔记接口
 
 - `GET /v1/body-notes/sessions`：按时间倒序读取使用记录。
@@ -138,3 +149,4 @@ Skill 建议不能直接控制硬件；共享 Web UI 必须再次检查模板状
 - 真实部署网关、模型快照和延迟压测
 - 人设 CRUD、版本和资产管理
 - 会话记录归档（`SessionRecord` 模型已生成，还没有落库路径）
+- 「连接我的 AI」邀请持久化（当前是进程内存；MCP 也只覆盖 JSON-RPC 最小子集）

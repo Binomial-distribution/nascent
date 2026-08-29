@@ -936,5 +936,33 @@ assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same cale
   assert(cleared.moods.size === 0, "clearLocal persists an empty mood store");
 }
 
+{
+  const { canOpenPlugin, mapToolCall, PLUGIN_TOOL_NAMES } = await import("../js/ai-plugin.js");
+  assert(!canOpenPlugin(false), "plugin cannot open until the device is connected");
+  assert(canOpenPlugin(true), "plugin can open when the device is connected");
+  assert(!PLUGIN_TOOL_NAMES.includes("resume"), "plugin tools do not include resume");
+  const stronger = mapToolCall("a_bit_stronger", { level: 3 });
+  assert(stronger?.cmd === "set_level" && stronger.level === 4 && stronger.automatic === true, "stronger is automatic +1");
+  const ease = mapToolCall("ease_up", { level: 3 });
+  assert(ease?.cmd === "set_level" && ease.level === 2 && ease.automatic === true, "ease up is automatic -1");
+  assert(mapToolCall("a_bit_stronger", { level: NlConst.levelMax }) == null, "over-max suggestion is discarded not clamped");
+  assert(mapToolCall("ease_up", { level: NlConst.levelMin }) == null, "under-min suggestion is discarded not clamped");
+  assert(mapToolCall("please_stop", {}).cmd === "stop", "stop tool maps to stop");
+  const govPlugin = new Governor();
+  govPlugin.ingest(uplink({ insert_state: "unknown", level: 2 }));
+  const mapped = mapToolCall("a_bit_stronger", { level: 2 });
+  assert(
+    govPlugin.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: mapped.level, auth: "" }), { automatic: mapped.automatic })
+      === "当前无法确认使用状态，已暂停自动调节。",
+    "plugin level tools go through automatic governor",
+  );
+  const { shouldApplyLevel } = await import("../js/ai-plugin.js");
+  assert(shouldApplyLevel(4, 3), "pending +1 from current uplink is accepted");
+  assert(shouldApplyLevel(2, 3), "pending -1 from current uplink is accepted");
+  assert(!shouldApplyLevel(6, 3), "stale pending must not jump more than one level");
+  assert(!shouldApplyLevel(3, 3), "same-level pending is a no-op and discarded");
+  assert(!shouldApplyLevel(NlConst.levelMax + 1, NlConst.levelMax), "over-max pending is discarded not clamped");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

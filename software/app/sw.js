@@ -1,10 +1,11 @@
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   // 缓存名带版本号：模块拆分后，沿用旧缓存会让客户端缺文件、import 404。
-  event.waitUntil(caches.open("nascent-shell-v30").then((cache) => cache.addAll([
+  event.waitUntil(caches.open("nascent-shell-v31").then((cache) => cache.addAll([
     "/",
     "/css/app.css",
     "/js/app.js",
+    "/js/ai-plugin.js",
     "/js/ble.js",
     "/js/body-notes.js",
     "/js/channel.js",
@@ -32,7 +33,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v30")
+      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v31")
         .map((n) => caches.delete(n)),
     );
     await self.clients.claim();
@@ -41,14 +42,14 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith("/v1/") || url.pathname === "/docs" || url.pathname === "/healthz" || url.pathname === "/redoc") {
+  if (url.pathname.startsWith("/v1/") || url.pathname === "/mcp" || url.pathname === "/docs" || url.pathname === "/healthz" || url.pathname === "/redoc") {
     return;
   }
   // 开发预览优先走网络，避免旧脚本卡在缓存里。
   event.respondWith(
     fetch(event.request).then((res) => {
       const copy = res.clone();
-      caches.open("nascent-shell-v30").then((cache) => cache.put(event.request, copy)).catch(() => {});
+      caches.open("nascent-shell-v31").then((cache) => cache.put(event.request, copy)).catch(() => {});
       return res;
     }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
   );
