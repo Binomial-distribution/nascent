@@ -7,10 +7,13 @@ import {
   buildSensorContext,
   fileToAvatarDataUrl,
   ingestUplinkSample,
+  formatCaptionHtml,
   personaAvatarHtml,
   resetSensorWindow,
   scenarioChat,
   speakDialogue,
+  startRingtone,
+  stopRingtone,
   stopSpeech,
   unlockSpeechPlayback,
 } from "./scenario-session.js";
@@ -848,15 +851,14 @@ function renderPersonaList() {
 
 function renderScenarioCall() {
   const persona = ui.activePersona || { name: "当前人设" };
-  return `<main class="call-screen" data-call-stage="inserting">
-    <p class="call-kicker">正在接入</p>
+  return `<main class="call-screen" data-call-stage="ringing">
+    <p class="call-kicker">来电</p>
     <div class="call-stage">
       <div class="call-rings" aria-hidden="true"><i></i><i></i><i></i></div>
-      <div class="call-socket" aria-hidden="true"></div>
-      ${personaAvatarHtml(persona, "avatar call-plug")}
+      ${personaAvatarHtml(persona, "avatar call-avatar")}
     </div>
     <h2>${escapeHtml(persona.name)}</h2>
-    <p class="sub" data-call-status>像靠近时那样，先轻轻接上…</p>
+    <p class="sub" data-call-status>正在呼叫你…</p>
     <div class="call-captions" data-call-captions hidden>
       <div class="call-line user" data-call-user-row hidden>
         <span class="call-who">你</span>
@@ -867,7 +869,11 @@ function renderScenarioCall() {
         <p data-call-assistant></p>
       </div>
     </div>
-    <button class="ghost call-hangup" data-act="end-call">${icon("stop")} 取消</button>
+    <div class="call-actions" data-call-ring-actions>
+      <button type="button" class="call-decline" data-act="end-call">${icon("stop")}<span>拒绝</span></button>
+      <button type="button" class="call-answer" data-act="answer-call">${icon("phone")}<span>接通</span></button>
+    </div>
+    <button class="ghost call-hangup" data-act="end-call" hidden>${icon("stop")} 挂断</button>
     <button class="ghost call-text" data-act="call-text" hidden>改用文字</button>
   </main>`;
 }
@@ -894,7 +900,7 @@ function renderScenarioChat() {
     </div>
     <div class="chat-thread">
       <div class="chat-day">通话已接通 · ${phaseUi.label}</div>
-      <div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${opening}</div></div>
+      <div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(opening)}</div></div>
       ${messages.map((message) => renderScenarioChatMessage(message, persona)).join("")}
       ${scenarioChat.sending ? `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble typing">正在听你…</div></div>` : ""}
     </div>
@@ -923,7 +929,7 @@ function renderScenarioChatMessage(message, persona) {
   if (message.role === "user") {
     return `<div class="bubble-row user"><div class="bubble">${escapeHtml(message.text)}</div></div>`;
   }
-  return `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${escapeHtml(message.text)}</div></div>`;
+  return `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(message.text)}</div></div>`;
 }
 
 function renderPersonaForm() {
@@ -1849,6 +1855,7 @@ function beginScenarioCall(persona) {
   resetSensorWindow();
   ingestUplinkSample(getUplink());
   stopSpeech();
+  stopRingtone();
   clearTimeout(ui.callTimer);
   delete root.dataset.sceneCall;
   unlockSpeechPlayback();
@@ -1858,26 +1865,35 @@ function beginScenarioCall(persona) {
 function startCallSequence() {
   clearTimeout(ui.callTimer);
   const screen = root.querySelector(".call-screen");
+  if (!screen || screen.getAttribute("data-call-stage") === "connected") return;
+  startRingtone();
+}
+
+function answerIncomingCall() {
+  const screen = root.querySelector(".call-screen");
+  if (!screen || screen.getAttribute("data-call-stage") === "connected") return;
+  stopRingtone();
+  unlockSpeechPlayback();
+  screen.setAttribute("data-call-stage", "connected");
+  const kicker = root.querySelector(".call-kicker");
+  const status = root.querySelector("[data-call-status]");
+  const hangup = root.querySelector(".call-hangup");
+  const textBtn = root.querySelector("[data-act=call-text]");
+  const captions = root.querySelector("[data-call-captions]");
+  const ringActions = root.querySelector("[data-call-ring-actions]");
+  if (kicker) kicker.textContent = "通话中";
+  if (status) status.textContent = "我在听";
+  if (hangup) hangup.hidden = false;
+  if (textBtn) textBtn.hidden = false;
+  if (captions) captions.hidden = false;
+  if (ringActions) ringActions.hidden = true;
   prepareLiveCall();
-  ui.callTimer = window.setTimeout(() => {
-    screen?.setAttribute("data-call-stage", "connected");
-    const kicker = root.querySelector(".call-kicker");
-    const status = root.querySelector("[data-call-status]");
-    const hangup = root.querySelector(".call-hangup");
-    const textBtn = root.querySelector("[data-act=call-text]");
-    const captions = root.querySelector("[data-call-captions]");
-    if (kicker) kicker.textContent = "通话中";
-    if (status) status.textContent = "我在听";
-    if (hangup) hangup.innerHTML = `${icon("stop")} 挂断`;
-    if (textBtn) textBtn.hidden = false;
-    if (captions) captions.hidden = false;
-    const history = scenarioChat.messages(ui.activePersona?.key);
-    const greeting = history.length
-      ? personaRejoinLine(ui.activePersona)
-      : personaOpeningLine(ui.activePersona, "approaching");
-    updateCallCaption("assistant", greeting);
-    liveCall?.playReply(greeting);
-  }, 900);
+  const history = scenarioChat.messages(ui.activePersona?.key);
+  const greeting = history.length
+    ? personaRejoinLine(ui.activePersona)
+    : personaOpeningLine(ui.activePersona, "approaching");
+  updateCallCaption("assistant", greeting);
+  liveCall?.playReply(greeting);
 }
 
 function prepareLiveCall() {
@@ -1974,7 +1990,8 @@ function updateCallCaption(role, text, { pending = false } = {}) {
   if (captions) captions.hidden = false;
   if (row) row.hidden = !clipped;
   if (el) {
-    el.textContent = clipped;
+    if (role === "assistant" && !pending) el.innerHTML = formatCaptionHtml(clipped);
+    else el.textContent = clipped;
     if (pending) el.dataset.pending = "1";
     else delete el.dataset.pending;
   }
@@ -1982,6 +1999,7 @@ function updateCallCaption(role, text, { pending = false } = {}) {
 
 function leaveScenarioCall() {
   stopSpeech();
+  stopRingtone();
   stopLiveCall();
   stopHoldMic();
   clearTimeout(ui.callTimer);
@@ -2057,6 +2075,7 @@ function render() {
   if (!onCall) {
     delete root.dataset.sceneCall;
     clearTimeout(ui.callTimer);
+    stopRingtone();
   }
 
   if (tab === "heart") root.innerHTML = renderHeart();
@@ -2587,6 +2606,9 @@ async function onClick(event) {
   else if (act === "pick-persona") {
     beginScenarioCall(findScenarioPersona(t.dataset.key));
   }
+  else if (act === "answer-call") {
+    answerIncomingCall();
+  }
   else if (act === "persona-clone-retry") {
     await clonePendingVoice();
   }
@@ -2595,6 +2617,7 @@ async function onClick(event) {
     go("#/intimacy/scenario");
   }
   else if (act === "call-text") {
+    stopRingtone();
     stopLiveCall();
     go("#/intimacy/scenario/chat");
   }

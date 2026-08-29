@@ -1449,20 +1449,11 @@ button:disabled {
 .call-stage {
   position: relative;
   width: 168px;
-  height: 210px;
+  height: 168px;
   display: grid;
   place-items: center;
 }
-.call-socket {
-  position: absolute;
-  bottom: 18px;
-  width: 72px;
-  height: 28px;
-  border: 2px solid color-mix(in srgb, var(--coral) 70%, #fff);
-  border-radius: 0 0 10px 10px;
-  background: #1d1724;
-}
-.call-rings { position: absolute; inset: 12px 8px 48px; }
+.call-rings { position: absolute; inset: 8px; }
 .call-rings i {
   position: absolute;
   inset: 0;
@@ -1472,21 +1463,51 @@ button:disabled {
 }
 .call-rings i:nth-child(2) { animation-delay: 0.35s; }
 .call-rings i:nth-child(3) { animation-delay: 0.7s; }
-.call-plug {
+.call-avatar {
   position: relative;
   z-index: 2;
-  width: 88px;
-  height: 88px;
-  font-size: 1.8rem;
+  width: 96px;
+  height: 96px;
+  font-size: 2rem;
   border-radius: 50%;
-  transform: translateY(-46px);
-  animation: call-insert 0.9s ease-in-out forwards;
 }
-.call-screen[data-call-stage="connected"] .call-plug {
+.call-screen[data-call-stage="ringing"] .call-avatar {
+  animation: call-shake 0.55s ease-in-out infinite;
+}
+.call-screen[data-call-stage="connected"] .call-avatar {
   animation: none;
-  transform: translateY(8px);
   box-shadow: 0 0 0 8px color-mix(in srgb, var(--coral) 28%, transparent);
 }
+.call-screen[data-call-stage="connected"] .call-actions { display: none; }
+.call-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 48px;
+  margin-top: 12px;
+}
+.call-answer,
+.call-decline {
+  width: 72px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+.call-answer svg,
+.call-decline svg,
+.call-answer .icon,
+.call-decline .icon {
+  width: 56px;
+  height: 56px;
+  padding: 14px;
+  border-radius: 50%;
+}
+.call-answer svg { background: #3dbe6e; color: #fff; }
+.call-decline svg { background: #d45454; color: #fff; }
 .call-hangup { margin-top: 8px; }
 .call-text { margin-top: 4px; color: var(--muted); }
 .call-captions {
@@ -1518,6 +1539,11 @@ button:disabled {
   line-height: 1.45;
 }
 .call-captions [data-call-user] { color: var(--text); }
+.call-captions .aside,
+.bubble .aside {
+  color: var(--muted);
+  font-size: 0.88em;
+}
 .call-screen[data-call-stage="connected"] .call-kicker { letter-spacing: 0.12em; }
 .scenario-composer { grid-template-columns: 44px minmax(0, 1fr) 44px; }
 .hold-mic {
@@ -1538,9 +1564,11 @@ button:disabled {
   from { transform: scale(0.72); opacity: 0.7; }
   to { transform: scale(1.18); opacity: 0; }
 }
-@keyframes call-insert {
-  from { transform: translateY(-64px); }
-  to { transform: translateY(8px); }
+@keyframes call-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-7deg) translateY(-1px); }
+  50% { transform: rotate(7deg); }
+  75% { transform: rotate(-4deg); }
 }
 
 .persona-guide {

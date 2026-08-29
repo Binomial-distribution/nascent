@@ -322,6 +322,8 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert "接上刚才的对话" in messages[-1]["content"]
     assert "简体中文" in SYSTEM_PROMPT
     assert "答非所问" in SYSTEM_PROMPT
+    assert "括号" in SYSTEM_PROMPT
+    assert "不要念出来" in SYSTEM_PROMPT
 
 
 def test_prompt_history_is_real_messages_not_json_blob():
@@ -614,6 +616,7 @@ def test_spoken_text_keeps_chinese_and_strips_stage_notes():
     from app.services.providers.speech import spoken_text
 
     assert spoken_text("过来～我在。（轻声）") == "过来，我在。"
+    assert spoken_text("过来。（轻声，把你揽过来）今天想被哄") == "过来。今天想被哄"
     assert "**抱你**" not in spoken_text("**抱你**一会儿")
     assert spoken_text("我在。") == "我在。"
 

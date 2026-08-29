@@ -9,11 +9,13 @@ import {
   ScenarioChatState,
   buildSensorContext,
   experienceSummary,
+  formatCaptionHtml,
   ingestUplinkSample,
   nextExperiencePhase,
   resetSensorWindow,
   speakDialogue,
   speakUtterance,
+  stopRingtone,
 } from "../js/scenario-session.js";
 import {
   cardToPromptText,
@@ -277,7 +279,13 @@ assert(aftercare.dialogue.includes("陪"), "aftercare fallback stays with the us
 
 const opening = personaOpeningLine({ id: "gentle" }, "approaching");
 assert(opening.includes("收工") || opening.includes("抱一会儿"), "preset opening uses the boyfriend greeting");
+assert(opening.includes("（") && opening.includes("）"), "opening keeps an unread stage aside");
 assert(!opening.includes("慢慢靠近"), "opening is not the old coaching script");
+const caption = formatCaptionHtml("过来。（轻声）抱你");
+assert(caption.includes("class=\"aside\"") && caption.includes("（轻声）"), "captions keep asides visible");
+assert(caption.startsWith("过来。"), "spoken words stay outside the aside span");
+assert(!formatCaptionHtml("<img>").includes("<img>"), "caption html escapes markup");
+stopRingtone();
 const payload = personaPayload({ id: "gentle" });
 assert(payload.assistant_name === "顾深" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
 assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");

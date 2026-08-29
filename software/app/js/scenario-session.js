@@ -108,6 +108,7 @@ let speechToken = 0;
 let currentAudio = null;
 let currentSource = null;
 let playbackCtx = null;
+let ringTimer = null;
 
 function stopBufferSource() {
   if (!currentSource) return;
@@ -128,6 +129,61 @@ export function stopSpeech() {
     currentAudio.src = "";
     currentAudio = null;
   }
+}
+
+export function stopRingtone() {
+  if (ringTimer) {
+    clearInterval(ringTimer);
+    ringTimer = null;
+  }
+}
+
+function playRingBurst(ctx) {
+  const now = ctx.currentTime;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.07, now + 0.03);
+  gain.gain.setValueAtTime(0.07, now + 1.85);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 2);
+  gain.connect(ctx.destination);
+  for (const freq of [440, 480]) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    osc.start(now);
+    osc.stop(now + 2);
+  }
+}
+
+export async function startRingtone() {
+  stopRingtone();
+  const ctx = await unlockSpeechPlayback();
+  if (!ctx) return;
+  playRingBurst(ctx);
+  ringTimer = globalThis.setInterval(() => {
+    if (ctx.state === "closed") {
+      stopRingtone();
+      return;
+    }
+    playRingBurst(ctx);
+  }, 6000);
+}
+
+export function formatCaptionHtml(text) {
+  const raw = String(text || "");
+  const aside = /（[^）]{0,80}）|\([^)]{0,80}\)/g;
+  let html = "";
+  let last = 0;
+  let match = aside.exec(raw);
+  while (match) {
+    if (match.index > last) html += escapeHtml(raw.slice(last, match.index));
+    html += `<span class="aside">${escapeHtml(match[0])}</span>`;
+    last = match.index + match[0].length;
+    match = aside.exec(raw);
+  }
+  if (last < raw.length) html += escapeHtml(raw.slice(last));
+  return html;
 }
 
 export async function unlockSpeechPlayback() {
