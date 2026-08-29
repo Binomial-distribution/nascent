@@ -27,7 +27,7 @@
 #include "safety.h"
 #include "sensors/dht11.h"
 #include "sensors/fsr402.h"
-#include "sensors/mpu6050.h"
+#include "sensors/imu_mpu6050.h"
 #include "transport.h"
 #include "uplink_json.h"
 #include "wifi_ws.h"
@@ -96,6 +96,13 @@ void drainCommands(uint32_t now) {
   if (!g_mailbox.take(cmd)) return;
   if (cmd.cmd == NL_CMD_STOP) applyStopNow(now);
   g_safety.onCommand(cmd, now);
+  bool hold = false;
+  if (g_safety.takeKeyPress(hold)) {
+    g_button.requestRawPress(hold);
+    g_led.flashCommandAck();
+    Serial.printf("[toy-sidecar] 原按键 %s（GPIO7 %s）\n", hold ? "长按开关机" : "点按切档",
+                  hold ? "HIGH 1.2s" : "HIGH 120ms");
+  }
 }
 
 // BLE 与 WiFi 二选一。默认优先蓝牙，只有在 BLE 长时间无人连接、
@@ -285,7 +292,7 @@ void setup() {
 
   g_imu_ok = g_imu.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   if (!g_imu_ok) {
-    Serial.println("[toy-sidecar] MPU6050 未就绪，入体推断将退化为仅压力，电机观测也不可用");
+    Serial.println("[toy-sidecar] MPU6050 未就绪，入体推断保持 unknown（无六轴不能下结论），电机观测也不可用");
   }
 
   Serial.println("[toy-sidecar] 上电假定原板处于关机态，未发送任何按键");
@@ -306,6 +313,10 @@ void setup() {
   if (!g_link->begin(onCommand)) {
     Serial.printf("[toy-sidecar] 传输 %s 初始化失败\n", g_link->name());
   }
+  // 无线电初始化可能改 GPIO 复用：外部 3.3V 能触发按键、固件却拉不动，
+  // 就是脚已经不是推挽输出了。这里重新声明栅极，再做灯自检。
+  g_button.reclaimPin();
+  g_led.selfTestAfterRadio();
   if (WifiWs::configured()) {
     Serial.println("[toy-sidecar] 已配置 WiFi 凭据，BLE 长时间无人连接时会自动切到 WebSocket");
   }
@@ -339,7 +350,7 @@ void loop() {
   if (g_imu.ok()) g_imu_ok = g_imu.read(g_imu_sample);
 
   // --- 推断 ---
-  g_insert.update(g_imu_sample, g_fsr.contact(), dt);
+  g_insert.update(g_imu_sample, g_fsr.contact(), dt, g_imu_ok);
   g_motor.update(g_imu_sample, g_imu_ok, dt);
 
   // --- 电源状态观测：只修正开环记录与报警，不发按键 ---
@@ -368,6 +379,7 @@ void loop() {
   if (level != g_last_applied_level) {
     g_last_applied_level = level;
     g_button.requestLevel(level);
+    g_led.flashCommandAck();
     Serial.printf("[toy-sidecar] 档位 -> %u（模式 %s，入体 %s）\n", level,
                   nl_mode_name(g_safety.mode()), nl_insert_state_name(g_insert.state()));
   }

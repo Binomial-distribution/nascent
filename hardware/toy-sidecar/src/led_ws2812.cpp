@@ -38,6 +38,11 @@ inline uint8_t scale8(uint8_t v, uint8_t s) {
   return static_cast<uint8_t>((static_cast<uint16_t>(v) * s) >> 8);
 }
 
+void fillWhite(uint8_t v) {
+  uint32_t c = Adafruit_NeoPixel::Color(v, v, v);
+  for (uint16_t i = 0; i < NL_LED_COUNT; ++i) g_strip.setPixelColor(i, c);
+}
+
 void fillAll(const nl_led_row_t *row, uint8_t s) {
   uint32_t c = Adafruit_NeoPixel::Color(scale8(row->r, s), scale8(row->g, s), scale8(row->b, s));
   for (uint16_t i = 0; i < NL_LED_COUNT; ++i) g_strip.setPixelColor(i, c);
@@ -49,9 +54,26 @@ void LedRing::begin() {
   // begin() 会去申请 RMT 通道，失败时后面所有 show() 都是空操作，
   // 灯不亮会被误判成"设备没反应"，所以这里必须留下痕迹。
   if (!g_strip.begin()) Serial.println("[led] NeoPixel begin 失败，灯环不可用");
-  g_strip.setBrightness(LED_BRIGHTNESS);
+  g_strip.setBrightness(255);
   g_strip.clear();
   g_strip.show();
+}
+
+void LedRing::selfTestAfterRadio() {
+  // 不在这里 gpio_reset_pin：RMT 已经占着 GPIO6，重置会把通道打掉。
+  // 全白、最高亮度、停 2.5 秒，看不清才是线没接对。
+  g_strip.setBrightness(255);
+  fillWhite(255);
+  g_strip.show();
+  Serial.printf("[led] 自检：GPIO%u 8 颗全白 %d ms，请看灯环\n", PIN_WS2812B,
+                LED_BOOT_SELFTEST_MS);
+  delay(LED_BOOT_SELFTEST_MS);
+  hold_until_ms_ = millis() + LED_BOOT_HOLD_MS;
+  Serial.printf("[led] 全白再保持 %d ms，随后档位 0 会灭灯\n", LED_BOOT_HOLD_MS);
+}
+
+void LedRing::flashCommandAck() {
+  ack_until_ms_ = millis() + 500;
 }
 
 void LedRing::setMode(nl_mode_t mode) { mode_ = mode; }
@@ -68,6 +90,14 @@ void LedRing::render(uint32_t now_ms) {
   if (now_ms - last_render_ms_ < kFrameMs) return;
   last_render_ms_ = now_ms;
 
+  if (now_ms < ack_until_ms_ || now_ms < hold_until_ms_) {
+    g_strip.setBrightness(255);
+    fillWhite(255);
+    g_strip.show();
+    return;
+  }
+
+  g_strip.setBrightness(LED_BRIGHTNESS);
   if (!applyOverrideLayer(now_ms)) applyModeLayer(now_ms);
   g_strip.show();
 }

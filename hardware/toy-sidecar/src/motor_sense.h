@@ -18,7 +18,7 @@
 
 #include <stdint.h>
 
-#include "sensors/mpu6050.h"
+#include "sensors/imu_mpu6050.h"
 
 class MotorSense {
  public:

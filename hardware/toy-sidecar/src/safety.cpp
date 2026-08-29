@@ -67,11 +67,23 @@ void SafetyGovernor::onCommand(const nl_command_t &cmd, uint32_t now_ms) {
       // 波形由原板按档位自己决定，本板只能按键、不能调波形。
       break;
 
+    case NL_CMD_PRESS_KEY:
+      pending_key_press_ = true;
+      pending_key_hold_ = (cmd.key_press == NL_KEY_PRESS_HOLD);
+      break;
+
     default:
       break;
   }
 
   recompute(now_ms);
+}
+
+bool SafetyGovernor::takeKeyPress(bool &hold) {
+  if (!pending_key_press_) return false;
+  pending_key_press_ = false;
+  hold = pending_key_hold_;
+  return true;
 }
 
 void SafetyGovernor::onSensors(nl_insert_state_t insert, bool still, uint32_t still_ms) {
@@ -86,6 +98,9 @@ void SafetyGovernor::onLink(bool up, uint32_t now_ms) {
   if (!up) {
     // 手机是唯一的指令来源。连接一断就没有任何东西能再降档，
     // 所以断链的默认行为必须是停下来，而不是保持当前输出。
+    // 同时清掉请求档：只把 effective 打到 0 的话，重连后会按旧档再按键，
+    // 违反「也不在重连后自动回到 5 档」。静止暂停故意不走这条——拿起要恢复。
+    requested_level_ = 0;
     Serial.println("[safety] 与手机的链路丢失，归零");
     recompute(now_ms);
   }

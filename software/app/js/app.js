@@ -1,4 +1,4 @@
-import { BleDownlink, NlCmd, NlConst, NlInsertState, NlMode } from "./protocol.js";
+import { BleDownlink, NlCmd, NlConst, NlInsertState, NlKeyPress, NlLedState, NlMode } from "./protocol.js";
 import { CHANNEL, CHANNEL_LABEL, currentShell } from "./transport.js";
 import { bodyNotes } from "./body-notes.js";
 import { parseHash, legacyNotesTarget, SCENARIO_FLOW } from "./routes.js";
@@ -37,6 +37,7 @@ import {
   speakOptionsForPersona,
 } from "./persona-cards.js";
 import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
+import { patchLabDom, renderLab, saveCheck } from "./lab.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import { heartRate, hrChipText, nativeHeartRateAvailable } from "./hr.js";
 import {
@@ -91,6 +92,8 @@ const ui = {
   deferredPrompt: null,
   onboarding: null,
   gateReady: false,
+  labReject: "",
+  labWildArmed: false,
   persona: loadPersonaSettings(),
   guideSheetIndex: 0,
   devices: loadDevices(),
@@ -1394,6 +1397,11 @@ function renderSettings() {
       <small>${NlConst.protoVersion}</small>
     </div>
     <p class="demo-note">当前为 Web UI demo · 入口 shell：${SHELL_LABEL[shell]}</p>
+    <div class="group">设备调试</div>
+    <button class="list-row" data-act="lab">
+      <strong>硬件联调</strong>
+      <small>传感器、灯语、档位、BOOT 停机。产品页还没做完时用这一页验板。</small>
+    </button>
   </main>
   ${nav("settings")}`;
 }
@@ -2162,17 +2170,17 @@ function render() {
   }
 
   const { tab, page, sub, id, sessionId, view, query } = route();
-  applyTheme(tab);
+  applyTheme(tab === "lab" ? "settings" : tab);
   const nested = (tab === "intimacy" && page !== "root")
     || (tab === "settings" && page !== "root")
-    || (tab === "records" && view === "insight");
+    || (tab === "records" && view === "insight")
+    || tab === "lab";
   const onCall = tab === "intimacy" && page === "scenario" && sessionId === "call";
   const onChat = tab === "intimacy" && page === "scenario" && sessionId === "chat";
   root.classList.toggle("subpage", nested);
   root.classList.toggle("chat-view", view === "insight" || onChat);
   root.classList.toggle("call-view", onCall);
   root.classList.remove("onboarding");
-
   if (onCall && root.dataset.sceneCall === "1") return;
   if (onChat && ui.voiceListening) return;
   if (!onCall) {
@@ -2181,7 +2189,17 @@ function render() {
     stopRingtone();
   }
 
-  if (tab === "heart") root.innerHTML = renderHeart();
+  if (tab === "lab") {
+    root.innerHTML = renderLab({
+      connected: getConnected(),
+      uplink: getUplink(),
+      channel: link.channel,
+      token: link.token,
+      lastReject: ui.labReject,
+      uplinkStats: link.uplinkStats,
+    });
+  }
+  else if (tab === "heart") root.innerHTML = renderHeart();
   else if (tab === "settings") {
     if (page === "persona" && sub === "fixed") root.innerHTML = renderPersonaFixed();
     else if (page === "persona" && sub === "customs") root.innerHTML = renderCustomPersonaList();
@@ -2253,6 +2271,9 @@ function bind() {
   const voiceInput = root.querySelector("#persona-voice-file");
   if (voiceInput) voiceInput.addEventListener("change", onPersonaVoicePicked);
   bindHoldMic();
+  root.querySelectorAll("[data-act=lab-check]").forEach((el) => {
+    el.addEventListener("change", () => saveCheck(el.dataset.id, el.checked));
+  });
 }
 
 async function onInsightSubmit(event) {
@@ -2434,12 +2455,9 @@ async function onPersonaSubmit(event) {
 }
 
 async function onLevelCommit(level) {
-  if (level === 0) {
-    ui.draftLevel = null;
-    await emit(new BleDownlink({ cmd: NlCmd.STOP, auth: "" }));
-    return;
-  }
-  ui.draftLevel = level;
+  // 滑到 0 只表示原机关机（长按取反），不是急停闩锁。
+  // 急停走红色「停止」键；若滑块也发 stop，之后加档会被丢掉，直到 BOOT 长按 2 秒。
+  ui.draftLevel = level === 0 ? null : level;
   await emit(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level, auth: "" }));
 }
 
@@ -2732,6 +2750,37 @@ async function onClick(event) {
   else if (act === "delete-note") confirmDeleteNote(t.dataset.note);
   else if (act === "delete-session") confirmDeleteSession(t.dataset.session);
   else if (act === "save-insight") saveInsight(Number(t.dataset.index));
+  else if (act === "lab") go("#/lab");
+  else if (act === "lab-mode") {
+    const mode = t.dataset.mode;
+    if (mode === NlMode.WILD && !ui.labWildArmed) {
+      ui.labWildArmed = true;
+      toast("再点一次确认进入失控模式（15 分钟后自动退回手动）");
+      return;
+    }
+    ui.labWildArmed = false;
+    await emit(new BleDownlink({ cmd: NlCmd.SET_MODE, mode, auth: "" }));
+  }
+  else if (act === "lab-led") {
+    await emit(new BleDownlink({ cmd: NlCmd.SET_LED, led: t.dataset.led, auth: "" }));
+  }
+  else if (act === "lab-power-on" || act === "lab-power-off") {
+    toast(act === "lab-power-on" ? "长按开机：GPIO7 拉高约 1.2 秒" : "长按关机：同样是 1.2 秒取反");
+    await emit(new BleDownlink({ cmd: NlCmd.PRESS_KEY, key: NlKeyPress.HOLD, auth: "" }));
+  }
+  else if (act === "lab-tap") {
+    toast("点按调档：GPIO7 短接约 120ms");
+    await emit(new BleDownlink({ cmd: NlCmd.PRESS_KEY, key: NlKeyPress.TAP, auth: "" }));
+  }
+  else if (act === "lab-resume") {
+    const reason = await sendCommand(new BleDownlink({ cmd: NlCmd.RESUME, auth: "" }));
+    ui.labReject = reason || "意外：总督没有拒绝 resume";
+    toast(ui.labReject);
+    render();
+  }
+  else if (act === "lab-check") {
+    return;
+  }
   else if (act === "connect") connectOrDisconnect();
   else if (act === "connect-band") connectOrDisconnectBand();
   else if (act === "channel") {
@@ -2997,6 +3046,9 @@ function patchTelemetry() {
     if (chips[0]) chips[0].textContent = `温感 ${sensorLabel(sensors.temperature_state)}`;
     if (chips[1]) chips[1].textContent = `压力 ${sensorLabel(sensors.pressure_rhythm)}`;
     if (chips[2]) chips[2].textContent = hrChipText(sensors);
+  }
+  if (tab === "lab") {
+    patchLabDom(root, { connected, uplink, token: link.token, uplinkStats: link.uplinkStats });
   }
 }
 

@@ -3,8 +3,9 @@
 
 #include <Arduino.h>
 #include <ESPmDNS.h>
-#include <WebSocketsServer.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <WebSocketsServer.h>
 #include <string.h>
 
 namespace {

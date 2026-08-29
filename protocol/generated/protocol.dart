@@ -92,14 +92,26 @@ enum NlAlert {
 }
 
 enum NlCmd {
-  stop, setMode, setLevel, setPattern, setLed, resume, setWifi;
+  stop, setMode, setLevel, setPattern, setLed, resume, setWifi, pressKey;
 
-  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume', 'set_wifi'];
+  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume', 'set_wifi', 'press_key'];
   String get wireName => _wire[index];
   static NlCmd fromWire(int i) => (i >= 0 && i < _wire.length) ? NlCmd.values[i] : NlCmd.values.first;
   static NlCmd fromWireName(String? n) {
     final i = _wire.indexOf(n ?? '');
     return i < 0 ? NlCmd.values.first : NlCmd.values[i];
+  }
+}
+
+enum NlKeyPress {
+  tap, hold;
+
+  static const List<String> _wire = ['tap', 'hold'];
+  String get wireName => _wire[index];
+  static NlKeyPress fromWire(int i) => (i >= 0 && i < _wire.length) ? NlKeyPress.values[i] : NlKeyPress.values.first;
+  static NlKeyPress fromWireName(String? n) {
+    final i = _wire.indexOf(n ?? '');
+    return i < 0 ? NlKeyPress.values.first : NlKeyPress.values[i];
   }
 }
 
@@ -400,6 +412,8 @@ class BleDownlink {
   final String? wifiSsid;
   /// 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
   final String? wifiPsk;
+  /// 仅 press_key：tap 点按切档，hold 长按约 1.2s 开关机
+  final NlKeyPress? key;
   /// session token；缺失或过期整包丢弃
   final String auth;
   const BleDownlink({
@@ -410,6 +424,7 @@ class BleDownlink {
     this.led,
     this.wifiSsid,
     this.wifiPsk,
+    this.key,
     required this.auth,
   });
 
@@ -421,6 +436,7 @@ class BleDownlink {
     led: j['led'] == null ? null : NlLedState.fromWireName(j['led'] as String),
     wifiSsid: j['wifi_ssid'] == null ? null : j['wifi_ssid'] as String,
     wifiPsk: j['wifi_psk'] == null ? null : j['wifi_psk'] as String,
+    key: j['key'] == null ? null : NlKeyPress.fromWireName(j['key'] as String),
     auth: j['auth'] as String,
   );
 
@@ -432,6 +448,7 @@ class BleDownlink {
     'led': led?.wireName,
     'wifi_ssid': wifiSsid,
     'wifi_psk': wifiPsk,
+    'key': key?.wireName,
     'auth': auth,
   };
 }

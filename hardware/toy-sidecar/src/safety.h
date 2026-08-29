@@ -31,6 +31,10 @@ class SafetyGovernor {
   void onLink(bool up, uint32_t now_ms);
   void onEstop(uint32_t now_ms);
 
+  // 联调 press_key：取出后由 main 去按 GPIO7。总督只决定「允不允许按」，
+  // 不自己写引脚。闩锁期间指令进不来（DownlinkGate 已挡）。
+  bool takeKeyPress(bool &hold);
+
   void tick(uint32_t now_ms);
 
   // --- 输出：这四个值是玩具侧的最终结论 ---
@@ -71,4 +75,7 @@ class SafetyGovernor {
   nl_insert_state_t insert_ = NL_INSERT_STATE_UNKNOWN;
 
   uint32_t wild_since_ms_ = 0;
+
+  bool pending_key_press_ = false;
+  bool pending_key_hold_ = false;
 };

@@ -17,6 +17,13 @@ class LedRing {
  public:
   void begin();
 
+  // BLE 起来之后再跑：无线电初始化可能改过 GPIO/RMT。
+  // 8 颗全白亮几秒，确认 WS2812 数据线，不发任何按键。
+  void selfTestAfterRadio();
+
+  // 档位指令已落到执行器时闪一下，用来区分「固件没收到」和「收到了但电机没动」。
+  void flashCommandAck();
+
   void setMode(nl_mode_t mode);
   void setLevel(uint8_t level);
   void setOverride(nl_led_state_t state);
@@ -37,4 +44,6 @@ class LedRing {
   nl_led_state_t override_ = NL_LED_STATE_MODE_DEFAULT;
   uint32_t override_since_ms_ = 0;
   uint32_t last_render_ms_ = 0;
+  uint32_t hold_until_ms_ = 0;
+  uint32_t ack_until_ms_ = 0;
 };

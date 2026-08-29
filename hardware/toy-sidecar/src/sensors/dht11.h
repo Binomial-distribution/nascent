@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+#include "nascent_protocol.h"
+
 class Dht11 {
  public:
   void begin(uint8_t pin);

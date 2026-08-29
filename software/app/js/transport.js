@@ -42,12 +42,17 @@ export class TransportClient {
 
     // 两条通道的事件都转发到同一组监听者。只有一条会处于连接状态，
     // 所以不需要区分事件来自哪一条。
+    this._statsListeners = new Set();
+
     for (const c of [this._ble, this._ws]) {
       c.onUplink((u) => {
         for (const fn of this._uplinkListeners) fn(u);
       });
       c.onConnected((ok) => {
         for (const fn of this._connectedListeners) fn(ok);
+      });
+      c.onStats((stats) => {
+        for (const fn of this._statsListeners) fn(stats);
       });
     }
   }
@@ -73,6 +78,10 @@ export class TransportClient {
     return this.active.token;
   }
 
+  get uplinkStats() {
+    return this.active.uplinkStats;
+  }
+
   get connected() {
     return this._ble.connected || this._ws.connected;
   }
@@ -94,6 +103,11 @@ export class TransportClient {
   onConnected(fn) {
     this._connectedListeners.add(fn);
     return () => this._connectedListeners.delete(fn);
+  }
+
+  onStats(fn) {
+    this._statsListeners.add(fn);
+    return () => this._statsListeners.delete(fn);
   }
 
   /**
