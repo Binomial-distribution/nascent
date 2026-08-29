@@ -2,6 +2,14 @@
 
 短记录已合入或准备合入的 Web UI 小改动，便于联调对照。权威产品结论仍以 `docs/architecture/` 其它文档为准。
 
+## 2026-08-29 · 修复 onboarding 结束后再冒出一轮引导
+
+**分支：** `fix/onboarding-exit-rerender`
+
+完成礼 `heart.prependCard` 会同步触发 `heart.subscribe(render)`；若此时 hash 仍是 `#/onboarding`，`shouldForceOnboarding` 会再次 `startOnboardingFlow`（`gateReady` 被打回 false），随后 `render` 的 early-return 把主界面挡住。
+
+**修法：** `onComplete` 里先把 hash 改到 `#/heart`，再写入完成礼；early-return 在已 `markOnboardingDone` 时放行。
+
 ## 2026-08-29 · Onboarding 意图 / 陪伴者问卷（合并既有步骤）
 
 **分支：** `feat/ob-intent-companion-quiz`

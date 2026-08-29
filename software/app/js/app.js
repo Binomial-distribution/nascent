@@ -1887,6 +1887,16 @@ function startOnboardingFlow() {
     onComplete({ firstCard, draft }) {
       ui.onboarding = null;
       ui.gateReady = true;
+      // 必须先离开 #/onboarding，再写会触发 heart.subscribe(render) 的完成礼。
+      // 否则 render 仍视 hash 为强制引导 → 再次 mount，并把 gateReady 打回 false，
+      // 随后 early-return 会把主界面永久挡住（表现为「第二次 onboarding」）。
+      if (
+        location.hash.startsWith("#/onboarding")
+        || !location.hash
+        || location.hash === "#"
+      ) {
+        location.hash = "#/heart";
+      }
       if (draft?.productId) {
         ui.devices.productId = draft.productId;
         saveDevices();
@@ -1924,8 +1934,6 @@ function startOnboardingFlow() {
       }
       savePrefs();
       if (firstCard) heart.prependCard(firstCard);
-      if (location.hash.startsWith("#/onboarding")) location.hash = "#/heart";
-      else if (!location.hash) location.hash = "#/heart";
       render();
       toast("欢迎来到 Nascent");
     },
@@ -2300,11 +2308,12 @@ function render() {
   if (maybeRedirectLegacyNotes()) return;
   if (maybeRedirectScenario()) return;
   // Onboarding 进行中：忽略其它重绘，避免打断渐变流程。
-  if (root.classList.contains("onboarding") && !ui.gateReady) return;
+  // 已标记完成时必须放行，否则完成礼触发的误挂载会把主界面永久挡住。
+  if (root.classList.contains("onboarding") && !ui.gateReady && !isOnboardingDone()) return;
 
   const force = shouldForceOnboarding();
   if (force) {
-    // #/onboarding 每次都重新挂载，确保能看到最新引导页。
+    // Demo：#/onboarding 可反复进入。完成收尾须先改 hash，见 onComplete。
     startOnboardingFlow();
     return;
   }
