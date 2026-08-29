@@ -122,9 +122,9 @@ class BodyInsightTurnRequest(BaseModel):
 
 
 class BodyInsightModelOutput(BaseModel):
-    """Chat 9B 的唯一允许输出；额外动作字段会使整次解析失败。"""
+    """Chat 9B 的允许输出。多余字段忽略，以免供应商多写一个键就把整轮打成 stub。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     dialogue: str = Field(min_length=1, max_length=700)
     insight_candidate: str | None = Field(default=None, max_length=500)
@@ -147,3 +147,4 @@ class BodyInsightTurnResponse(BaseModel):
     scope: Literal["current", "recent"]
     sources: list[InsightSource] = Field(min_length=1, max_length=11)
     insight_candidate: str | None = Field(default=None, max_length=500)
+    fallback: bool = False

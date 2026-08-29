@@ -18,7 +18,7 @@ async def test_current_scope_only_sends_selected_session_to_model():
 
     async def generator(message, scope, sessions):
         seen.extend(sessions)
-        return f"{scope}:{message}", "一条可保存发现"
+        return f"{scope}:{message}", "一条可保存发现", False
 
     result = await run_insight_turn(
         BodyInsightTurnRequest(session_id="demo-session-03", message="帮我看看"),
@@ -32,7 +32,8 @@ async def test_current_scope_only_sends_selected_session_to_model():
     assert "max_level" not in seen[0]
     assert "duration_s" not in seen[0]
     assert "user_feedback" not in seen[0]
-    assert result.model_dump().keys() == {"dialogue", "scope", "sources", "insight_candidate"}
+    assert result.model_dump().keys() == {"dialogue", "scope", "sources", "insight_candidate", "fallback"}
+    assert result.fallback is False
 
 
 @pytest.mark.asyncio
@@ -42,7 +43,7 @@ async def test_recent_scope_uses_only_explicit_comparison_ids():
 
     async def generator(message, scope, sessions):
         seen.extend(sessions)
-        return "只比较已授权记录", None
+        return "只比较已授权记录", None, False
 
     result = await run_insight_turn(
         BodyInsightTurnRequest(
@@ -138,3 +139,47 @@ def test_body_insight_stub_passes_output_contract():
     )
     parsed = BodyInsightModelOutput(dialogue=dialogue, insight_candidate=candidate)
     assert "不代表固定偏好" in parsed.dialogue
+
+
+def test_body_insight_ignores_extra_model_fields():
+    parsed = BodyInsightModelOutput.model_validate({
+        "dialogue": "这些只是当时的记录，不代表固定偏好。",
+        "insight_candidate": None,
+        "action": None,
+        "skill_proposals": [],
+    })
+    assert parsed.dialogue.startswith("这些只是当时的记录")
+    assert parsed.model_dump().keys() == {"dialogue", "insight_candidate"}
+
+
+@pytest.mark.asyncio
+async def test_body_insight_calls_chat_9b_not_control(monkeypatch):
+    import json
+
+    from app.services import llm
+
+    captured = {}
+
+    async def fake_complete(**kwargs):
+        captured.update(kwargs)
+        return json.dumps({
+            "dialogue": "这些只是当时的记录，不代表固定偏好。",
+            "insight_candidate": None,
+            "tone": "ignored",
+        })
+
+    monkeypatch.setattr(llm, "complete_json", fake_complete)
+    monkeypatch.setattr(llm.settings, "llm_api_key", "sk-test")
+    monkeypatch.setattr(llm.settings, "llm_base_url", "https://api.example/v1")
+    monkeypatch.setattr(llm.settings, "chat_llm_model", "Qwen/Qwen3.5-9B")
+    monkeypatch.setattr(llm.settings, "control_llm_model", "must-not-use")
+
+    dialogue, candidate, fallback = await llm.generate_body_insight(
+        "帮我看看",
+        "current",
+        [{"temperature_summary": "温感平稳", "pressure_summary": "接触压力变化较少"}],
+    )
+    assert captured["model"] == "Qwen/Qwen3.5-9B"
+    assert fallback is False
+    assert candidate is None
+    assert "不代表固定偏好" in dialogue

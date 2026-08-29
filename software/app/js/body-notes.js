@@ -259,7 +259,10 @@ export class BodyNotesState {
       sources: insight.sources || [],
     });
     this._notify();
-    return clone(insight);
+    return clone({
+      ...insight,
+      fallback: response.ok ? Boolean(insight.fallback) : true,
+    });
   }
 
   clearTemporaryChats() {
@@ -292,12 +295,14 @@ export class BodyNotesState {
         dialogue: `我只参考了你确认的 ${comparisonSessionIds.length + 1} 次记录。时长和节奏并不总是一样，你更想先比较开始阶段，还是结束前的感受？`,
         insight_candidate: "近期几次里，我想先从较轻的节奏开始，再根据当下感受决定是否变化。",
         sources: [],
+        fallback: true,
       };
     }
     return {
       dialogue: `只看这一次：${session.temperature.label}，${session.pressure.label}。这些只是当时的记录，不代表固定偏好。哪一段最接近你自己的感受？`,
       insight_candidate: "这一次，慢慢开始和清楚地收尾让我更容易听见自己的感受。",
       sources: [],
+      fallback: true,
     };
   }
 }
