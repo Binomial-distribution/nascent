@@ -14,6 +14,7 @@ from pathlib import Path
 import mimetypes
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
@@ -28,6 +29,14 @@ app = FastAPI(
     version="0.1.0-demo",
     description="会话摘要 -> 建议。不直接控制硬件。同时托管浏览器控制端。",
     debug=settings.debug,
+)
+
+# nlove 演示站跨域打 loveapi。本机 uvicorn 同时托管页面时走相对路径，不经过这里。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nlove.divesee.com"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(session.router)

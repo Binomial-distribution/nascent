@@ -1,3 +1,4 @@
+import { apiFetch } from "./api.js";
 import { BleDownlink, NlCmd, NlConst } from "./protocol.js";
 import { getConnected, getUplink, sendCommand, subscribe } from "./session.js";
 
@@ -74,7 +75,7 @@ function headers(invite) {
 }
 
 export async function createInvite() {
-  const res = await fetch("/v1/plugin/invite", {
+  const res = await apiFetch("/v1/plugin/invite", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ adult_confirmed: true }),
@@ -88,7 +89,7 @@ export async function createInvite() {
 export async function refreshInvite() {
   const invite = loadInvite();
   if (!invite) return null;
-  const res = await fetch(`/v1/plugin/invite/${encodeURIComponent(invite.id)}`, {
+  const res = await apiFetch(`/v1/plugin/invite/${encodeURIComponent(invite.id)}`, {
     headers: headers(invite),
   });
   if (res.status === 401) {
@@ -108,7 +109,7 @@ export async function revokeInvite() {
   const invite = loadInvite();
   if (!invite) return;
   try {
-    await fetch(`/v1/plugin/invite/${encodeURIComponent(invite.id)}`, {
+    await apiFetch(`/v1/plugin/invite/${encodeURIComponent(invite.id)}`, {
       method: "DELETE",
       headers: headers(invite),
     });
@@ -172,7 +173,7 @@ async function heartbeatAndApply() {
   const uplink = getUplink();
   const connected = getConnected();
   try {
-    await fetch(`/v1/plugin/heartbeat?invite_id=${encodeURIComponent(invite.id)}`, {
+    await apiFetch(`/v1/plugin/heartbeat?invite_id=${encodeURIComponent(invite.id)}`, {
       method: "PUT",
       headers: headers(invite),
       body: JSON.stringify({
@@ -183,14 +184,14 @@ async function heartbeatAndApply() {
       }),
     });
     await refreshInvite();
-    const pendingRes = await fetch(`/v1/plugin/pending?invite_id=${encodeURIComponent(invite.id)}`, {
+    const pendingRes = await apiFetch(`/v1/plugin/pending?invite_id=${encodeURIComponent(invite.id)}`, {
       headers: headers(invite),
     });
     if (!pendingRes.ok) return;
     const { suggestion } = await pendingRes.json();
     if (!suggestion) return;
     const reason = await applySuggestion(suggestion);
-    await fetch(`/v1/plugin/result?invite_id=${encodeURIComponent(invite.id)}`, {
+    await apiFetch(`/v1/plugin/result?invite_id=${encodeURIComponent(invite.id)}`, {
       method: "POST",
       headers: headers(invite),
       body: JSON.stringify({

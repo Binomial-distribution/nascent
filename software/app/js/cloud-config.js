@@ -1,5 +1,7 @@
 /** 验证期云端接口。密钥和本机口令只留本机，不进数据导出。 */
 
+import { apiUrl } from "./api.js";
+
 export const CLOUD_STORE_KEY = "nascent.cloud.config";
 export const RUNTIME_TOKEN_STORE_KEY = "nascent.cloud.runtime-token";
 export const RUNTIME_TOKEN_HEADER = "X-Nascent-Runtime-Token";
@@ -144,7 +146,7 @@ export function toRuntimePayload(cfg, { includeSecrets = true } = {}) {
 }
 
 export async function fetchCloudStatus(fetchImpl = fetch) {
-  const response = await fetchImpl("/v1/runtime-config");
+  const response = await fetchImpl(apiUrl("/v1/runtime-config"));
   if (!response.ok) return null;
   return response.json();
 }
@@ -152,7 +154,7 @@ export async function fetchCloudStatus(fetchImpl = fetch) {
 export async function syncCloudConfig(fetchImpl = fetch, storage) {
   const cfg = loadCloudConfig(storage);
   if (cfg.llmApiKey || cfg.minimaxApiKey) {
-    const response = await fetchImpl("/v1/runtime-config", {
+    const response = await fetchImpl(apiUrl("/v1/runtime-config"), {
       method: "POST",
       headers: runtimeAuthHeaders(storage),
       body: JSON.stringify(toRuntimePayload(cfg)),

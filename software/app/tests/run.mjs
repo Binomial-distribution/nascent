@@ -74,6 +74,7 @@ import {
   saveRuntimeToken,
   toRuntimePayload,
 } from "../js/cloud-config.js";
+import { apiUrl, LOVEAPI_ORIGIN } from "../js/api.js";
 import {
   PERSONA_SWIPE_HOLD_MS,
   sortScenarioItems,
@@ -1016,6 +1017,10 @@ assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same cale
   clearCloudConfig(storage);
   assert(loadCloudConfig(storage).llmApiKey === "", "clearing cloud config drops the stored key");
 }
+
+assert(apiUrl("/v1/persona", { hostname: "127.0.0.1" }) === "/v1/persona", "localhost keeps relative API paths");
+assert(apiUrl("/v1/persona", { hostname: "nlove.divesee.com" }) === `${LOVEAPI_ORIGIN}/v1/persona`, "nlove demo UI calls loveapi");
+assert(apiUrl("/v1/persona", { hostname: "love.divesee.com" }) === "/v1/persona", "marketing site does not talk to the API");
 
 assert(chatRestoreDecision({ hasHistory: false }).kind === "open", "chat restore skips the prompt when there is no thread");
 assert(chatRestoreDecision({ hasHistory: true, skipAsk: true, lastChoice: "fresh" }).kind === "fresh", "chat restore reuses last choice after never-ask");

@@ -1,3 +1,5 @@
+import { apiUrl } from "./api.js";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function isoDaysAgo(days, hour = 21) {
@@ -280,7 +282,7 @@ export class BodyNotesState {
   async _request(path, options = {}) {
     if (!this._fetch) return { ok: false, data: null, status: 0 };
     try {
-      const response = await this._fetch(path, options);
+      const response = await this._fetch(apiUrl(path), options);
       if (!response.ok) return { ok: false, data: null, status: response.status };
       if (response.status === 204) return { ok: true, data: {}, status: response.status };
       return { ok: true, data: await response.json(), status: response.status };

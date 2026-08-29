@@ -1,3 +1,4 @@
+import { apiFetch } from "./api.js";
 import { BleDownlink, NlCmd, NlConst, NlInsertState, NlKeyPress, NlLedState, NlMode } from "./protocol.js";
 import { CHANNEL, CHANNEL_LABEL, currentShell } from "./transport.js";
 import { bodyNotes } from "./body-notes.js";
@@ -488,7 +489,7 @@ function persistCustomPersonaRecord({ card, name, source = "free", activate = fa
 async function uploadCustomPersona(item) {
   if (!item?.card) return item;
   try {
-    const response = await fetch("/v1/persona/custom", {
+    const response = await apiFetch("/v1/persona/custom", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -965,7 +966,7 @@ async function deleteScenarioPersona(key, kind, id) {
     if (ui.persona.activeCustomId === id) ui.persona.activeCustomId = ui.persona.customs[0]?.id || null;
     savePersonaSettings();
     try {
-      await fetch(`/v1/persona/custom/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+      await apiFetch(`/v1/persona/custom/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
         method: "DELETE",
       });
     } catch { /* 本机已经删了 */ }
@@ -974,7 +975,7 @@ async function deleteScenarioPersona(key, kind, id) {
     ui.persona.hiddenKeys = [...new Set([...(ui.persona.hiddenKeys || []), key])];
     savePersonaSettings();
     try {
-      await fetch(`/v1/agent/templates/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+      await apiFetch(`/v1/agent/templates/${encodeURIComponent(id)}?user_id=${encodeURIComponent(LOCAL_USER)}`, {
         method: "DELETE",
       });
     } catch { /* ignore */ }
@@ -1909,7 +1910,7 @@ async function saveCloudFromForm() {
   const tokenInput = String(root.querySelector("#cloud-runtime-token")?.value || "").trim();
   if (tokenInput) saveRuntimeToken(tokenInput);
   try {
-    const response = await fetch("/v1/runtime-config", {
+    const response = await apiFetch("/v1/runtime-config", {
       method: "POST",
       headers: runtimeAuthHeaders(),
       body: JSON.stringify(toRuntimePayload(cfg)),
@@ -1930,7 +1931,7 @@ async function saveCloudFromForm() {
 async function clearCloudFromForm() {
   clearCloudConfig();
   try {
-    ui.cloudStatus = await fetch("/v1/runtime-config", {
+    ui.cloudStatus = await apiFetch("/v1/runtime-config", {
       method: "POST",
       headers: runtimeAuthHeaders(),
       body: JSON.stringify({ reset: true }),
@@ -1983,7 +1984,7 @@ function confirmClearLocalData() {
     scenarioChat.clearAll();
     try { localStorage.removeItem(THREAD_KEY); } catch { /* ignore */ }
     try {
-      await fetch(`/v1/persona/custom?user_id=${encodeURIComponent(LOCAL_USER)}`, { method: "DELETE" });
+      await apiFetch(`/v1/persona/custom?user_id=${encodeURIComponent(LOCAL_USER)}`, { method: "DELETE" });
     } catch { /* ignore */ }
     ui.skipRemoteCustoms = true;
     ui.persona = {
@@ -2610,7 +2611,7 @@ async function requestAutomaticControl({ explicitSignal = "" } = {}) {
   const sensor = buildSensorContext(uplink, { bandConnected: ui.devices.bandConnected });
   auto.inFlight = true;
   try {
-    const response = await fetch("/v1/agent/control-decision", {
+    const response = await apiFetch("/v1/agent/control-decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3289,7 +3290,7 @@ async function onPersonaSubmit(event) {
   ui.savingPersona = true;
   form.querySelector("[type=submit]")?.setAttribute("disabled", "disabled");
   try {
-    const draftRes = await fetch("/v1/agent/templates/draft", {
+    const draftRes = await apiFetch("/v1/agent/templates/draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3312,7 +3313,7 @@ async function onPersonaSubmit(event) {
     } else {
       draft = { ...draft, name, description, skills, source: "custom", status: "draft" };
     }
-    const confirmRes = await fetch(`/v1/agent/templates/confirm?user_id=${encodeURIComponent(LOCAL_USER)}`, {
+    const confirmRes = await apiFetch(`/v1/agent/templates/confirm?user_id=${encodeURIComponent(LOCAL_USER)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(draft),
@@ -4033,9 +4034,9 @@ window.addEventListener("hashchange", render);
 async function loadPersonas() {
   try {
     const [personaRes, templateRes, customRes] = await Promise.all([
-      fetch("/v1/persona"),
-      fetch(`/v1/agent/templates?user_id=${encodeURIComponent(LOCAL_USER)}`),
-      fetch(`/v1/persona/custom?user_id=${encodeURIComponent(LOCAL_USER)}`),
+      apiFetch("/v1/persona"),
+      apiFetch(`/v1/agent/templates?user_id=${encodeURIComponent(LOCAL_USER)}`),
+      apiFetch(`/v1/persona/custom?user_id=${encodeURIComponent(LOCAL_USER)}`),
     ]);
     if (personaRes.ok) ui.personas = await personaRes.json();
     if (templateRes.ok) ui.templates = await templateRes.json();

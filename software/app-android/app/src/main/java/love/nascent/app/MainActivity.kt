@@ -146,7 +146,7 @@ class MainActivity : AppCompatActivity() {
     private fun showSetup() {
         setup.visibility = LinearLayout.VISIBLE
         webView.visibility = WebView.GONE
-        urlField.setText(prefs().getString(KEY_URL, "http://10.0.2.2:8000"))
+        urlField.setText(prefs().getString(KEY_URL, "https://nlove.divesee.com"))
     }
 
     private fun loadSite(url: String) {
