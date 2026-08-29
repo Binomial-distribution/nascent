@@ -42,6 +42,7 @@ import {
   TURN_SEND,
 } from "../js/scenario-session.js";
 import {
+  cardForPersona,
   cardToPromptText,
   draftToCard,
   PERSONA_CARDS,
@@ -386,7 +387,11 @@ assert(!formatCaptionHtml("<img>").includes("<img>"), "caption html escapes mark
 stopRingtone();
 const payload = personaPayload({ id: "gentle" });
 assert(payload.assistant_name === "陆聿" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
-assert(payload.system_prompt && payload.system_prompt.includes("biometric_response_system"), "builtin-001 full system prompt is attached");
+assert(payload.builtinId === "001", "gentle turn payload marks builtin 001 without uploading the prompt");
+assert(!payload.system_prompt, "turn payload does not upload the builtin system prompt");
+const customFallback = cardForPersona({ name: "小测", text: "她是自定义陪伴" });
+assert(customFallback.builtinId == null || customFallback.builtinId === "", "custom fallback cards do not inherit 陆聿 builtinId");
+assert(!customFallback.system_prompt, "custom fallback cards do not inherit 陆聿 system_prompt");
 assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");
 assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "陆聿 uses the boyfriend MiniMax voice");
 assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "陆聿 is a male MiniMax id");
@@ -438,7 +443,8 @@ assert(quizPayload.assistant_name === "顾深" && quizPayload.spoken.includes("�
 assert(quizPayload.tts?.minimax === "junlang_nanyou", "quiz card keeps the vibe MiniMax voice");
 
 const promptText = cardToPromptText(PERSONA_CARDS.gentle);
-assert(promptText.includes("陆聿") && promptText.includes("biometric_response_system"), "builtin-001 system prompt is used for gentle");
+assert(promptText.includes("陆聿") && promptText.includes("人设:"), "gentle local card text uses Chinese labels, not the server prompt");
+assert(!promptText.includes("biometric_response_system"), "the executable builtin prompt stays on the server");
 assert(!promptText.includes("Profile:"), "character card text does not use English Profile label");
 const approachingSummary = experienceSummary("approaching", {});
 assert(approachingSummary.includes("带她"), "phase summary talks about her, not him");

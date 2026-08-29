@@ -1,10 +1,9 @@
 /** Waifu 风格人设卡。结构对齐 Langbot Waifu cards：Profile / Skills / Background / Rules / Prologue。
  * 产品向女性用户：固有人设 001（男友原型）+ 俏皮男友 + 安静女友。
- * 固有人设 001 的完整 system prompt 见 personas/builtin-001.js 与 docs/architecture/personas/。 */
+ * 陆聿可执行 prompt 由后端持有，见 software/backend/app/services/personas/builtin_001.py。 */
 
 import {
   BUILTIN_001_CHAR_NAME,
-  fillBuiltin001SystemPrompt,
 } from "./personas/builtin-001.js";
 
 export const SWEET_BOYFRIEND = {
@@ -41,13 +40,6 @@ export const SWEET_BOYFRIEND = {
     "每次只回一两句完整简体中文，像即时通讯；允许笨拙、卡壳，禁止高频套话。",
   ],
   prologue: "间隔期某个傍晚，他刚运动完，拿起手机想跟她随便说两句。",
-  /** 完整可执行 system prompt（含生物数据响应与安全熔断）；占位符在发送前填充。 */
-  get system_prompt() {
-    return fillBuiltin001SystemPrompt({
-      charName: this.assistant_name || BUILTIN_001_CHAR_NAME,
-      userName: this.user_name || "你",
-    });
-  },
   tts: {
     minimax: "junlang_nanyou",
     cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:charles",
@@ -124,8 +116,6 @@ const DEFAULT_TTS = SWEET_BOYFRIEND.tts;
 
 export function cardToPromptText(card) {
   if (!card) return "";
-  const systemPrompt = resolveSystemPrompt(card);
-  if (systemPrompt) return systemPrompt;
   const lines = [
     `怎么叫她: ${card.user_name || "你"}`,
     `你是: ${card.assistant_name || card.name || BUILTIN_001_CHAR_NAME}`,
@@ -142,23 +132,6 @@ export function cardToPromptText(card) {
     ...asBullets(card.prologue),
   ];
   return lines.filter((line) => line !== undefined).join("\n");
-}
-
-function resolveSystemPrompt(card) {
-  if (!card) return "";
-  const raw = typeof card.system_prompt === "string" ? card.system_prompt.trim() : "";
-  if (raw) {
-    return raw
-      .replaceAll("{{CHAR_NAME}}", card.assistant_name || card.name || BUILTIN_001_CHAR_NAME)
-      .replaceAll("{{USER_NAME}}", card.user_name || "你");
-  }
-  if (card.id === "gentle" || card.builtinId === "001") {
-    return fillBuiltin001SystemPrompt({
-      charName: card.assistant_name || card.name || BUILTIN_001_CHAR_NAME,
-      userName: card.user_name || "你",
-    });
-  }
-  return "";
 }
 
 export const PERSONA_PRESETS = [
@@ -432,29 +405,31 @@ export function cardForPersona(persona) {
   if (persona.card) return persona.card;
   const byId = PERSONA_CARDS[persona.id];
   if (byId) return byId;
+  const { id: _id, builtinId: _builtinId, ...base } = SWEET_BOYFRIEND;
   if (persona.text && /Profile:|assistant_name:|人设:|你是:/.test(persona.text)) {
     return {
-      name: persona.name || SWEET_BOYFRIEND.name,
-      user_name: SWEET_BOYFRIEND.user_name,
-      assistant_name: persona.name || SWEET_BOYFRIEND.assistant_name,
+      name: persona.name || base.name,
+      user_name: base.user_name,
+      assistant_name: persona.name || base.assistant_name,
       language: "简体中文",
       raw: persona.text,
-      spoken: SWEET_BOYFRIEND.spoken,
-      aftercare: SWEET_BOYFRIEND.aftercare,
+      spoken: base.spoken,
+      aftercare: base.aftercare,
+      tts: base.tts,
     };
   }
   if (persona.text) {
     return {
-      ...SWEET_BOYFRIEND,
-      name: persona.name || SWEET_BOYFRIEND.name,
-      assistant_name: persona.name || SWEET_BOYFRIEND.assistant_name,
+      ...base,
+      name: persona.name || base.name,
+      assistant_name: persona.name || base.assistant_name,
       profile: [persona.text],
     };
   }
   return {
-    ...SWEET_BOYFRIEND,
-    name: persona.name || SWEET_BOYFRIEND.name,
-    assistant_name: persona.name || SWEET_BOYFRIEND.assistant_name,
+    ...base,
+    name: persona.name || base.name,
+    assistant_name: persona.name || base.assistant_name,
   };
 }
 
@@ -540,11 +515,6 @@ export function personaPayload(persona) {
     prologue: card.prologue || "",
     spoken: card.spoken || "",
     tone: persona?.subtitle || card.subtitle || "",
-    system_prompt: resolveSystemPrompt({
-      ...card,
-      user_name: card.user_name,
-      assistant_name: card.assistant_name || persona?.name || card.name,
-    }),
     builtinId: card.builtinId || "",
     tts: payloadTts,
     voice: tts.voice,
