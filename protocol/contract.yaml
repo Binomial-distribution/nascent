@@ -18,7 +18,7 @@ constants:
   VERSION_MINOR: 3
 
   LEVEL_MIN: 1
-  LEVEL_MAX: 8
+  LEVEL_MAX: 9
   DUTY_CAP_PCT: 90
 
   UPLINK_HZ: 12
@@ -107,7 +107,8 @@ enums:
   rhythm: [unknown, steady, increasing, decreasing]
 
 # ---------------------------------------------------------------------------
-# 八档表：PWM、波形、LED 颗数与配色。固件本地渲染，云端无权逐帧下发。
+# 九档表：原板档位、波形语义、LED 颗数与配色。固件本地渲染，云端无权逐帧下发。
+# 第 9 档仍只有 8 颗物理灯可亮；UI 的 9/9 才是完整档位指示。
 # ---------------------------------------------------------------------------
 levels:
   - {level: 1, duty_pct: 15, pattern: soft_min,     lit: 1, r: 255, g: 105, b: 150, semantic: "初识预热"}
@@ -118,6 +119,7 @@ levels:
   - {level: 6, duty_pct: 65, pattern: strong_pulse, lit: 6, r: 255, g: 110, b: 50,  semantic: "深入"}
   - {level: 7, duty_pct: 78, pattern: mixed,        lit: 7, r: 255, g: 70,  b: 60,  semantic: "高强度"}
   - {level: 8, duty_pct: 90, pattern: peak,         lit: 8, r: 255, g: 70,  b: 60,  semantic: "峰值"}
+  - {level: 9, duty_pct: 90, pattern: peak,         lit: 8, r: 255, g: 48,  b: 48,  semantic: "原板第九节奏"}
 
 # 模式层配色：换模式才换色，换人不换灯。
 led_modes:
@@ -249,7 +251,7 @@ json_messages:
     direction: "app -> toy-sidecar（BLE write 或 WiFi WebSocket）"
     fields:
       - {name: cmd,     type: "enum:cmd"}
-      - {name: level,   type: int, nullable: true}
+      - {name: level,   type: int, nullable: true, doc: "set_level：0=正常关机（不闩锁），1..LEVEL_MAX=目标档位"}
       - {name: pattern, type: "enum:pattern", nullable: true}
       - {name: mode,    type: "enum:mode", nullable: true}
       - {name: led,     type: "enum:led_state", nullable: true}

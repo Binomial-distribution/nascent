@@ -54,6 +54,12 @@ export function uplinkStatCopy({ connected, uplink, stats } = {}) {
   return "0 帧。连接和令牌都好，但遥测没到。常见原因：固件把 MTU 上限钉在 185，一帧 JSON 约 210 字节发不出去。请断开后重连（需烧录已改 MTU 的固件）。";
 }
 
+export function connectionDiagnostic(state = {}) {
+  const phase = state.phase || "idle";
+  const message = state.message || "无附加信息";
+  return `阶段 ${phase} · ${message}`;
+}
+
 export function insertCopy(state) {
   if (state === NlInsertState.INSERTED) return "在使用中";
   if (state === NlInsertState.NOT_INSERTED) return "未在使用";
@@ -156,6 +162,7 @@ export function renderLab({
   uplink,
   channel,
   token,
+  connectionState,
   lastReject = "",
   uplinkStats = null,
 } = {}) {
@@ -178,6 +185,13 @@ export function renderLab({
       <strong data-lab="link">${connected ? "已连接 · 点击断开" : "未连接 · 点击连接 Nascent-Toy"}</strong>
       <small>${CHANNEL_LABEL[channel] || channel} · 广播名 ${NlBle.deviceName} · 协议 ${NlConst.protoVersion}</small>
     </button>
+    ${typeof window !== "undefined" && window.NascentShell?.openConnectionSettings
+      ? `<button class="list-row" data-act="lab-connection-settings">
+          <strong>更改服务地址</strong>
+          <small>重新填写 Android 壳加载的页面地址</small>
+        </button>`
+      : ""}
+    <p class="lab-note" data-lab="connection-detail">${escapeLab(connectionDiagnostic(connectionState))}</p>
     ${kv("会话令牌", token ? "已签发" : "无")}
     ${kv("最近一帧 ts", uplink ? String(uplink.ts) : "—", "ts")}
     <p class="lab-note" data-lab="uplink-stat">${escapeLab(uplinkStatCopy({ connected, uplink, stats: uplinkStats }))}</p>
@@ -283,13 +297,14 @@ function escapeLab(value) {
 }
 
 /** 12Hz 热更新，避免整页重绘打断勾选。 */
-export function patchLabDom(root, { connected, uplink, token, uplinkStats = null }) {
+export function patchLabDom(root, { connected, uplink, token, connectionState, uplinkStats = null }) {
   const view = sensorLogicView(uplink);
   const set = (name, text) => {
     const el = root.querySelector(`[data-lab="${name}"]`);
     if (el) el.textContent = text;
   };
   set("link", connected ? "已连接 · 点击断开" : "未连接 · 点击连接 Nascent-Toy");
+  set("connection-detail", connectionDiagnostic(connectionState));
   set("ts", uplink ? String(uplink.ts) : "—");
   set("uplink-stat", uplinkStatCopy({ connected, uplink, stats: uplinkStats }));
   if (uplink) {

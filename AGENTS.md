@@ -6,6 +6,8 @@
 2. [`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)（产品架构权威副本；不要只改飞书）
 3. 本任务涉及的子目录 README（`protocol/`、`hardware/*/`、`software/app/`、`software/app-android/`、`software/backend/`）
 4. 若你上一次拉代码还在 `0.2.0-demo`：[`docs/0.3.0 单板改造交接.md`](docs/0.3.0%20单板改造交接.md)（破坏性变更清单、各端要不要跟、不能单方面改的安全不变量）
+5. 涉及 Web UI、Android、蓝牙、权限或手环：[`docs/implementation/Web与Android共用UI调试检查.md`](docs/implementation/Web与Android共用UI调试检查.md)
+6. 涉及玩具连接、开关机、调档、灯语、传感器或设备按钮：[`docs/implementation/硬件实机已验证API基准.md`](docs/implementation/硬件实机已验证API基准.md)
 
 硬性约束：
 

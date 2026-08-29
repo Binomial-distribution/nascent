@@ -265,7 +265,7 @@ def gen_c(c: dict) -> str:
         L.append("")
 
     L += [
-        "// ---- 八档表 ----",
+        "// ---- 档位表 ----",
         "typedef struct {",
         "    uint8_t level;",
         "    uint8_t duty_pct;",

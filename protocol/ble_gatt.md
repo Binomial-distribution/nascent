@@ -81,7 +81,7 @@ BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置
 |---|---|
 | `stop` | 无 |
 | `set_mode` | `mode` |
-| `set_level` | `level`、可选 `pattern` |
+| `set_level` | `level`：0 为正常关机（不闩锁），1–9 为目标档位；可选 `pattern` |
 | `set_pattern` | `pattern` |
 | `set_led` | `led`（只含 state 语义，不接受逐帧灯效） |
 | `set_wifi` | `wifi_ssid`、可选 `wifi_psk`。写入玩具 NVS，不驱动按键。密码不上行、不进云端、不打串口日志 |
@@ -93,7 +93,7 @@ BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置
 
 1. `auth` 缺失、格式错误或超过 `SESSION_TOKEN_TTL_MS` → 整包丢弃，不回错误（不给探测者反馈）。
 2. `cmd` 不在枚举内，**或等于 `resume`** → 丢弃并置 `alert = "bad_cmd"`。
-3. `level < LEVEL_MIN` 或 `level > LEVEL_MAX` → 丢弃并置 `alert = "bad_cmd"`。
+3. `set_level` 的 level 既不是 0、也不在 `LEVEL_MIN..LEVEL_MAX` → 丢弃并置 `alert = "bad_cmd"`。
    注意是**丢弃**，不是钳位后执行。
 4. 急停或安全词生效期间，**只接受 `stop`**，其余全部丢弃（含 `set_wifi`）。
 5. `set_wifi` 在闸门鉴权通过后写入玩具 NVS，**不进入 SafetyGovernor 调档**。

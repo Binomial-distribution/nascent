@@ -30,6 +30,8 @@ export class ChannelBase {
     this._uplinkListeners = new Set();
     this._connectedListeners = new Set();
     this._statsListeners = new Set();
+    this._connectionPhaseListeners = new Set();
+    this._connectionPhase = { phase: "idle", message: "设备未连接" };
     this._uplinkStats = emptyUplinkStats();
   }
 
@@ -46,6 +48,10 @@ export class ChannelBase {
     return this._connected;
   }
 
+  get connectionPhase() {
+    return this._connectionPhase;
+  }
+
   onUplink(fn) {
     this._uplinkListeners.add(fn);
     return () => this._uplinkListeners.delete(fn);
@@ -54,6 +60,12 @@ export class ChannelBase {
   onConnected(fn) {
     this._connectedListeners.add(fn);
     return () => this._connectedListeners.delete(fn);
+  }
+
+  onConnectionPhase(fn) {
+    this._connectionPhaseListeners.add(fn);
+    fn(this._connectionPhase);
+    return () => this._connectionPhaseListeners.delete(fn);
   }
 
   /** Notify 到了但解不出 JSON 时，联调页需要刷新计数，不能只等合法上行。 */
@@ -104,6 +116,17 @@ export class ChannelBase {
     if (this._connected === ok) return;
     this._connected = ok;
     if (!ok) this._uplinkStats = emptyUplinkStats();
+    this._setConnectionPhase(ok
+      ? { phase: "ready", message: "设备已连接" }
+      : { phase: "idle", message: "设备未连接" });
     for (const fn of this._connectedListeners) fn(ok);
+  }
+
+  _setConnectionPhase(next) {
+    const phase = String(next?.phase || "idle");
+    const message = String(next?.message || "");
+    if (this._connectionPhase.phase === phase && this._connectionPhase.message === message) return;
+    this._connectionPhase = { phase, message };
+    for (const fn of this._connectionPhaseListeners) fn(this._connectionPhase);
   }
 }

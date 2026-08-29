@@ -31,7 +31,7 @@ class Ao3400 {
   // 每轮主循环调用，推进按键时序状态机。
   void tick(uint32_t now_ms);
 
-  // 请求原板停在第 target 档（1..8，对应协议档位）。0 表示关机。
+  // 请求原板停在第 target 档（1..9，对应协议档位）。0 表示正常关机。
   // 内部自己算怎么按，调用方不需要关心原板当前在哪一档。
   void requestLevel(uint8_t target);
 

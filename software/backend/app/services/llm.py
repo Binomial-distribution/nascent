@@ -103,7 +103,11 @@ async def generate_control(request: ControlDecisionRequest) -> ControlDecision:
             max_tokens=180,
         )
         result = ControlDecision.model_validate_json(content)
-        return _apply_control_policy(result, request.template_skill_allowlist)
+        return _apply_control_policy(
+            result,
+            request.template_skill_allowlist,
+            automation_authorized=request.automation_authorized,
+        )
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
         logger.warning("Control 9B fallback to hold: %s", openai_compat.error_summary(exc))
         return _control_hold("model_unavailable")
@@ -117,6 +121,7 @@ def _control_must_hold(request: ControlDecisionRequest) -> bool:
     return (
         request.session_mode == "wild"
         or request.consent_state != "confirmed"
+        or not request.automation_authorized
         or request.template_id is None
         or quality == "unknown"
         or pressure_quality == "unknown"
@@ -129,7 +134,9 @@ def _control_hold(reason: str) -> ControlDecision:
 
 
 def _apply_control_policy(
-    result: ControlDecision, allowlist: list[str]
+    result: ControlDecision,
+    allowlist: list[str],
+    automation_authorized: bool = False,
 ) -> ControlDecision:
     """Normalize Control output. hold keeps its reasons and drops leftover suggestions."""
 
@@ -145,7 +152,12 @@ def _apply_control_policy(
         )
     if result.recommended_skill_id not in set(allowlist):
         return _control_hold("skill_not_allowed")
-    return result.model_copy(update={"action": None, "requires_user_confirmation": True})
+    return result.model_copy(
+        update={
+            "action": None,
+            "requires_user_confirmation": not automation_authorized,
+        }
+    )
 
 
 async def generate_template(request: TemplateDraftRequest) -> PersonaTemplate | None:
@@ -159,7 +171,7 @@ async def generate_template(request: TemplateDraftRequest) -> PersonaTemplate | 
             "content": (
                 "你是 Nascent 模板设计助手。只输出 PersonaTemplate JSON。"
                 "source 必须是 custom，status 必须是 draft，skills 只能使用 rhythm_segment 或 set_pattern。"
-                "档位只能 1 到 8，duration_s 只能 1 到 900，requires_confirmation 必须为 true。"
+                "档位只能 1 到 9，duration_s 只能 1 到 900，requires_confirmation 必须为 true。"
                 "不能输出 BLE、resume、stop、延长失控、删除或安全阈值字段。"
             ),
         },

@@ -39,6 +39,9 @@ export class BleClient extends ChannelBase {
     if (typeof window !== "undefined") {
       window.__nascentNativeOnUplink = (raw) => this._onNativeUplink(raw);
       window.__nascentNativeOnDisconnected = () => this._onDisconnected();
+      window.__nascentNativeOnConnectionState = (phase, message) => {
+        this._setConnectionPhase({ phase, message });
+      };
     }
   }
 
@@ -109,6 +112,7 @@ export class BleClient extends ChannelBase {
 
   async _connectNative() {
     await this.disconnect();
+    this._setConnectionPhase({ phase: "scanning", message: "正在搜索设备" });
     const info = await new Promise((resolve, reject) => {
       window.__nascentNativeConnect = { resolve, reject };
       window.NascentNative.connect(JSON.stringify({
@@ -135,6 +139,7 @@ export class BleClient extends ChannelBase {
       throw new Error(this.unavailableReason);
     }
 
+    this._setConnectionPhase({ phase: "scanning", message: "请选择 Nascent 玩具" });
     const device = await navigator.bluetooth.requestDevice({
       filters: [
         { name: NlBle.deviceName },
@@ -148,8 +153,10 @@ export class BleClient extends ChannelBase {
     this._device = device;
     device.addEventListener("gattserverdisconnected", this._onDisconnected);
 
+    this._setConnectionPhase({ phase: "connecting", message: "正在连接玩具" });
     const server = await device.gatt.connect();
     this._server = server;
+    this._setConnectionPhase({ phase: "initializing", message: "正在初始化设备服务" });
     const service = await server.getPrimaryService(NlBle.serviceUuid);
 
     const infoChar = await service.getCharacteristic(NlBle.infoUuid);

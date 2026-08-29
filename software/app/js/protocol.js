@@ -7,7 +7,7 @@ export const NlConst = Object.freeze({
   versionMajor: 0,
   versionMinor: 3,
   levelMin: 1,
-  levelMax: 8,
+  levelMax: 9,
   dutyCapPct: 90,
   uplinkHz: 12,
   uplinkPeriodMs: 83,
@@ -281,6 +281,7 @@ export const kLevelTable = Object.freeze([
   Object.freeze({ level: 6, dutyPct: 65, pattern: NlPattern.STRONG_PULSE, lit: 6, r: 255, g: 110, b: 50, semantic: "深入" }),
   Object.freeze({ level: 7, dutyPct: 78, pattern: NlPattern.MIXED, lit: 7, r: 255, g: 70, b: 60, semantic: "高强度" }),
   Object.freeze({ level: 8, dutyPct: 90, pattern: NlPattern.PEAK, lit: 8, r: 255, g: 70, b: 60, semantic: "峰值" }),
+  Object.freeze({ level: 9, dutyPct: 90, pattern: NlPattern.PEAK, lit: 8, r: 255, g: 48, b: 48, semantic: "原板第九节奏" }),
 ]);
 
 export class LevelSetting {
@@ -512,6 +513,7 @@ export class BleDownlink {
   static fromJson(j) {
     return new BleDownlink({
       cmd: NlCmd.fromWireName(j["cmd"]),
+      // set_level：0=正常关机（不闩锁），1..LEVEL_MAX=目标档位
       level: j["level"] == null ? null : Number(j["level"]),
       pattern: j["pattern"] == null ? null : NlPattern.fromWireName(j["pattern"]),
       mode: j["mode"] == null ? null : NlMode.fromWireName(j["mode"]),

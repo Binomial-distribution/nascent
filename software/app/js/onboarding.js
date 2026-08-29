@@ -400,7 +400,7 @@ export function mountOnboarding(root, { onComplete }) {
             <div class="ob-card">
               <div>
                 <strong>蓝牙</strong>
-                <p>用于连接萨福产品或健康手环。生理数据只会留在本 App 内使用。</p>
+                <p>用于连接设备和接收健康数据。</p>
               </div>
               <button class="ghost" data-ob="perm-bt">${state.draft.bluetooth ? "已允许" : "允许"}</button>
             </div>
@@ -423,7 +423,7 @@ export function mountOnboarding(root, { onComplete }) {
               ${state.draft.paired ? "已连接 · 轻震确认完成" : "尚未连接"}
             </div>
             <button class="primary ob-cta" data-ob="${state.draft.paired ? "next" : "pair"}">
-              ${state.draft.paired ? "继续" : "模拟连接并轻震"}
+              ${state.draft.paired ? "继续" : "连接设备"}
             </button>
             <button class="ghost ob-cta" data-ob="pair-skip">暂时跳过</button>
           </div>`;
@@ -435,11 +435,11 @@ export function mountOnboarding(root, { onComplete }) {
         const primary = paired
           ? "继续"
           : native
-            ? "等待 Gadgetbridge 心率…"
-            : "模拟连接健康手环";
+            ? "等待心率…"
+            : "连接健康手环";
         const sub = native
-          ? "打开已配对的 Gadgetbridge 并开始实时心率。收到样本后会自动标记已连接，也可暂时跳过。"
-          : "网站没有手环桥，可模拟连接。Android App 会接收 Gadgetbridge 的实时心率。";
+          ? "请先完成手环配对并开启实时心率，也可以暂时跳过。"
+          : "现在连接，或暂时跳过。";
         return `
           <div class="ob-stack">
             <p class="ob-kicker">设备配对</p>

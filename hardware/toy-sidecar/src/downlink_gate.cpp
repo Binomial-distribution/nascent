@@ -157,8 +157,9 @@ bool DownlinkGate::accept(const char *data, size_t len, uint32_t now_ms, nl_comm
     out.led_state = static_cast<uint8_t>(l);
   }
 
-  // 规则 3：档位越界直接丢弃，**不钳位**。
-  // 远端发来的越界值说明对端有 bug 或恶意，悄悄改成 8 档执行比拒绝危险得多。
+  // 规则 3：0 是用户主动的正常关机（不设置停机闩锁）；其余档位越界直接丢弃，
+  // **不钳位**。远端发来的越界值说明对端有 bug 或恶意，悄悄改成最高档
+  // 执行比拒绝危险得多。
   if (cmd == NL_CMD_SET_LEVEL) {
     if (!doc["level"].is<int>()) {
       ++rejected_;
@@ -166,7 +167,7 @@ bool DownlinkGate::accept(const char *data, size_t len, uint32_t now_ms, nl_comm
       return false;
     }
     int lv = doc["level"];
-    if (lv < NL_LEVEL_MIN || lv > NL_LEVEL_MAX) {
+    if (lv != 0 && (lv < NL_LEVEL_MIN || lv > NL_LEVEL_MAX)) {
       ++rejected_;
       alert_ = NL_ALERT_BAD_CMD;
       return false;

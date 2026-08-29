@@ -8,7 +8,7 @@ class NlConst {
   static const int versionMajor = 0;
   static const int versionMinor = 3;
   static const int levelMin = 1;
-  static const int levelMax = 8;
+  static const int levelMax = 9;
   static const int dutyCapPct = 90;
   static const int uplinkHz = 12;
   static const int uplinkPeriodMs = 83;
@@ -227,6 +227,7 @@ const List<NlLevelRow> kLevelTable = [
   NlLevelRow(6, 65, NlPattern.strongPulse, 6, 255, 110, 50, '深入'),
   NlLevelRow(7, 78, NlPattern.mixed, 7, 255, 70, 60, '高强度'),
   NlLevelRow(8, 90, NlPattern.peak, 8, 255, 70, 60, '峰值'),
+  NlLevelRow(9, 90, NlPattern.peak, 8, 255, 48, 48, '原板第九节奏'),
 ];
 
 class LevelSetting {
@@ -404,6 +405,7 @@ class BleUplink {
 /// app -> toy-sidecar（BLE write 或 WiFi WebSocket）
 class BleDownlink {
   final NlCmd cmd;
+  /// set_level：0=正常关机（不闩锁），1..LEVEL_MAX=目标档位
   final int? level;
   final NlPattern? pattern;
   final NlMode? mode;
