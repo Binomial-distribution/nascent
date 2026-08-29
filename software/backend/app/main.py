@@ -42,6 +42,7 @@ def healthz() -> dict[str, str]:
     return {
         "status": "ok",
         "llm": "configured" if settings.llm_configured else "stub",
+        "llm_provider": settings.llm_provider,
         "speech": "configured" if settings.speech_configured else "stub",
         "tts": "configured" if settings.tts_configured else "stub",
     }

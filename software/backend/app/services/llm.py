@@ -20,7 +20,7 @@ from .agent_contract import (
 )
 from .body_note_contract import BodyInsightModelOutput
 from .prompt_builder import build_messages
-from .providers import openai_compat
+from .providers import anthropic, openai_compat
 
 logger = logging.getLogger("nascent.llm")
 
@@ -28,6 +28,9 @@ logger = logging.getLogger("nascent.llm")
 async def complete_json(**kwargs) -> str:
     """Logical Chat/Control lane. Tests monkeypatch this instead of HTTP."""
 
+    if settings.llm_provider == "anthropic":
+        kwargs.setdefault("base_url", settings.resolved_llm_base_url)
+        return await anthropic.complete(**kwargs)
     return await openai_compat.complete(**kwargs)
 
 
@@ -72,6 +75,7 @@ async def generate_turn(request: AgentTurnRequest, memories: list) -> AgentTurn:
             "action": None,
             "skill_proposals": skill_proposals,
             "memory_proposals": memory_proposals,
+            "fallback": "none",
         })
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
         logger.warning("Chat 9B fallback to stub: %s", openai_compat.error_summary(exc))
@@ -239,21 +243,22 @@ async def generate_body_insight(
 
 def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
     persona = request.persona if isinstance(request.persona, dict) else {}
-    name = str(persona.get("assistant_name") or persona.get("name") or "陆聿").strip() or "陆聿"
-    spoken = str(persona.get("spoken") or "").strip()
+    name = str(persona.get("assistant_name") or persona.get("name") or "Natsu").strip() or "Natsu"
     phase = request.scene_id
+    user_input = str(request.user_input or "")
     if request.session_mode == "wild":
-        dialogue = "我在。设备那边的计时你看着就好，我陪着你。"
-    elif phase == "aftercare" or "事后" in request.user_input:
-        dialogue = "我还在沙发这边陪着。过来靠一会儿，还是先歇着，你说。"
-    elif phase == "climax_window":
-        dialogue = "我跟着你。想快就快，想慢就慢，结束了我还在。"
-    elif phase == "rising":
-        dialogue = "还想再近一点就拉我一下。不想的话，抱着也行。"
+        dialogue = "我在。"
+    elif phase == "aftercare" or "事后" in user_input:
+        dialogue = "嗯，我在。你先歇着就好。"
+    elif "停" in user_input or "慢" in user_input:
+        dialogue = "好好，先这样。"
+    elif phase in {"rising", "climax_window"}:
+        dialogue = "我听你的。"
     else:
-        dialogue = spoken or f"{name}在。过来，今天想被哄，还是想被抱？"
-    emotion = "gentle" if phase in {"climax_window", "aftercare"} else "playful"
-    tts_style = "温柔" if phase in {"climax_window", "aftercare"} else "俏皮"
+        # 无 LLM 时不要吐旧版亲密套话，也不要重复开场 spoken
+        dialogue = f"{name}在。"
+    emotion = "gentle" if phase in {"climax_window", "aftercare"} else "calm"
+    tts_style = "温柔" if phase in {"climax_window", "aftercare"} else "平静"
     scene_ctrl = "end" if phase == "aftercare" else "stay"
     return AgentTurn(
         dialogue=dialogue,
@@ -261,6 +266,7 @@ def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
         tts_style=tts_style,
         scene_ctrl=scene_ctrl,
         memory_proposals=_stub_memory_proposals(request),
+        fallback="stub",
     )
 
 

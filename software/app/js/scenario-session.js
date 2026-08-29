@@ -1,6 +1,6 @@
 /** 情景漫游会话：头像压缩、通话后的 9B 文字回合。麦克风 PCM 只走 /v1/speech；传感只发脱敏趋势。 */
 
-import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalizeTtsStyle } from "./persona-cards.js";
+import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalizeTtsStyle, cardForPersona } from "./persona-cards.js";
 import { heartRate as defaultHeartRate } from "./hr.js";
 
 export const THREAD_KEY = "nascent.scenario.threads";
@@ -15,11 +15,24 @@ const MAX_AVATAR_CHARS = 120_000;
 
 export const EXPERIENCE_PHASES = ["approaching", "rising", "climax_window", "aftercare"];
 
+/** 与人设文档示例对齐：C2 日常 → C3 暧昧（玩具启动）→ C4 正式使用 → 事后 */
 export const PHASE_UI = {
-  approaching: { label: "慢慢靠近", goal: "带她走完前戏：黏着、靠近、听她想快还是慢。前戏落地后就往升温走，不要一直闲聊停在这里。" },
-  rising: { label: "一起往前", goal: "升温、更近，快慢仍听她的。她没说接近或更近之前，不要宣布高潮。" },
-  climax_window: { label: "高潮窗口", goal: "她开口说接近、要到了、更近时才跟着走完，不要替她宣布。" },
-  aftercare: { label: "事后抚慰", goal: "放慢、陪着、问要不要靠着或歇一会儿。" },
+  approaching: {
+    label: "C2 日常",
+    goal: "日常陪伴：生活锚点、短句、笨拙直白；不要主动把闲聊推向亲密。",
+  },
+  rising: {
+    label: "C3 暧昧",
+    goal: "已检测到玩具启动：可逐渐暧昧、含蓄确认，仍听她的节奏。",
+  },
+  climax_window: {
+    label: "C4 亲密",
+    goal: "她开口说接近、要到了、更近时才跟着走完，不要替她宣布。",
+  },
+  aftercare: {
+    label: "事后",
+    goal: "放慢、陪着、问要不要靠着或歇一会儿。",
+  },
 };
 
 const pressWindow = [];
@@ -64,14 +77,24 @@ export function buildSensorContext(uplink, { bandConnected = false, heartRate = 
   };
 }
 
-export function nextExperiencePhase(phase, { sceneCtrl = "stay", userText = "" } = {}) {
+/** 小玩具是否已启动（人设 C2→C3 门槛）。 */
+export function toySessionStarted(sensor = {}) {
+  const level = Number(sensor.current_level);
+  if (Number.isFinite(level) && level >= 1) return true;
+  const insert = String(sensor.insert_state || "").toLowerCase();
+  if (insert === "inserted" || insert === "contact" || insert === "in") return true;
+  return false;
+}
+
+export function nextExperiencePhase(phase, { sceneCtrl = "stay", userText = "", sensor = {} } = {}) {
   const current = EXPERIENCE_PHASES.includes(phase) ? phase : "approaching";
   const text = String(userText || "");
   if (/事后|抚慰|抱抱|歇|休息|累了|够了|结束吧|想停|不要了|结束/.test(text)) return "aftercare";
   if (sceneCtrl === "end") return "aftercare";
   // 高潮窗口只能由用户自己的话打开，不能靠传感器或模型的 next。
   if (userOpenedClimaxWindow(text) && current !== "aftercare") return "climax_window";
-  if (current === "approaching" && (sceneCtrl === "next" || text.trim())) return "rising";
+  // C2→C3：只有检测到玩具启动才进入暧昧期；闲聊与 scene_ctrl=next 都不能提前跳。
+  if (current === "approaching" && toySessionStarted(sensor)) return "rising";
   return current;
 }
 
@@ -433,6 +456,7 @@ export class ScenarioChatState {
       const next = nextExperiencePhase(phase, {
         sceneCtrl: turn.scene_ctrl,
         userText: trimmed,
+        sensor: extras.sensor_context || {},
       });
       this.setPhase(key, next);
       const thread = this._threads.get(key) || items;
@@ -451,6 +475,7 @@ export class ScenarioChatState {
         phase: next,
         tts_style: turn.tts_style || stubTtsStyle(trimmed, next),
         memory_proposals: turn.memory_proposals || [],
+        stub: Boolean(turn.stub),
       };
     } finally {
       this.sending = false;
@@ -478,7 +503,7 @@ export class ScenarioChatState {
       recent_turns: recent,
     };
     if (!this._fetch) {
-      return stubTurn(persona, text, phase);
+      return { ...stubTurn(persona, text, phase), stub: true };
     }
     try {
       const response = await this._fetch("/v1/agent/turn", {
@@ -487,19 +512,24 @@ export class ScenarioChatState {
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        return stubTurn(persona, text, phase);
+        return { ...stubTurn(persona, text, phase), stub: true };
       }
       const body = await response.json();
       const dialogue = String(body?.dialogue || "").trim();
       const proposals = normalizeMemoryProposals(body?.memory_proposals);
+      if (!dialogue) {
+        return { ...stubTurn(persona, text, phase), stub: true };
+      }
+      const isStub = body?.fallback === "stub" || body?.stub === true;
       return {
-        dialogue: dialogue || stubDialogue(persona, text, phase),
+        dialogue,
         scene_ctrl: ["stay", "next", "end"].includes(body?.scene_ctrl) ? body.scene_ctrl : "stay",
         tts_style: body?.tts_style ? normalizeTtsStyle(body.tts_style) : stubTtsStyle(text, phase),
         memory_proposals: proposals,
+        stub: isStub,
       };
     } catch {
-      return stubTurn(persona, text, phase);
+      return { ...stubTurn(persona, text, phase), stub: true };
     }
   }
 
@@ -565,12 +595,15 @@ export function createHoldRecognizer({ onText, onError, onEnd } = {}) {
 
 export function experienceSummary(phase, sensor) {
   const meta = PHASE_UI[phase] || PHASE_UI.approaching;
+  const toyOn = toySessionStarted(sensor);
   return [
-    `当前阶段：${meta.label}。${meta.goal}`,
-    "带她走过前戏再升温。高潮窗口只能由她自己的话说开。不要念阶段名称，不要根据传感器宣布高潮。",
+    `人设阶段：${meta.label}。${meta.goal}`,
+    toyOn
+      ? "已检测到玩具启动（可进入 C3 暧昧语气），仍按宏观趋势反应，禁止念传感器字段名。"
+      : "玩具未启动：保持 C2 日常交流，禁止主动把对话推向亲密或暧昧。",
     "传感器只是背景，不要在台词里汇报。",
-    `温感 ${sensor.temperature_state || "unknown"}，压力 ${sensor.pressure_rhythm || "unknown"}，心率 ${sensor.hr_trend || "unknown"}。`,
-    phase === "aftercare" ? "这一段要事后陪着，不要再往高潮推。" : "",
+    `温感 ${sensor.temperature_state || "unknown"}，压力 ${sensor.pressure_rhythm || "unknown"}，心率 ${sensor.hr_trend || "unknown"}，档位 ${sensor.current_level ?? 0}。`,
+    phase === "aftercare" ? "这一段放慢陪伴，不要再往高潮推。" : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -627,20 +660,19 @@ function stubTurn(persona, text, phase) {
 }
 
 function stubDialogue(persona, text, phase) {
-  const name = persona?.name || "陆聿";
+  const card = cardForPersona(persona);
+  const name = card.assistant_name || persona?.name || "Natsu";
   if (phase === "aftercare" || /事后|抚慰|抱抱|歇|休息|累了/.test(text)) {
-    return "我还在沙发这边陪着。过来靠一会儿，还是先歇着，你说。";
-  }
-  if (/高潮|要到了|快到了/.test(text)) {
-    return "我跟着你。想快就快，想慢就慢，结束了我还在。";
+    return "嗯，我在。你先歇着就好。";
   }
   if (/停|慢|等/.test(text)) {
-    return "好好，先停在这里。想被抱着就靠过来。";
+    return "好好，先这样。";
   }
-  if (phase === "rising") {
-    return "还想再近一点就拉我一下。不想的话，抱着也行。";
+  if (phase === "rising" || phase === "climax_window" || /高潮|要到了|快到了/.test(text)) {
+    return "我听你的。";
   }
-  return persona?.spoken || `${name}在。过来，今天想被哄，还是想被抱？`;
+  // 本地/无 LLM：极简回应，禁止旧版亲密套话，也不要重复开场 spoken
+  return `${name}在。`;
 }
 
 function stubTtsStyle(text, phase) {
@@ -652,8 +684,7 @@ function stubTtsStyle(text, phase) {
 
 function stubSceneCtrl(text, phase) {
   if (/事后|抚慰|抱抱|歇|休息|累了|够了|结束/.test(text) || phase === "aftercare") return "end";
-  if (phase === "approaching" && String(text || "").trim()) return "next";
-  if (/高潮|要到了|快到了|想更近/.test(text)) return "next";
+  // 本地 stub 永不自行推进 C2→C3；阶段只由 toySessionStarted 决定
   return "stay";
 }
 

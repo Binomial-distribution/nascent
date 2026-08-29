@@ -3,12 +3,12 @@ import { CHANNEL, CHANNEL_LABEL, currentShell } from "./transport.js";
 import { bodyNotes } from "./body-notes.js";
 import { parseHash, legacyNotesTarget, SCENARIO_FLOW } from "./routes.js";
 import {
-  PHASE_UI,
   buildSensorContext,
   fileToAvatarDataUrl,
   ingestUplinkSample,
   formatCaptionHtml,
   personaAvatarHtml,
+  PHASE_UI,
   resetSensorWindow,
   scenarioChat,
   THREAD_KEY,
@@ -23,16 +23,12 @@ import {
   DEFAULT_CUSTOM_PERSONA,
   PERSONA_CARDS,
   PERSONA_PRESETS,
-  PERSONA_QUIZ,
-  PERSONA_VIBES,
-  cardToDraft,
   cardToPromptText,
   draftToCard,
   emptyCardDraft,
-  emptyQuizAnswers,
+  importPersonaDocument,
   personaOpeningLine,
   personaRejoinLine,
-  quizAnswersToCard,
   savedPersonaToDraft,
   speakOptionsForPersona,
 } from "./persona-cards.js";
@@ -118,7 +114,6 @@ const ui = {
   draftPersonaCard: null,
   pendingCloneFile: null,
   cloneNeedsTranscript: false,
-  quizAnswers: emptyQuizAnswers(),
   callTimer: null,
   voiceListening: false,
   pendingScenarioPersona: null,
@@ -334,9 +329,6 @@ function customPersonaBlurb(item) {
 
 function readPersonaCardDraftFromForm() {
   const value = (id) => root.querySelector(`#${id}`)?.value ?? "";
-  const vibe = root.querySelector("[data-act=persona-vibe].on")?.dataset.vibe
-    || ui.draftPersonaCard?.vibe
-    || "";
   return {
     name: value("persona-assistant-name"),
     assistant_name: value("persona-assistant-name"),
@@ -347,7 +339,8 @@ function readPersonaCardDraftFromForm() {
     rules: value("persona-rules"),
     prologue: value("persona-prologue"),
     spoken: value("persona-spoken"),
-    vibe,
+    system_prompt: ui.draftPersonaCard?.system_prompt || "",
+    vibe: ui.draftPersonaCard?.vibe || "",
     tts: ui.draftPersonaCard?.tts || {},
   };
 }
@@ -388,6 +381,7 @@ function persistCustomPersonaRecord({ card, name, source = "free", activate = fa
     spoken: card.spoken,
     subtitle: card.subtitle,
     vibe: card.vibe || "",
+    system_prompt: card.system_prompt || "",
     tts: card.tts || {},
   };
   const text = cardToPromptText(card);
@@ -434,7 +428,6 @@ function persistCustomPersonaRecord({ card, name, source = "free", activate = fa
   }
   ui.draftAvatar = null;
   ui.draftPersonaCard = null;
-  ui.quizAnswers = emptyQuizAnswers();
   if (activate || createdNew) {
     ui.persona.activeCustomId = id;
     ui.persona.mode = "custom";
@@ -497,8 +490,8 @@ async function saveCustomPersonaFromForm({ activate = false, createdNotice = fal
   const name = String(draft.assistant_name || draft.name || "").trim();
   const profile = String(draft.profile || "").trim();
   const spoken = String(draft.spoken || "").trim();
-  if (!name && !profile && !spoken) {
-    toast("先写他是谁，或点上面一种感觉");
+  if (!name && !profile && !spoken && !String(draft.system_prompt || "").trim()) {
+    toast("先写他是谁，或上传设定文件");
     return { ok: false };
   }
   const result = persistCustomPersonaRecord({
@@ -508,33 +501,6 @@ async function saveCustomPersonaFromForm({ activate = false, createdNotice = fal
     activate,
     createdNotice,
     editingId: ui.persona.editingId,
-  });
-  await uploadCustomPersona(result.item);
-  return result;
-}
-
-async function saveCustomPersonaFromQuiz({ activate = true, createdNotice = false } = {}) {
-  stashQuizDraft();
-  const answers = ui.quizAnswers || emptyQuizAnswers();
-  if (!answers.vibe) {
-    toast("先选你想被怎样陪着");
-    return { ok: false };
-  }
-  if (!answers.profile) {
-    toast("先选他是哪种男友");
-    return { ok: false };
-  }
-  if (!answers.spoken) {
-    toast("先选见面时他会说哪句");
-    return { ok: false };
-  }
-  const card = quizAnswersToCard(answers);
-  const result = persistCustomPersonaRecord({
-    card,
-    name: card.assistant_name,
-    source: "quiz",
-    activate,
-    createdNotice,
   });
   await uploadCustomPersona(result.item);
   return result;
@@ -800,8 +766,8 @@ function knowledgeCard(card, index) {
 
 function renderIntimacy() {
   return `${topbar("亲密时刻")}
-  <main class="page intimacy-home">
-    ${statusBar({ connectable: true, trailing: "shield" })}
+  ${floatingDeviceBar({ connectable: true, trailing: "shield" })}
+  <main class="page intimacy-home page-with-float">
     <h2 class="lead">选择今天的靠近方式</h2>
     <p class="sub">想有人陪着说话，或快慢都自己来，选下面一种。</p>
     <div class="entry-stack">
@@ -829,8 +795,8 @@ function renderControl() {
   const mode = uplink?.mode ?? NlMode.FREE;
   const disabled = connected ? "" : "disabled";
   return `${topbar("自我控制", { back: true })}
-  <main class="page control-page">
-    ${statusBar({ connectable: true, trailing: connected ? "check" : "chevron" })}
+  ${floatingDeviceBar({ connectable: true, trailing: connected ? "check" : "chevron" })}
+  <main class="page control-page page-with-float">
     <button class="stop" data-act="stop">${icon("stop")} 停 止</button>
     <div class="power-actions" aria-label="设备电源">
       <button class="power-on ${reported > 0 ? "active" : ""}" data-act="power-on" ${disabled}>开启</button>
@@ -864,7 +830,9 @@ function scenarioCatalog() {
     avatar: item.avatar,
     kind: "custom",
   }));
-  const personas = (ui.personas.length ? ui.personas : PERSONA_PRESETS).map((item) => {
+  const personas = (ui.personas.length ? ui.personas : PERSONA_PRESETS)
+    .filter((item) => item.id === "gentle")
+    .map((item) => {
     const card = PERSONA_CARDS[item.id];
     return {
       key: `persona:${item.id}`,
@@ -911,21 +879,12 @@ function renderScenario() {
 
 function renderPersonaList() {
   const items = scenarioCatalog();
-  return `${topbar("情景模式", {
-    back: true,
-    action: `<button class="icon-btn" data-act="persona-new" aria-label="新建人设">${icon("plus")}</button>`,
-  })}
+  return `${topbar("情景模式", { back: true })}
   <main class="page">
     <h2 class="lead">选择人设</h2>
-    <p class="sub">注意事项：不舒服随时可以说停。想慢就慢。不要硬撑。</p>
     <button class="persona-row persona-new-row" data-act="persona-new">
       <div class="avatar">${icon("plus")}</div>
-      <div><strong>自己写一个他</strong><small>名字、脾气、开场白都自己填。</small></div>
-      <span class="chev">${icon("chevron")}</span>
-    </button>
-    <button class="persona-row persona-new-row" data-act="persona-quiz">
-      <div class="avatar">${icon("book")}</div>
-      <div><strong>不知道怎么填？做个小问卷</strong><small>点选就好，做完他会出现在下面。</small></div>
+      <div><strong>自己写一个ta</strong><small>名字、脾气、开场白都自己填，也可上传设定文件。</small></div>
       <span class="chev">${icon("chevron")}</span>
     </button>
     ${items.map((item) => `
@@ -987,15 +946,17 @@ function renderScenarioChat() {
   const persona = ui.activePersona || { name: "当前人设", key: "none" };
   const messages = scenarioChat.messages(persona.key);
   const phase = scenarioChat.phase(persona.key);
-  const phaseUi = PHASE_UI[phase] || PHASE_UI.approaching;
   const sensors = buildSensorContext(getUplink(), { bandConnected: ui.devices.bandConnected });
-  const opening = personaOpeningLine(persona, phase);
+  const opening = messages.length > 0
+    ? personaRejoinLine(persona)
+    : personaOpeningLine(persona, phase);
+  const phaseUi = PHASE_UI[phase] || PHASE_UI.approaching;
   const dayLabel = messages.some((message) => message.role === "user") ? "还在聊" : "刚开始";
-  return `${topbar(escapeHtml(persona.name), {
-    back: true,
-    action: personaAvatarHtml(persona, "avatar top-avatar"),
-  })}
-  <main class="insight-page scenario-chat-page">
+  return `<div class="chat-sticky-head">
+    ${topbar(escapeHtml(persona.name), {
+      back: true,
+      action: personaAvatarHtml(persona, "avatar top-avatar"),
+    })}
     <div class="scope-strip"><strong>${phaseUi.label}</strong><span>${ui.scenarioAutomation.authorized ? "设备自动调节中 · 想更近、想慢、想停，直接说" : "想更近、想慢、想停，直接说就好"}</span></div>
     <div class="source-strip">
       <span>温感 ${sensorLabel(sensors.temperature_state)}</span>
@@ -1006,6 +967,8 @@ function renderScenarioChat() {
       <button type="button" class="ghost chat-tool" data-act="scenario-voice">语音通话</button>
       <button type="button" class="ghost chat-tool" data-act="forget-persona-memory">忘掉他记得的事</button>
     </div>
+  </div>
+  <main class="insight-page scenario-chat-page">
     <div class="chat-thread im-thread">
       <div class="chat-day">${dayLabel} · ${phaseUi.label}</div>
       ${messages.length ? "" : `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(opening)}</div></div>`}
@@ -1067,7 +1030,7 @@ function renderPersonaForm() {
   <main class="page">
     <form id="persona-form">
       <label class="form-label" for="persona-name">名称</label>
-      <input class="form-input" id="persona-name" name="name" maxlength="40" required value="${escapeHtml(DEFAULT_CUSTOM_PERSONA.name)}" placeholder="例如：陆聿" />
+      <input class="form-input" id="persona-name" name="name" maxlength="40" required value="${escapeHtml(DEFAULT_CUSTOM_PERSONA.name)}" placeholder="例如：Natsu" />
       <span class="form-label">风格</span>
       <div class="chip-row">
         ${STYLE_TAGS.map((tag) => `<button type="button" class="chip" data-act="toggle-tag" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}
@@ -1653,16 +1616,17 @@ function renderPersonaHub() {
     </button>
     <button class="ob-choice ${ui.persona.mode === "custom" ? "selected" : ""}" data-act="persona-mode" data-mode="custom">
       <strong>新建自定义人设</strong>
-      <span>写他是谁、怎么叫你，或做个小问卷。</span>
+      <span>写他是谁、怎么叫你，或上传已有设定文件。</span>
     </button>
   </main>`;
 }
 
 function renderPersonaFixed() {
-  const list = ui.personas.length ? ui.personas : PERSONA_PRESETS;
+  const list = (ui.personas.length ? ui.personas : PERSONA_PRESETS)
+    .filter((p) => p.id === "gentle");
   return `${topbar("固定人设", { back: true, backTo: "#/settings/persona" })}
   <main class="page">
-    <p class="sub">点选一个人设作为当天陪伴风格。首选「${PERSONA_CARDS.gentle?.name || "陆聿"}」为固有人设 001。</p>
+    <p class="sub">点选一个人设作为当天陪伴风格。首选「${PERSONA_CARDS.gentle?.name || "Natsu"}」为固有人设 001。</p>
     ${list.map((p) => `
       <button class="ob-choice ${ui.persona.presetId === p.id ? "selected" : ""}" data-act="persona-pick" data-id="${p.id}">
         <strong>${p.name}${p.id === "gentle" ? " · 固有 001" : ""}</strong>
@@ -1690,26 +1654,18 @@ function renderPersonaCustom(editId = null) {
   const name = draft.assistant_name || draft.name || "";
   const avatar = ui.draftAvatar || editing?.avatar || "";
   const clonedVoice = String(draft.tts?.localClipName || draft.tts?.voice || "").trim();
-  const selectedVibe = PERSONA_VIBES.find((item) => item.id === draft.vibe);
+  const fileHint = draft.system_prompt
+    ? "已载入完整人设文档，表单里未填的项会以文件为准。"
+    : "可上传 .md / .txt；若文件里已有姓名、性格等，会优先填入。";
   const backTo = ui.scenarioHandoff
     ? "#/intimacy/scenario"
     : (editing ? "#/settings/persona/customs" : "#/settings/persona");
-  return `${topbar(editing ? "编辑自定义人设" : "自己写一个他", { back: true, backTo })}
+  const formTitle = editing
+    ? "编辑自定义人设"
+    : (ui.scenarioHandoff ? "自己写一个ta" : "自己写一个他");
+  return `${topbar(formTitle, { back: true, backTo })}
   <main class="page persona-guide">
     <p class="sub">他会怎么陪你，都写在这里。做完会保存到云端，出现在「选择人设」里。</p>
-    <p class="quiz-link">不知道怎么填？<button type="button" class="text-link" data-act="persona-quiz">做个小问卷</button></p>
-    <div class="persona-guide-thread">
-      <div class="bubble-row assistant"><div class="bubble">先告诉我，你今天想被怎样陪着？</div></div>
-      <div class="persona-vibe-row">
-        ${PERSONA_VIBES.map((vibe) => `
-          <button type="button" class="chip persona-vibe ${draft.vibe === vibe.id ? "on" : ""}" data-act="persona-vibe" data-vibe="${escapeHtmlApp(vibe.id)}">${escapeHtmlApp(vibe.reply)}</button>
-        `).join("")}
-      </div>
-      ${selectedVibe
-        ? `<div class="bubble-row user"><div class="bubble">${escapeHtmlApp(selectedVibe.reply)}</div></div>
-           <div class="bubble-row assistant"><div class="bubble">${escapeHtmlApp(selectedVibe.hint)} 名字可以自己改。</div></div>`
-        : `<div class="bubble-row assistant"><div class="bubble">点一种感觉，或者自己写他是谁、怎么叫你。</div></div>`}
-    </div>
     <label class="ob-label">头像</label>
     <div class="avatar-edit">
       ${personaAvatarHtml({ name: name || "新", avatar }, "avatar avatar-preview")}
@@ -1722,7 +1678,7 @@ function renderPersonaCustom(editId = null) {
     </div>
     <p class="ob-hint">${clonedVoice ? `已经记下这段声音（演示，尚未送云端）${draft.tts?.localClipName ? `：${escapeHtmlApp(draft.tts.localClipName)}` : ""}。通话仍用人设系统音色。` : "单人、尽量安静、至少 10 秒。本轮只在本机记下，不会上传克隆。"}</p>
     <label class="ob-label" for="persona-assistant-name">他的名字</label>
-    <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如陆聿" />
+    <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如 Natsu" />
     <label class="ob-label" for="persona-user-name">他怎么叫你</label>
     <input id="persona-user-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(draft.user_name)}" placeholder="宝贝、丫头，或你的名字" />
     <label class="ob-label" for="persona-profile">他是谁</label>
@@ -1737,48 +1693,16 @@ function renderPersonaCustom(editId = null) {
     <textarea id="persona-spoken" class="ob-input" rows="2" placeholder="他开口第一句会说什么？">${escapeHtmlApp(draft.spoken)}</textarea>
     <label class="ob-label" for="persona-prologue">此刻是什么场面</label>
     <textarea id="persona-prologue" class="ob-input" rows="2" placeholder="比如晚上刚下班，他靠在沙发上">${escapeHtmlApp(draft.prologue)}</textarea>
+    <label class="ob-label">上传已有设定文件</label>
+    <label class="ghost avatar-upload" style="display:inline-flex;margin:4px 0 8px">选择 .md / .txt
+      <input id="persona-doc-file" type="file" accept=".md,.txt,text/markdown,text/plain" hidden />
+    </label>
+    <p class="ob-hint">${escapeHtmlApp(fileHint)}</p>
     <div class="ob-actions" style="margin-top:16px">
       <button class="ghost" data-act="persona-save-custom">保存</button>
       ${ui.scenarioHandoff
         ? `<button class="primary" data-act="persona-start-chat">直接开始</button>`
         : `<button class="primary" data-act="persona-use-custom">使用</button>`}
-    </div>
-  </main>`;
-}
-
-function quizOptionOn(question, option) {
-  const answers = ui.quizAnswers || emptyQuizAnswers();
-  if (question.multiple) {
-    return Array.isArray(answers.skills) && answers.skills.includes(option.id);
-  }
-  return answers[question.id] === option.id;
-}
-
-function renderPersonaQuiz() {
-  const answers = ui.quizAnswers || emptyQuizAnswers();
-  const backTo = ui.scenarioHandoff ? "#/intimacy/scenario" : "#/settings/persona/custom";
-  return `${topbar("做个小问卷", { back: true, backTo })}
-  <main class="page persona-quiz">
-    <p class="sub">点选就好。做完会生成他，存到云端，并出现在「选择人设」里。</p>
-    ${PERSONA_QUIZ.map((question) => `
-      <section class="quiz-block">
-        <h3>${escapeHtmlApp(question.prompt)}</h3>
-        <div class="persona-vibe-row">
-          ${question.options.map((option) => `
-            <button type="button" class="chip persona-vibe ${quizOptionOn(question, option) ? "on" : ""}" data-act="${question.multiple ? "persona-quiz-toggle" : "persona-quiz-pick"}" data-q="${escapeHtmlApp(question.id)}" data-id="${escapeHtmlApp(option.id)}">${escapeHtmlApp(option.label)}</button>
-          `).join("")}
-        </div>
-        ${question.custom && question.id === "name"
-          ? `<input id="quiz-name-custom" class="ob-field" maxlength="40" value="${escapeHtmlApp(answers.nameCustom || "")}" placeholder="${escapeHtmlApp(question.placeholder)}" />`
-          : ""}
-        ${question.custom && question.id === "user_name"
-          ? `<input id="quiz-user-custom" class="ob-field" maxlength="40" value="${escapeHtmlApp(answers.userCustom || "")}" placeholder="${escapeHtmlApp(question.placeholder)}" />`
-          : ""}
-      </section>
-    `).join("")}
-    <div class="ob-actions" style="margin-top:16px">
-      <button class="ghost" data-act="persona-new">还是自己写</button>
-      <button class="primary" data-act="persona-quiz-save">${ui.scenarioHandoff ? "生成并开始" : "生成他"}</button>
     </div>
   </main>`;
 }
@@ -2570,24 +2494,11 @@ function leaveScenarioCall() {
   stopScenarioAutomation();
 }
 
-function stashQuizDraft() {
-  const nameEl = root.querySelector("#quiz-name-custom");
-  const userEl = root.querySelector("#quiz-user-custom");
-  if (!nameEl && !userEl) return;
-  ui.quizAnswers = {
-    ...emptyQuizAnswers(),
-    ...(ui.quizAnswers || {}),
-    nameCustom: nameEl?.value || "",
-    userCustom: userEl?.value || "",
-  };
-}
-
 function stashPersonaDraft() {
   if (ui.suppressPersonaStash) {
     ui.suppressPersonaStash = false;
     return;
   }
-  stashQuizDraft();
   if (!root.querySelector("#persona-assistant-name")) return;
   const { page, sub } = route();
   if (page === "persona" && (sub === "custom" || sub === "edit")) {
@@ -2598,7 +2509,6 @@ function stashPersonaDraft() {
 function resetPersonaDraft() {
   ui.draftAvatar = null;
   ui.draftPersonaCard = emptyCardDraft();
-  ui.quizAnswers = emptyQuizAnswers();
   ui.pendingCloneFile = null;
   ui.cloneNeedsTranscript = false;
 }
@@ -2671,8 +2581,7 @@ function render() {
     if (page === "persona" && sub === "fixed") root.innerHTML = renderPersonaFixed();
     else if (page === "persona" && sub === "customs") root.innerHTML = renderCustomPersonaList();
     else if (page === "persona" && sub === "edit" && id) root.innerHTML = renderPersonaCustom(id);
-    else if (page === "persona" && sub === "quiz") root.innerHTML = renderPersonaQuiz();
-    else if (page === "persona" && sub === "custom") root.innerHTML = renderPersonaCustom(null);
+    else if (page === "persona" && (sub === "custom" || sub === "quiz")) root.innerHTML = renderPersonaCustom(null);
     else if (page === "persona") root.innerHTML = renderPersonaHub();
     else if (page === "data") root.innerHTML = renderLocalData();
     else if (page === "safeword") root.innerHTML = renderSafewordManage();
@@ -2741,6 +2650,8 @@ function bind() {
   if (avatarInput) avatarInput.addEventListener("change", onPersonaAvatarPicked);
   const voiceInput = root.querySelector("#persona-voice-file");
   if (voiceInput) voiceInput.addEventListener("change", onPersonaVoicePicked);
+  const docInput = root.querySelector("#persona-doc-file");
+  if (docInput) docInput.addEventListener("change", onPersonaDocPicked);
   bindHoldMic();
   bindCallSwipe();
   root.querySelectorAll("[data-act=lab-check]").forEach((el) => {
@@ -2771,7 +2682,7 @@ async function onScenarioChatSubmit(event) {
   const text = area.value.trim();
   if (!text) return;
   area.value = "";
-  await sendScenarioLine(text);
+  await sendScenarioLine(text, { speak: false });
 }
 
 async function sendScenarioLine(text, { speak = false, skipRender = false } = {}) {
@@ -2786,13 +2697,15 @@ async function sendScenarioLine(text, { speak = false, skipRender = false } = {}
   requestAutomaticControl({ explicitSignal: text });
   if (!skipRender) render();
   requestAnimationFrame(() => root.querySelector(".chat-thread")?.scrollTo(0, 99999));
-  if (speak && turn?.dialogue) {
-    const result = await speakDialogue(turn.dialogue, {
+  if (turn?.stub) {
+    toast("Agent 仍是占位回复：请用 http://127.0.0.1:8780/ 打开，并确认 secrets/.env 里的模型密钥有效");
+  }
+  if (speak && turn?.dialogue && !turn?.stub) {
+    await speakDialogue(turn.dialogue, {
       ...speakOptionsForPersona(persona, { provider: ui.prefs.ttsProvider }),
       tts_style: turn.tts_style,
       provider: ui.prefs.ttsProvider,
     });
-    if (!result?.played && !result?.interrupted) toast("这次没播出声音，看文字就好");
   }
   return turn;
 }
@@ -2807,6 +2720,37 @@ async function onPersonaAvatarPicked(event) {
     toast("头像已更新，保存后才会记下");
   } catch (error) {
     toast(error.message || "头像无法使用");
+  }
+}
+
+async function onPersonaDocPicked(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  const name = String(file.name || "").toLowerCase();
+  const okType = name.endsWith(".md") || name.endsWith(".txt")
+    || file.type === "text/plain"
+    || file.type === "text/markdown"
+    || file.type === "text/x-markdown";
+  if (!okType) {
+    toast("请上传 .md 或 .txt 文件");
+    return;
+  }
+  if (file.size > 200_000) {
+    toast("文件太大，请控制在约 200KB 以内");
+    return;
+  }
+  try {
+    const text = await file.text();
+    const base = readPersonaCardDraftFromForm();
+    ui.draftPersonaCard = importPersonaDocument(text, base);
+    ui.suppressPersonaStash = true;
+    render();
+    toast(ui.draftPersonaCard.system_prompt
+      ? "已载入完整人设文档，未填字段以文件为准"
+      : "已填入文件内容，可再改名字和开场白");
+  } catch (error) {
+    toast(error.message || "文件读不出来");
   }
 }
 
@@ -3137,64 +3081,6 @@ async function onClick(event) {
     ui.persona.editingId = null;
     resetPersonaDraft();
     go("#/settings/persona/custom");
-  }
-  else if (act === "persona-quiz") {
-    stashPersonaDraft();
-    if (route().page === "scenario") ui.scenarioHandoff = true;
-    ui.persona.editingId = null;
-    const next = emptyQuizAnswers();
-    if (ui.draftPersonaCard?.vibe) next.vibe = ui.draftPersonaCard.vibe;
-    ui.quizAnswers = next;
-    go("#/settings/persona/quiz");
-  }
-  else if (act === "persona-quiz-pick") {
-    stashQuizDraft();
-    ui.quizAnswers = { ...emptyQuizAnswers(), ...(ui.quizAnswers || {}), [t.dataset.q]: t.dataset.id };
-    ui.suppressPersonaStash = true;
-    render();
-  }
-  else if (act === "persona-quiz-toggle") {
-    stashQuizDraft();
-    const current = new Set(ui.quizAnswers?.skills || []);
-    if (current.has(t.dataset.id)) current.delete(t.dataset.id);
-    else current.add(t.dataset.id);
-    ui.quizAnswers = { ...emptyQuizAnswers(), ...(ui.quizAnswers || {}), skills: [...current] };
-    ui.suppressPersonaStash = true;
-    render();
-  }
-  else if (act === "persona-quiz-save") {
-    const result = await saveCustomPersonaFromQuiz({
-      activate: true,
-      createdNotice: !ui.scenarioHandoff,
-    });
-    if (!result.ok) return;
-    if (ui.scenarioHandoff) {
-      beginScenarioCall(findScenarioPersona(`custom:${result.id}`));
-      return;
-    }
-    toast("他已经在选择人设里了");
-    go("#/intimacy/scenario");
-  }
-  else if (act === "persona-vibe") {
-    stashPersonaDraft();
-    const preset = PERSONA_CARDS[t.dataset.vibe];
-    if (!preset) return;
-    const current = { ...emptyCardDraft(), ...(ui.draftPersonaCard || {}) };
-    const filled = cardToDraft(preset);
-    const keepName = String(current.assistant_name || current.name || "").trim();
-    const keepUser = String(current.user_name || "").trim();
-    if (keepName) {
-      filled.name = keepName;
-      filled.assistant_name = keepName;
-    }
-    if (keepUser) filled.user_name = keepUser;
-    filled.vibe = t.dataset.vibe;
-    if (current.tts?.voice || current.tts?.localClipDemo || current.tts?.localClipName) {
-      filled.tts = { ...(filled.tts || {}), ...current.tts };
-    }
-    ui.draftPersonaCard = filled;
-    ui.suppressPersonaStash = true;
-    render();
   }
   else if (act === "pick-persona") {
     beginScenarioCall(findScenarioPersona(t.dataset.key));
@@ -3570,7 +3456,7 @@ function patchTelemetry() {
   }
   if (tab === "intimacy" && page === "scenario" && sessionId === "chat") {
     const sensors = buildSensorContext(uplink, { bandConnected: ui.devices.bandConnected });
-    const chips = root.querySelectorAll(".scenario-chat-page .source-strip span");
+    const chips = root.querySelectorAll(".chat-sticky-head .source-strip span, .scenario-chat-page .source-strip span");
     if (chips[0]) chips[0].textContent = `温感 ${sensorLabel(sensors.temperature_state)}`;
     if (chips[1]) chips[1].textContent = `压力 ${sensorLabel(sensors.pressure_rhythm)}`;
     if (chips[2]) chips[2].textContent = hrChipText(sensors);

@@ -461,9 +461,11 @@ a { color: var(--coral); }
   stroke-width: 1.7;
 }
 
+/* 爱心路径偏下，光学居中；只用描边，避免 fill+stroke 叠成双心 */
 .entry-scenario .entry-ico .icon {
-  fill: currentColor;
-  stroke: none;
+  fill: none;
+  stroke: currentColor;
+  transform: translateY(1px);
 }
 
 .entry-copy { max-width: 16em; }
@@ -1494,7 +1496,22 @@ button:disabled {
 }
 
 #app.chat-view { padding-bottom: 82px; }
-.insight-page { min-height: calc(100dvh - 134px); background: #1b1720; }
+#app.chat-view > .topbar,
+#app.chat-view > .chat-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 16;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+#app.chat-view > .chat-sticky-head > .topbar {
+  position: static;
+  border-bottom: 0;
+  background: transparent;
+}
+.insight-page { min-height: calc(100dvh - 134px); background: var(--bg); }
 .scope-strip {
   min-height: 42px;
   padding: 8px 16px;
@@ -1502,15 +1519,20 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: #302738;
-  border-top: 1px solid #44384e;
-  border-bottom: 1px solid #44384e;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .scope-strip strong { color: var(--coral); font-size: 0.82rem; }
 .scope-strip span { color: var(--muted); font-size: 0.72rem; }
 .source-strip { display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px; scrollbar-width: none; }
-.source-strip span { flex: none; padding: 5px 8px; border-radius: 6px; background: var(--bg-soft); color: var(--muted); font-size: 0.7rem; }
+.source-strip span { flex: none; padding: 5px 8px; border-radius: 6px; background: var(--bg-card); color: var(--muted); font-size: 0.7rem; border: 1px solid var(--line); }
+.chat-sticky-head .source-strip {
+  padding-top: 0;
+  padding-bottom: 12px;
+  background: transparent;
+}
 .chat-tools {
   display: flex;
   gap: 8px;
@@ -1532,12 +1554,14 @@ button:disabled {
   max-width: min(78%, 330px);
   padding: 10px 12px;
   border-radius: 6px;
-  background: #302938;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--line);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
-.bubble-row.user .bubble { background: #a8d5ba; color: #14271d; }
+.bubble-row.user .bubble { background: #a8d5ba; color: #14271d; border-color: transparent; }
 .im-thread .bubble {
   padding: 10px 14px;
   line-height: 1.5;
@@ -1619,7 +1643,9 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) 44px;
   align-items: end;
   gap: 8px;
-  background: var(--bg-elev);
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);
 }
 
@@ -1627,11 +1653,11 @@ button:disabled {
   min-height: 44px;
   max-height: 104px;
   resize: none;
-  border-radius: 22px;
-  background: var(--bg-soft);
+  border-radius: 6px;
+  background: var(--field-bg);
   color: var(--text);
-  padding: 11px 14px;
   border: 1px solid var(--line);
+  padding: 11px;
 }
 
 .chat-composer button { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--coral); color: #2a1520; }
@@ -1909,11 +1935,12 @@ button:disabled {
   place-items: center;
   background: var(--bg-soft);
   color: var(--coral);
+  border: 1px solid var(--line);
   touch-action: none;
   user-select: none;
 }
 .chat-composer .hold-mic { background: var(--bg-soft); color: var(--coral); }
-.hold-mic.listening { background: var(--coral); color: #2a1520; }
+.hold-mic.listening { background: var(--coral); color: #2a1520; border-color: transparent; }
 
 @keyframes call-ring {
   from { transform: scale(0.72); opacity: 0.7; }

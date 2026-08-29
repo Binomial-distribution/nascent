@@ -348,7 +348,7 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert "hr_trend" in blob
     assert "press_l" not in blob
     assert "recent_turns" not in blob
-    assert "陆聿" in messages[0]["content"]
+    assert "Natsu" in messages[0]["content"]
     assert "角色卡" in messages[0]["content"]
     assert "请依据以下受控上下文" not in blob
     assert messages[-1]["role"] == "user"
@@ -397,7 +397,7 @@ def test_gentle_uses_server_builtin_after_fixed_system_prompt():
             persona_id="gentle",
             persona={
                 "system_prompt": "HACKED_PROMPT",
-                "assistant_name": "陆聿",
+                "assistant_name": "Natsu",
                 "user_name": "你",
             },
             user_input="你好",
@@ -410,8 +410,9 @@ def test_gentle_uses_server_builtin_after_fixed_system_prompt():
     assert blob.index("action 必须为 null") < blob.index("system_identity")
     assert "事后抚慰" in blob
     assert "scene_ctrl" in blob
-    assert "陆聿" in blob
+    assert "Natsu" in blob
     assert "biometric_response_system" in blob
+    assert "emotional_reasoning_protocol" in blob
 
 
 def test_prompt_history_is_real_messages_not_json_blob():

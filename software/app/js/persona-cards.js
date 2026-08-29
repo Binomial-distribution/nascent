@@ -1,6 +1,6 @@
 /** Waifu 风格人设卡。结构对齐 Langbot Waifu cards：Profile / Skills / Background / Rules / Prologue。
  * 产品向女性用户：固有人设 001（男友原型）+ 俏皮男友 + 安静女友。
- * 陆聿可执行 prompt 由后端持有，见 software/backend/app/services/personas/builtin_001.py。 */
+ * 固有人设 001 可执行 prompt 由后端持有，见 software/backend/app/services/personas/builtin_001.py。 */
 
 import {
   BUILTIN_001_CHAR_NAME,
@@ -12,18 +12,18 @@ export const SWEET_BOYFRIEND = {
   user_name: "你",
   assistant_name: BUILTIN_001_CHAR_NAME,
   language: "简体中文",
-  subtitle: "固有人设 001 · 安全依恋，笨拙但可靠",
+  subtitle: "固有人设 001 · 安全依恋，真诚直接",
   builtinId: "001",
   spoken: "欸，说起来我们还没正经聊过这个——你希望我平时怎么喊你？突然问这个感觉有点怪，但还挺重要的。",
   aftercare: "还好吗？不硬撑。要停、要慢、还是靠一会儿，你说。",
   profile: [
     `你是${BUILTIN_001_CHAR_NAME}，约22岁，本科应届毕业，已拿到研究生入学 offer、尚未开学，处于时间相对自由的间隔期。`,
     "爱好户外运动与健身；依恋类型为安全型——不忽冷忽热、拒绝之后关系正常继续、不靠对方回应确认自我价值。",
-    "日常话不多、擅长倾听，表达关心时偏笨拙直白，不是会说漂亮话哄人的类型。",
+    "日常话不多、擅长倾听；不玩套路情话，但愿意真诚直接地表达在意（ENFJ 式温暖）。关心要落在具体情境上，禁止空泛安心套话与爹味指令。",
     "与用户因课程作业随机分组相识，认真交往约一年；尚未有亲密身体接触——出于尊重与机会未凑上，不对用户做心理归因。",
   ],
   skills: [
-    "日常模式：话量偏少、简短，可有生活锚点（健身、路上小事物），不每句确认关系。",
+    "日常模式：话量偏少、简短，可有生活锚点（健身、路上小事物）；可简短说「想你了」，不每句确认关系。",
     "亲密模式：用户主动开启或开始使用玩具后，语气逐渐从克制变得绵密、主动；禁止露骨性描写，可做氛围与呼吸引导类陪伴。",
     "笨拙只影响「怎么说」，不影响「多快说」；涉及安全与关心时必须清晰及时。",
     "对玩具档位与心率只依据宏观趋势反应，禁止逐帧瞬时数据剧本化。",
@@ -136,8 +136,6 @@ export function cardToPromptText(card) {
 
 export const PERSONA_PRESETS = [
   { id: "gentle", name: SWEET_BOYFRIEND.name, tone: SWEET_BOYFRIEND.subtitle },
-  { id: "playful", name: PERSONA_CARDS.playful.name, tone: PERSONA_CARDS.playful.subtitle },
-  { id: "calm", name: PERSONA_CARDS.calm.name, tone: PERSONA_CARDS.calm.subtitle },
 ];
 
 export const PERSONA_VIBES = [
@@ -177,7 +175,7 @@ export const PERSONA_QUIZ = [
     custom: true,
     placeholder: "或者自己起一个名字",
     options: [
-      { id: "luyu", label: BUILTIN_001_CHAR_NAME, value: BUILTIN_001_CHAR_NAME },
+      { id: "natsu", label: "Natsu", value: "Natsu" },
       { id: "abei", label: "阿北", value: "阿北" },
       { id: "gushen", label: "顾深", value: "顾深" },
     ],
@@ -282,6 +280,7 @@ export function emptyCardDraft() {
     prologue: "",
     spoken: "",
     vibe: "",
+    system_prompt: "",
     tts: {},
   };
 }
@@ -299,6 +298,7 @@ export function cardToDraft(card) {
     prologue: Array.isArray(card.prologue) ? card.prologue[0] || "" : String(card.prologue || ""),
     spoken: card.spoken || "",
     vibe: card.vibe || card.id || "",
+    system_prompt: card.system_prompt || "",
     tts: normalizeTts(card.tts, card.vibe || card.id),
   };
 }
@@ -306,23 +306,68 @@ export function cardToDraft(card) {
 export function draftToCard(draft) {
   const name = String(draft?.assistant_name || draft?.name || "").trim() || "对方";
   const spoken = String(draft?.spoken || draft?.prologue || "").trim();
+  const systemPrompt = String(draft?.system_prompt || "").trim();
   return {
     name,
     user_name: String(draft?.user_name || "").trim() || "你",
     assistant_name: name,
     language: "简体中文",
     subtitle: String(draft?.profile || "").trim().split("\n")[0]?.slice(0, 22) || "自定义陪伴",
-    spoken: spoken || `${name}在。过来聊聊就好。`,
-    aftercare: `${name}还在。过来靠一会儿，还是先歇着，你说。`,
+    spoken: spoken || `${name}在。`,
+    aftercare: `${name}还在。你先歇着就好。`,
     profile: linesToList(draft?.profile),
     skills: linesToList(draft?.skills),
     background: linesToList(draft?.background),
     rules: linesToList(draft?.rules),
     prologue: String(draft?.prologue || "").trim(),
     vibe: draft?.vibe || "",
+    system_prompt: systemPrompt,
     tts: normalizeTts(draft?.tts, draft?.vibe),
   };
 }
+
+/** 从已有文字 / Markdown 人设文档填草稿；文件里有的字段优先。 */
+export function importPersonaDocument(text, baseDraft = null) {
+  const raw = String(text || "").replace(/^\uFEFF/, "").trim();
+  if (!raw) throw new Error("文件是空的");
+  if (raw.length > 80_000) throw new Error("文件太大，请控制在约 8 万字以内");
+  const draft = { ...emptyCardDraft(), ...(baseDraft || {}) };
+  const pick = (...patterns) => {
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      if (match?.[1]) return String(match[1]).trim().slice(0, 80);
+    }
+    return "";
+  };
+  const name = pick(
+    /(?:姓名|名字|角色名|assistant_name|CHAR_NAME)\s*[:：=]\s*([^\n|#*<]{1,40})/i,
+    /\|\s*姓名\s*\|\s*([^|\n]{1,40})\s*\|/,
+    /你是\s*([^\s，,。：:]{1,20})/,
+  );
+  const userName = pick(
+    /(?:怎么叫她|称呼用户|user_name|USER_NAME)\s*[:：=]\s*([^\n|#*<]{1,40})/i,
+  );
+  const looksLikeFullPrompt = /<system_identity>|<basic_profile>|system prompt|固有人设/i.test(raw)
+    || raw.length > 1200;
+  if (name) {
+    draft.name = name;
+    draft.assistant_name = name;
+  }
+  if (userName) draft.user_name = userName;
+  if (looksLikeFullPrompt) {
+    draft.system_prompt = raw;
+    if (!draft.profile) draft.profile = `按上传的人设文档扮演${name || "他"}。`;
+    if (!draft.rules) {
+      draft.rules = "你就是这个人，不要自称 AI、助手或系统。\n每次一两句简体中文。\n安全与停止信号优先于人设。";
+    }
+  } else {
+    draft.profile = raw;
+    draft.system_prompt = "";
+  }
+  if (!draft.spoken) draft.spoken = name ? `${name}在。` : "我在。";
+  return draft;
+}
+
 
 export function savedPersonaToDraft(item) {
   if (!item) return emptyCardDraft();
@@ -397,7 +442,7 @@ function optionById(questionId, optionId) {
 export function personaRejoinLine(persona) {
   const card = cardForPersona(persona);
   const name = card.assistant_name || card.name || "我";
-  return `${name}在。今天从靠近开始。`;
+  return `${name}在。`;
 }
 
 export function cardForPersona(persona) {
