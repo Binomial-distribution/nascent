@@ -10,6 +10,7 @@ import {
   medianBpm,
   nightKeyFor,
   NightHeartLog,
+  NIGHT_LOG_KEY,
   NIGHT_SAMPLE_MS,
   trendFromDelta,
 } from "../js/hr.js";
@@ -19,8 +20,10 @@ import {
   buildSleepReport,
   contrastCopy,
   emptySleepCopy,
+  isCalendarYesterday,
   sleepCopyIsSafe,
   summarizeNight,
+  wakeDayKey,
 } from "../js/sleep-summary.js";
 import {
   ScenarioChatState,
@@ -644,6 +647,11 @@ assert(liveSensors.hr_source === HR_SOURCE, "valid samples publish xiaomi_smart_
 assert(liveSensors.hr_quality === "valid", "fresh samples are valid");
 assert(liveSensors.hr_trend === "increasing", "sensor_context carries the mapped rhythm");
 assert(!("bpm" in liveSensors), "raw bpm is not sent to the 9B context");
+assert(!("nights" in liveSensors), "night heart log is not sent as sensor_context");
+assert(
+  !JSON.stringify(turnBodies[1] || {}).includes("nascent.hr.nights"),
+  "Chat 9B payload does not include nascent.hr.nights",
+);
 
 nowMs += 11_000;
 assert(hr.snapshot.quality === "stale", "10 seconds without samples is stale");
@@ -801,7 +809,8 @@ assert(nightKeyFor(localMs(2026, 8, 28, 21, 59)) == null, "before 22:00 is ignor
 
 {
   const store = memoryStorage();
-  const log = new NightHeartLog({ storage: store });
+  const frozen = new Date(2026, 7, 29, 12, 0, 0);
+  const log = new NightHeartLog({ storage: store, now: () => frozen });
   const start = localMs(2026, 8, 28, 22, 0);
   assert(log.ingest(58, start), "first night sample is kept");
   assert(!log.ingest(59, start + 60_000), "samples inside five minutes are downsampled");
@@ -813,17 +822,67 @@ assert(nightKeyFor(localMs(2026, 8, 28, 21, 59)) == null, "before 22:00 is ignor
 }
 
 {
-  const samples = [
+  const store = memoryStorage();
+  store.setItem(NIGHT_LOG_KEY, JSON.stringify([
+    { key: "2019-01-01", samples: [{ ts: 1, bpm: 60 }] },
+    { key: "2026-08-28", samples: [{ ts: localMs(2026, 8, 28, 22, 0), bpm: 58 }] },
+  ]));
+  const frozen = new Date(2026, 7, 29, 12, 0, 0);
+  const log = new NightHeartLog({ storage: store, now: () => frozen });
+  assert(!log.nights().some((night) => night.key === "2019-01-01"), "nights older than 7 calendar days are dropped");
+  assert(log.nights().some((night) => night.key === "2026-08-28"), "nights inside 7 calendar days stay");
+  const persisted = JSON.parse(store.getItem(NIGHT_LOG_KEY));
+  assert(!persisted.some((item) => item.key === "2019-01-01"), "pruned night log is written back");
+}
+
+assert(wakeDayKey("2026-08-28") === "2026-08-29", "a night keyed on the evening wakes the next calendar day");
+assert(isCalendarYesterday("2026-08-28", new Date(2026, 7, 29)), "calendar yesterday is not the newest report index");
+assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same calendar day is not yesterday");
+
+{
+  const sparse = [
     { ts: localMs(2026, 8, 28, 22, 0), bpm: 55 },
     { ts: localMs(2026, 8, 29, 0, 0), bpm: 90 },
     { ts: localMs(2026, 8, 29, 6, 0), bpm: 62 },
   ];
-  const night = summarizeNight(samples, NlMoodTone.TIRED, true);
-  assert(night.hasHr && night.durationMin === 480, "heart-rate span becomes rest duration");
+  const sparseNight = summarizeNight(sparse, NlMoodTone.TIRED, true);
+  assert(sparseNight.hasHr && sparseNight.durationMin === 15, "gapped samples do not count the empty span as rest");
+  const dense = [];
+  for (let ts = localMs(2026, 8, 28, 22, 0); ts <= localMs(2026, 8, 29, 6, 0); ts += NIGHT_SAMPLE_MS) {
+    dense.push({ ts, bpm: 58 });
+  }
+  const night = summarizeNight(dense, NlMoodTone.TIRED, true);
+  assert(night.hasHr && night.durationMin >= 470 && night.durationMin <= 490, "contiguous heart-rate samples become rest duration");
   assert(night.contrast.includes("有点累") && night.contrast.includes("记下"), "mood contrast keeps the original label");
-  assert(night.contrast.includes("起伏"), "tired + varied night mentions 起伏");
+  assert(night.contrast.includes("起伏") || night.contrast.includes("安静"), "tired night still uses a non-medical rest word");
   assert(sleepCopyIsSafe(night.contrast), "mood contrast has no medical words");
   assert(contrastCopy(NlMoodTone.TIRED, "varied", true) === "昨天记下有点累，夜里心率起伏多一些", "last-night tired copy matches the planned sentence");
+}
+
+{
+  const samples = [
+    { ts: localMs(2026, 8, 28, 22, 0), bpm: 58 },
+    { ts: localMs(2026, 8, 28, 22, 5), bpm: 59 },
+  ];
+  const rows = buildSleepReport({
+    nights: [{ key: "2026-08-28", samples }],
+    moodKeys: ["2026-08-29"],
+    moodFor: (key) => (key === "2026-08-29" ? { mood: NlMoodTone.TIRED } : null),
+    now: new Date(2026, 7, 29, 12, 0, 0),
+  });
+  assert(rows.length === 1, "wake-day mood does not create a second calendar row");
+  assert(rows[0].moodId === NlMoodTone.TIRED, "night contrast uses the wake-day mood");
+  assert(rows[0].contrast.includes("那天记下"), "today's wake-day mood is not labeled 昨天记下");
+}
+
+{
+  const rows = buildSleepReport({
+    nights: [{ key: "2026-08-27", samples: [{ ts: localMs(2026, 8, 27, 23, 0), bpm: 60 }] }],
+    moodKeys: ["2026-08-28"],
+    moodFor: (key) => (key === "2026-08-28" ? { mood: NlMoodTone.TIRED } : null),
+    now: new Date(2026, 7, 29, 12, 0, 0),
+  });
+  assert(rows[0].contrast.includes("昨天记下"), "yesterday's wake-day mood is labeled 昨天记下");
 }
 
 {
@@ -831,9 +890,11 @@ assert(nightKeyFor(localMs(2026, 8, 28, 21, 59)) == null, "before 22:00 is ignor
     nights: [],
     moodKeys: ["2026-08-28"],
     moodFor: () => ({ mood: NlMoodTone.WARM }),
+    now: new Date(2026, 7, 29, 12, 0, 0),
   });
   assert(rows.length === 1 && !rows[0].hasHr, "mood-only nights still enter the summary");
   assert(rows[0].contrast.includes("温柔"), "mood-only copy uses the original heart label");
+  assert(rows[0].contrast.includes("昨天记下"), "mood-only copy uses the calendar day, not report index");
   assert(sleepCopyIsSafe(rows[0].contrast), "mood-only copy is non-medical");
 }
 
@@ -852,6 +913,10 @@ assert(nightKeyFor(localMs(2026, 8, 28, 21, 59)) == null, "before 22:00 is ignor
   const pruned = new HeartState(undefined, { storage: store });
   assert(pruned.moodFor(today)?.mood === NlMoodTone.QUIET, "hydrate keeps moods from the last 7 days");
   assert(!pruned.moods.has(staleKey), "moods older than 7 days are dropped");
+  assert(
+    !JSON.parse(store.getItem(MOOD_STORE_KEY)).some((item) => item.key === staleKey),
+    "pruned moods are written back",
+  );
   pruned.clearLocal();
   const cleared = new HeartState(undefined, { storage: store });
   assert(cleared.moods.size === 0, "clearLocal persists an empty mood store");

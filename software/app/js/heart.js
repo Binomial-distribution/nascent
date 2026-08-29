@@ -198,6 +198,7 @@ export class HeartState {
       }
       this._moods = map;
       this._pruneMoods();
+      this._persistMoods();
       return map;
     } catch {
       return new Map();

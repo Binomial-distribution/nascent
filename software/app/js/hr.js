@@ -45,10 +45,11 @@ export function nightKeyFor(timestampMs) {
 
 export class NightHeartLog {
   /**
-   * @param {{ storage?: Storage | null }} [options]
+   * @param {{ storage?: Storage | null, now?: () => Date }} [options]
    */
-  constructor({ storage = defaultStorage() } = {}) {
+  constructor({ storage = defaultStorage(), now = () => new Date() } = {}) {
     this._storage = storage;
+    this._now = now;
     this._nights = this._load();
   }
 
@@ -78,10 +79,20 @@ export class NightHeartLog {
     this._save();
   }
 
+  _recentNightKeys(days = NIGHT_KEEP, from = new Date()) {
+    const keys = [];
+    const cursor = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    for (let i = 0; i < days; i += 1) {
+      keys.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`);
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return keys;
+  }
+
   _prune() {
-    const keys = [...this._nights.keys()].sort();
-    while (keys.length > NIGHT_KEEP) {
-      this._nights.delete(keys.shift());
+    const allowed = new Set(this._recentNightKeys(NIGHT_KEEP, this._now()));
+    for (const key of [...this._nights.keys()]) {
+      if (!allowed.has(key)) this._nights.delete(key);
     }
   }
 
@@ -89,10 +100,13 @@ export class NightHeartLog {
     if (!this._storage) return new Map();
     try {
       const raw = JSON.parse(this._storage.getItem(NIGHT_LOG_KEY) || "[]");
-      return new Map((Array.isArray(raw) ? raw : []).map((item) => [
+      this._nights = new Map((Array.isArray(raw) ? raw : []).map((item) => [
         String(item.key),
         (item.samples || []).map((sample) => ({ ts: Number(sample.ts), bpm: Number(sample.bpm) })),
       ]));
+      this._prune();
+      this._save();
+      return this._nights;
     } catch {
       return new Map();
     }
