@@ -11,6 +11,9 @@ export const HR_WINDOW = 5;
 export const HR_BASELINE_MS = 60_000;
 export const HR_STALE_MS = 10_000;
 export const HR_STEADY_DELTA = 5;
+export const NIGHT_LOG_KEY = "nascent.hr.nights";
+export const NIGHT_SAMPLE_MS = 5 * 60 * 1000;
+export const NIGHT_KEEP = 7;
 
 export function medianBpm(samples) {
   if (!samples.length) throw new Error("medianBpm requires samples");
@@ -24,6 +27,90 @@ export function trendFromDelta(delta) {
   return delta > 0 ? "increasing" : "decreasing";
 }
 
+function defaultStorage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+export function nightKeyFor(timestampMs) {
+  const date = new Date(timestampMs);
+  const hour = date.getHours();
+  if (hour >= 10 && hour < 22) return null;
+  if (hour < 10) date.setDate(date.getDate() - 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export class NightHeartLog {
+  /**
+   * @param {{ storage?: Storage | null }} [options]
+   */
+  constructor({ storage = defaultStorage() } = {}) {
+    this._storage = storage;
+    this._nights = this._load();
+  }
+
+  ingest(bpm, timestampMs) {
+    const key = nightKeyFor(timestampMs);
+    if (!key) return false;
+    const rounded = Math.round(Number(bpm));
+    if (!Number.isFinite(rounded)) return false;
+    const samples = this._nights.get(key) || [];
+    const last = samples[samples.length - 1];
+    if (last && timestampMs - last.ts < NIGHT_SAMPLE_MS) return false;
+    samples.push({ ts: timestampMs, bpm: rounded });
+    this._nights.set(key, samples);
+    this._prune();
+    this._save();
+    return true;
+  }
+
+  nights() {
+    return [...this._nights.entries()]
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+      .map(([key, samples]) => ({ key, samples: [...samples] }));
+  }
+
+  reset() {
+    this._nights = new Map();
+    this._save();
+  }
+
+  _prune() {
+    const keys = [...this._nights.keys()].sort();
+    while (keys.length > NIGHT_KEEP) {
+      this._nights.delete(keys.shift());
+    }
+  }
+
+  _load() {
+    if (!this._storage) return new Map();
+    try {
+      const raw = JSON.parse(this._storage.getItem(NIGHT_LOG_KEY) || "[]");
+      return new Map((Array.isArray(raw) ? raw : []).map((item) => [
+        String(item.key),
+        (item.samples || []).map((sample) => ({ ts: Number(sample.ts), bpm: Number(sample.bpm) })),
+      ]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  _save() {
+    if (!this._storage) return;
+    try {
+      const payload = [...this._nights.entries()].map(([key, samples]) => ({ key, samples }));
+      this._storage.setItem(NIGHT_LOG_KEY, JSON.stringify(payload));
+    } catch {
+      /* ignore quota */
+    }
+  }
+}
+
+export const nightHeartLog = new NightHeartLog();
+
 export function nativeHeartRateAvailable(target = globalThis) {
   try {
     return Boolean(target.NascentHeartRate?.available?.());
@@ -34,10 +121,11 @@ export function nativeHeartRateAvailable(target = globalThis) {
 
 export class HeartRateState {
   /**
-   * @param {{ now?: () => number }} [options]
+   * @param {{ now?: () => number, nightLog?: { ingest(bpm: number, ts: number): boolean } | null }} [options]
    */
-  constructor({ now = () => Date.now() } = {}) {
+  constructor({ now = () => Date.now(), nightLog = null } = {}) {
     this._now = now;
+    this._nightLog = nightLog;
     this._recent = [];
     this._baselineWindow = [];
     this._startedAt = null;
@@ -92,6 +180,7 @@ export class HeartRateState {
       }
     }
     this._notify();
+    this._nightLog?.ingest(rounded, timestampMs);
     return true;
   }
 
@@ -156,7 +245,7 @@ export class HeartRateState {
   }
 }
 
-export const heartRate = new HeartRateState();
+export const heartRate = new HeartRateState({ nightLog: nightHeartLog });
 
 export function installHeartRateBridge(state = heartRate, target = globalThis) {
   if (!target || typeof target !== "object") return;

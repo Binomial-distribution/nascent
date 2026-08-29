@@ -48,7 +48,13 @@ import {
 } from "./session.js";
 import { patchLabDom, renderLab, saveCheck } from "./lab.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
-import { heartRate, hrChipText, nativeHeartRateAvailable } from "./hr.js";
+import { heartRate, hrChipText, nativeHeartRateAvailable, nightHeartLog } from "./hr.js";
+import {
+  buildSleepReport,
+  collectRecentMoodKeys,
+  emptySleepCopy,
+  REST_LABEL,
+} from "./sleep-summary.js";
 import {
   COMPANION_TONES,
   isOnboardingDone,
@@ -554,6 +560,7 @@ const ICONS = {
   send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
   thermometer: '<path d="M14 14.8V5a4 4 0 0 0-8 0v9.8a6 6 0 1 0 8 0z"/><path d="M10 9v8"/>',
   activity: '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
+  moon: '<path d="M15.2 3.2A8.8 8.8 0 1 0 20.8 14 7 7 0 0 1 15.2 3.2z"/>',
   phone: '<path d="M6.5 4h3l1.2 3.2-1.8 1.1a12 12 0 0 0 5.8 5.8l1.1-1.8L20 13.5v3A14.5 14.5 0 0 1 6.5 4z"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v4"/><path d="M9 21h6"/>',
 };
@@ -1144,6 +1151,7 @@ function renderRecords() {
     <main class="page">
       <div class="empty">${icon("bookmark")}<p>还没有可回看的使用记录</p></div>
       <p class="disclaimer">这里只有历史回看，不提供恢复、调档或设备控制。</p>
+      ${sleepEntryButton()}
     </main>
     ${nav("records")}`;
   }
@@ -1175,6 +1183,7 @@ function renderRecords() {
           </div>
         `).join("")}
       </div>
+      ${sleepEntryButton()}
     </section>
     <section class="record-section">
       <div class="section-head"><h3>身心参考</h3></div>
@@ -1206,6 +1215,97 @@ function renderRecords() {
   <div class="records-ask">
     <button data-act="insight-self" data-session="${escapeHtml(latest.session_id)}">${icon("message")} 和 AI 聊聊自己</button>
   </div>
+  ${nav("records")}`;
+}
+
+function sleepEntryButton() {
+  return `<button class="inline-command" data-act="open-sleep">${icon("moon")} 近期睡眠</button>`;
+}
+
+function formatSleepClock(ts) {
+  if (!ts) return "—";
+  const date = new Date(ts);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatSleepDuration(minutes) {
+  const safe = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(safe / 60);
+  const rest = safe % 60;
+  if (hours && rest) return `${hours}小时${rest}分`;
+  if (hours) return `${hours}小时`;
+  return `${rest}分钟`;
+}
+
+function formatNightDate(key) {
+  const [year, month, day] = String(key).split("-").map(Number);
+  if (!year || !month || !day) return key;
+  return `${month}月${day}日夜`;
+}
+
+function renderSleepBar(segments) {
+  if (!segments?.length) {
+    return `<div class="sleep-bar empty">夜间心率未接入</div>`;
+  }
+  return `<div class="sleep-bar" aria-label="休息分段">${segments.map((item) => (
+    `<span class="sleep-seg sleep-seg-${item.kind}" style="flex:${Math.max(1, item.minutes)}"></span>`
+  )).join("")}</div>
+  <div class="sleep-legend">
+    ${Object.entries(REST_LABEL).map(([kind, label]) => (
+      `<span><i class="sleep-seg-${kind}"></i>${label}</span>`
+    )).join("")}
+  </div>`;
+}
+
+function renderSleepNightRow(row) {
+  const duration = row.hasHr ? formatSleepDuration(row.durationMin) : "";
+  const mood = row.moodId && MoodUi[row.moodId]
+    ? `<span class="sleep-mood-dot" style="--mood:${MoodUi[row.moodId].color}"></span><small>${escapeHtml(MoodUi[row.moodId].label)}</small>`
+    : "";
+  const missing = [
+    row.hasHr ? "" : "心率未接入",
+    row.moodId ? "" : "未记心情",
+  ].filter(Boolean).join(" · ");
+  return `<div class="sleep-night-row">
+    <span class="sleep-night-date">${escapeHtml(formatNightDate(row.key))}</span>
+    <span class="sleep-night-meta">
+      ${duration ? `<strong>${escapeHtml(duration)}</strong>` : ""}
+      ${mood}
+      ${missing && (!duration || !mood) ? `<small>${escapeHtml(missing)}</small>` : ""}
+    </span>
+  </div>`;
+}
+
+function renderSleepSummary() {
+  const report = buildSleepReport({
+    nights: nightHeartLog.nights(),
+    moodKeys: collectRecentMoodKeys(heart.moods),
+    moodFor: (key) => heart.moodFor(key),
+  });
+  const latest = report[0];
+  const empty = !report.length;
+  const hero = empty ? `
+      <div class="empty">${icon("moon")}<p>${escapeHtml(emptySleepCopy())}</p></div>
+    ` : `
+      <section class="sleep-hero">
+        <p class="microcopy">${escapeHtml(formatNightDate(latest.key))}</p>
+        <p class="sleep-duration">${latest.hasHr ? escapeHtml(formatSleepDuration(latest.durationMin)) : "心率未接入"}</p>
+        <p class="sub">${latest.hasHr
+          ? `${formatSleepClock(latest.startTs)} – ${formatSleepClock(latest.endTs)}`
+          : "休息条将在接入夜间心率后出现"}</p>
+        ${renderSleepBar(latest.segments)}
+        ${latest.contrast ? `<p class="sleep-contrast">${escapeHtml(latest.contrast)}</p>` : ""}
+      </section>
+      ${report.length > 1 ? `<section class="record-section">
+        <div class="section-head"><h3>近几夜</h3></div>
+        ${report.slice(1).map((row) => renderSleepNightRow(row)).join("")}
+      </section>` : ""}
+    `;
+  return `${topbar("近期睡眠", { back: true, backTo: "#/records" })}
+  <main class="page sleep-page">
+    ${hero}
+    <p class="disclaimer">这是参考性生理反馈，不是健康检测，也不能替代医生或专业人士建议。心情和心率都留在本机，不会发给 AI。</p>
+  </main>
   ${nav("records")}`;
 }
 
@@ -1513,6 +1613,7 @@ function confirmClearLocalData() {
   sheet.querySelector("[data-clear-cancel]").onclick = () => closeSheet();
   sheet.querySelector("[data-clear-confirm]").onclick = async () => {
     heart.clearLocal();
+    nightHeartLog.reset();
     bodyNotes.clearTemporaryChats();
     scenarioChat.clearAll();
     try { localStorage.removeItem(THREAD_KEY); } catch { /* ignore */ }
@@ -2525,7 +2626,7 @@ function render() {
   applyTheme(tab === "lab" ? "settings" : tab);
   const nested = (tab === "intimacy" && page !== "root")
     || (tab === "settings" && page !== "root")
-    || (tab === "records" && view === "insight")
+    || (tab === "records" && (view === "insight" || view === "sleep"))
     || tab === "lab";
   const onCall = tab === "intimacy" && page === "scenario" && sessionId === "call";
   const onChat = tab === "intimacy" && page === "scenario" && sessionId === "chat";
@@ -2584,6 +2685,9 @@ function render() {
   }
   else if (tab === "records" && view === "insight") {
     root.innerHTML = renderInsight(sessionId || query.get("session"), query);
+  }
+  else if (tab === "records" && view === "sleep") {
+    root.innerHTML = renderSleepSummary();
   }
   else if (tab === "records") root.innerHTML = renderRecords();
   else if (page === "control") root.innerHTML = renderControl();
@@ -2851,7 +2955,7 @@ async function onClick(event) {
       return;
     }
     const current = route();
-    if (current.tab === "records" && current.view === "insight") go("#/records");
+    if (current.tab === "records" && (current.view === "insight" || current.view === "sleep")) go("#/records");
     else if (current.tab === "intimacy" && current.page === "scenario" && SCENARIO_FLOW.includes(current.sessionId)) {
       leaveScenarioCall();
       go("#/intimacy/scenario");
@@ -3150,6 +3254,7 @@ async function onClick(event) {
     ui.selectedRecordId = t.dataset.session;
     render();
   }
+  else if (act === "open-sleep") go("#/records/sleep");
   else if (act === "insight-self") openInsightSelf(t.dataset.session);
   else if (act === "open-session") {
     ui.selectedRecordId = t.dataset.session;

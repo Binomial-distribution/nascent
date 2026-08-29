@@ -1417,6 +1417,82 @@ button:disabled {
 .ref-card p { margin: 0 0 10px; }
 .dual-chart { display: grid; gap: 16px; }
 
+.sleep-page { padding-bottom: 24px; }
+.sleep-hero {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 20px 16px 16px;
+}
+.sleep-duration {
+  font-size: 2.05rem;
+  font-weight: 700;
+  margin: 4px 0 0;
+  letter-spacing: -0.03em;
+}
+.sleep-bar {
+  display: flex;
+  height: 18px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 16px;
+  background: var(--bg-soft);
+}
+.sleep-bar.empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  height: 36px;
+}
+.sleep-seg { min-width: 2px; height: 100%; }
+.sleep-seg-quiet { background: #b7a7c9; }
+.sleep-seg-varied { background: #f5c97b; }
+.sleep-seg-restless { background: #9bb9c9; }
+.sleep-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.sleep-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.sleep-contrast {
+  margin: 14px 0 0;
+  line-height: 1.55;
+}
+.sleep-night-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sleep-night-date { color: var(--text); }
+.sleep-night-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  text-align: right;
+}
+.sleep-night-meta small { color: var(--muted); }
+.sleep-mood-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mood, var(--muted));
+  display: inline-block;
+}
+
 #app.chat-view { padding-bottom: 82px; }
 .insight-page { min-height: calc(100dvh - 134px); background: #1b1720; }
 .scope-strip {

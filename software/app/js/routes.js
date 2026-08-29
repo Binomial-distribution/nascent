@@ -11,7 +11,11 @@ export function parseHash(hash) {
   let sessionId = parts[2] || null;
   let view = parts[3] || null;
   if (tab === "records") {
-    if (last === "insight") {
+    if (parts[1] === "sleep") {
+      page = "sleep";
+      view = "sleep";
+      sessionId = null;
+    } else if (last === "insight") {
       page = "insight";
       view = "insight";
       sessionId = parts[1] && parts[1] !== "insight" ? parts[1] : null;

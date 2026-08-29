@@ -37,15 +37,16 @@ js/
   channel.js      两条通道共用的版本门控与上行解析
   governor.js     浏览器侧安全总督
   session.js      发指令的唯一入口（`sendCommand`）
-  heart.js        心绪与科普卡片状态
-  hr.js           手环心率：平滑、基线、断流；只产出趋势，不发指令
+  heart.js        心绪与科普卡片状态；近 7 日心情落盘
+  hr.js           手环心率：平滑、基线、断流；只产出趋势，不发指令；本机夜间心率日志
+  sleep-summary.js 记录页「近期睡眠」：夜间心率分段 + 心绪对照（不发给模型）
   body-notes.js   使用记录、笔记、临时对话和后端同步状态
   onboarding.js   首次引导
   lab.js          硬件联调页（#/lab，从「我的」最下方进入）
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS
   live-call.js         通话连续听：VAD 切句、云端转写与播报
   app.js          A/B/C 三层界面与身体笔记独立导航
-tests/run.mjs     总督、心绪、链路、联调页与身体笔记状态回归
+tests/run.mjs     总督、心绪、链路、联调页、身体笔记与睡眠摘要回归
 ```
 
 ### 三层的边界是有意的

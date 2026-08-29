@@ -15,7 +15,11 @@ export const CardCategory = Object.freeze({
   rhythm: { id: "rhythm", label: "状态与生活" },
 });
 
-function dayKey(date) {
+export const MOOD_STORE_KEY = "nascent.heart.moods";
+export const MOOD_KEEP_DAYS = 7;
+
+export function dayKey(date) {
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
   const d = date instanceof Date ? date : new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -23,6 +27,29 @@ function dayKey(date) {
 function startOfDay(date) {
   const d = date instanceof Date ? date : new Date(date);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function defaultStorage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+function startOfDayFromKey(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function recentDayKeys(days = MOOD_KEEP_DAYS, from = new Date()) {
+  const keys = [];
+  const cursor = startOfDay(from);
+  for (let i = 0; i < days; i += 1) {
+    keys.push(dayKey(cursor));
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return keys;
 }
 
 const DAILY_CARDS = [
@@ -61,11 +88,12 @@ const DAILY_CARDS = [
 ];
 
 export class HeartState {
-  constructor(cards = DAILY_CARDS) {
-    this._cards = cards;
+  constructor(cards = DAILY_CARDS, { storage = defaultStorage() } = {}) {
+    this._cards = Array.isArray(cards) ? cards : DAILY_CARDS;
+    this._storage = storage;
     this._readCards = new Map();
     this._favoriteCards = new Set();
-    this._moods = new Map();
+    this._moods = this._loadMoods();
     this._activeCard = 0;
     this._listeners = new Set();
   }
@@ -144,6 +172,8 @@ export class HeartState {
   recordMood(mood, { note = "", date = new Date() } = {}) {
     const day = startOfDay(date);
     this._moods.set(dayKey(day), { date: day, mood, note });
+    this._pruneMoods();
+    this._persistMoods();
     this._notify();
   }
 
@@ -152,7 +182,47 @@ export class HeartState {
     this._favoriteCards.clear();
     this._moods.clear();
     this._activeCard = 0;
+    this._persistMoods();
     this._notify();
+  }
+
+  _loadMoods() {
+    if (!this._storage) return new Map();
+    try {
+      const raw = JSON.parse(this._storage.getItem(MOOD_STORE_KEY) || "[]");
+      const map = new Map();
+      for (const item of Array.isArray(raw) ? raw : []) {
+        const key = dayKey(item.key || item.date);
+        if (!key || !item.mood) continue;
+        map.set(key, { date: startOfDayFromKey(key), mood: item.mood, note: item.note || "" });
+      }
+      this._moods = map;
+      this._pruneMoods();
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
+  _pruneMoods() {
+    const allowed = new Set(recentDayKeys());
+    for (const key of [...this._moods.keys()]) {
+      if (!allowed.has(key)) this._moods.delete(key);
+    }
+  }
+
+  _persistMoods() {
+    if (!this._storage) return;
+    try {
+      const payload = [...this._moods.entries()].map(([key, entry]) => ({
+        key,
+        mood: entry.mood,
+        note: entry.note || "",
+      }));
+      this._storage.setItem(MOOD_STORE_KEY, JSON.stringify(payload));
+    } catch {
+      /* ignore quota */
+    }
   }
 
   prependCard(card) {
