@@ -354,12 +354,14 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert messages[-1]["role"] == "user"
     assert "可以再近一点" in messages[-1]["content"]
     assert "接上刚才的对话" in messages[-1]["content"]
+    assert "更早的对话" in messages[-1]["content"]
     assert "简体中文" in SYSTEM_PROMPT
     assert "答非所问" in SYSTEM_PROMPT
     assert "括号" in SYSTEM_PROMPT
     assert "不要念出来" in SYSTEM_PROMPT
     assert "tts_style" in SYSTEM_PROMPT
     assert "温柔" in SYSTEM_PROMPT
+    assert "更早的对话" in SYSTEM_PROMPT
 
 
 def test_prompt_history_is_real_messages_not_json_blob():
@@ -386,6 +388,112 @@ def test_prompt_history_is_real_messages_not_json_blob():
     packed = messages[0]["content"]
     assert "今天过得怎么样" not in packed
     assert "warming" in packed
+
+
+def test_conversation_summary_reaches_prompt():
+    from app.services.prompt_builder import build_messages
+
+    messages = build_messages(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            user_input="再慢一点",
+            conversation_summary="更早的对话：她：刚才那个舒服 / 他：那就还按这个。",
+            sensor_context={"temperature_state": "warming"},
+        ),
+        [],
+    )
+    packed = messages[0]["content"]
+    assert "更早的对话" in packed
+    assert "刚才那个舒服" in packed
+    assert "再慢一点" in messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_generate_turn_keeps_memory_proposals_when_asking(monkeypatch):
+    import json as json_lib
+
+    from app.config import settings
+    from app.services import llm
+
+    async def fake_complete(**kwargs):
+        return json_lib.dumps({
+            "dialogue": "好，记下了。",
+            "action": None,
+            "scene_ctrl": "stay",
+            "emotion": "calm",
+            "tts_style": "平静",
+            "memory_proposals": [{"text": "喜欢慢慢来", "reason": "她说了偏好"}],
+        })
+
+    monkeypatch.setattr(settings, "llm_api_key", "test")
+    monkeypatch.setattr(settings, "llm_base_url", "https://example.invalid/v1")
+    monkeypatch.setattr(llm, "complete_json", fake_complete)
+    result = await llm.generate_turn(
+        AgentTurnRequest(user_id="u", persona_id="p", user_input="记住，我喜欢慢慢来"),
+        [],
+    )
+    assert result.memory_proposals
+    assert result.memory_proposals[0].text == "喜欢慢慢来"
+
+
+@pytest.mark.asyncio
+async def test_generate_turn_strips_proposals_when_memory_off(monkeypatch):
+    import json as json_lib
+
+    from app.config import settings
+    from app.services import llm
+
+    async def fake_complete(**kwargs):
+        return json_lib.dumps({
+            "dialogue": "好。",
+            "action": None,
+            "scene_ctrl": "stay",
+            "emotion": "calm",
+            "tts_style": "平静",
+            "memory_proposals": [{"text": "喜欢慢慢来", "reason": "她说了偏好"}],
+        })
+
+    monkeypatch.setattr(settings, "llm_api_key", "test")
+    monkeypatch.setattr(settings, "llm_base_url", "https://example.invalid/v1")
+    monkeypatch.setattr(llm, "complete_json", fake_complete)
+    result = await llm.generate_turn(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            user_input="记住，我喜欢慢慢来",
+            memory_policy="off",
+        ),
+        [],
+    )
+    assert result.memory_proposals == []
+
+
+def test_agent_stub_emits_proposal_for_lasting_preference():
+    from app.services.llm import _agent_stub
+
+    turn = _agent_stub(
+        AgentTurnRequest(user_id="u", persona_id="p", user_input="记住，我喜欢慢慢来")
+    )
+    assert turn.memory_proposals
+    assert "慢慢来" in turn.memory_proposals[0].text
+    wild = _agent_stub(
+        AgentTurnRequest(
+            user_id="u",
+            persona_id="p",
+            session_mode="wild",
+            user_input="记住，我喜欢慢慢来",
+        )
+    )
+    assert wild.memory_proposals == []
+
+
+@pytest.mark.asyncio
+async def test_memory_search_pads_recent_without_keyword_hit():
+    provider = InMemoryMemoryProvider()
+    item = await provider.add(user_id="u", persona_id="p", text="喜欢慢慢来")
+    found = await provider.search(user_id="u", persona_id="p", query="再慢一点")
+    assert [x.id for x in found] == [item.id]
 
 
 def test_persona_card_uses_waifu_profile_fields():

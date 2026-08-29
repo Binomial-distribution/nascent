@@ -33,11 +33,30 @@ class InMemoryMemoryProvider:
     async def search(self, *, user_id: str, persona_id: str, query: str, limit: int = 5) -> list[MemoryItem]:
         items = self._items[(user_id, persona_id)]
         limit = _clamp_limit(limit)
+        if not items or not limit:
+            return []
+        recent = list(reversed(items[-limit:]))
         terms = {part.lower() for part in query.split() if part.strip()}
         if not terms:
-            return list(reversed(items[-limit:])) if limit else []
+            return recent
         matched = [item for item in items if any(term in item.text.lower() for term in terms)]
-        return list(reversed(matched[-limit:])) if limit else []
+        ranked: list[MemoryItem] = []
+        seen: set[str] = set()
+        for item in reversed(matched):
+            if item.id in seen:
+                continue
+            ranked.append(item)
+            seen.add(item.id)
+            if len(ranked) >= limit:
+                return ranked
+        for item in recent:
+            if item.id in seen:
+                continue
+            ranked.append(item)
+            seen.add(item.id)
+            if len(ranked) >= limit:
+                break
+        return ranked
 
     async def add(self, *, user_id: str, persona_id: str, text: str) -> MemoryItem:
         item = MemoryItem(

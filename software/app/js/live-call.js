@@ -1,6 +1,6 @@
 /** 通话连续听：浏览器 VAD 切句，PCM 只 POST 到 /v1/speech/transcribe。 */
 
-import { speakDialogue, stopSpeech, unlockSpeechPlayback } from "./scenario-session.js";
+import { stopSpeech, unlockSpeechPlayback } from "./scenario-session.js";
 
 export const VAD_DEFAULTS = {
   startRms: 0.025,
@@ -150,7 +150,7 @@ export function createLiveCall({
   onError,
   onPlayback,
   fetchImpl = globalThis.fetch,
-  tts = {},
+  tts: _tts = {},
 } = {}) {
   let closed = false;
   let playing = false;
@@ -178,7 +178,6 @@ export function createLiveCall({
 
   async function playReply(text) {
     const spoken = typeof text === "string" ? text : String(text?.dialogue || text?.text || "");
-    const ttsStyle = typeof text === "object" && text ? text.tts_style : "";
     if (!spoken || closed) return;
     stopPlayback();
     setStatus("speaking");
@@ -187,15 +186,7 @@ export function createLiveCall({
     bargeLoudSince = 0;
     onPlayback?.(true);
     try {
-      const result = await speakDialogue(spoken, {
-        fetchImpl,
-        onStart() { playbackStartedAt = Date.now(); },
-        ...(typeof tts === "function" ? tts() : tts),
-        ...(ttsStyle ? { tts_style: ttsStyle } : {}),
-      });
-      if (!result?.played && !result?.interrupted && !closed) {
-        onError?.("这次没播出声音，看字幕就好");
-      }
+      // 本轮文字为主，通话页也不播 TTS。字幕仍由 onUtterance 更新。
     } finally {
       playing = false;
       playbackStartedAt = 0;
