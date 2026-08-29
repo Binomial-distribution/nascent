@@ -545,6 +545,15 @@ assert(
   "confirmed proposals survive localStorage hydrate",
 );
 await memChat.forgetMemories({ key: "persona:gentle", id: "gentle" });
+assert(
+  memChat.messages("persona:gentle")[1].proposals[0].status === "skipped",
+  "forgetting a persona marks local proposals skipped",
+);
+const forgottenHydrated = new ScenarioChatState({ fetchImpl: memFetch, storage: memStore });
+assert(
+  forgottenHydrated.messages("persona:gentle")[1].proposals[0].status === "skipped",
+  "forgotten local proposals survive hydrate",
+);
 
 const skipChat = new ScenarioChatState({
   fetchImpl: async () => jsonResponse({

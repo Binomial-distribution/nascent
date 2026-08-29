@@ -394,6 +394,16 @@ export class ScenarioChatState {
       );
       if (!response.ok) throw new Error("memory delete failed");
     }
+    const key = persona.key;
+    const items = this._threads.get(key) || [];
+    this._threads.set(key, items.map((item) => {
+      if (item?.role !== "assistant" || !item.proposals?.length) return item;
+      return {
+        ...item,
+        proposals: item.proposals.map((proposal) => ({ ...proposal, status: "skipped" })),
+      };
+    }));
+    this._persist();
     return true;
   }
 

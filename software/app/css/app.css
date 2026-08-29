@@ -1748,6 +1748,11 @@ button:disabled {
   gap: 10px;
   padding: 0;
 }
+.call-text {
+  color: #f6eef2;
+  border-color: color-mix(in srgb, #f6eef2 22%, transparent);
+  background: transparent;
+}
 .call-hangup-btn {
   width: 64px;
   height: 64px;

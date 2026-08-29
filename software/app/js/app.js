@@ -71,6 +71,7 @@ const root = document.getElementById("app");
 let liveCall = null;
 let holdMic = null;
 let callClock = null;
+let chatFromCallTimer = null;
 let skipAnswerClick = false;
 const SCENES = [
   ["留一点空间", "先不用急着做什么，感受一下此刻的呼吸。"],
@@ -2216,6 +2217,8 @@ function answerIncomingCall() {
   if (knob) knob.style.transform = "";
   startCallClock();
   bindCallSwipe();
+  const textBtn = root.querySelector("[data-act=call-text]");
+  if (textBtn) textBtn.hidden = false;
   prepareLiveCall();
   const greeting = hadHistory
     ? personaRejoinLine(persona)
@@ -2261,7 +2264,11 @@ function openScenarioTextFromCall() {
   }
   screen.dataset.leaving = "1";
   screen.classList.add("call-to-chat");
-  window.setTimeout(() => go("#/intimacy/scenario/chat"), 300);
+  clearTimeout(chatFromCallTimer);
+  chatFromCallTimer = window.setTimeout(() => {
+    chatFromCallTimer = null;
+    go("#/intimacy/scenario/chat");
+  }, 300);
 }
 
 function bindCallSwipe() {
@@ -2294,11 +2301,13 @@ function bindAnswerSlider() {
     const left = startX - event.clientX;
     const threshold = travelMax() * 0.4;
     startX = null;
-    skipAnswerClick = true;
     if (left >= threshold || Math.abs(dx) < 12) {
+      skipAnswerClick = true;
       answerIncomingCall();
+      window.setTimeout(() => { skipAnswerClick = false; }, 0);
       return;
     }
+    skipAnswerClick = false;
     if (dx >= 64) {
       declineIncomingCall();
       return;
@@ -2319,7 +2328,8 @@ function bindConnectedSwipeUp() {
   let startX = null;
   layer.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "mouse" && event.button) return;
-    if (event.target.closest(".call-hangup-btn, [data-act=end-call], [data-call-slider]")) return;
+    if (event.target.closest(".call-hangup-btn, [data-act=end-call], [data-call-slider], [data-act=call-text]")) return;
+    if (event.target.closest("[data-call-captions]")) return;
     if (root.querySelector(".call-screen")?.getAttribute("data-call-stage") !== "connected") return;
     startY = event.clientY;
     startX = event.clientX;
@@ -2452,6 +2462,8 @@ function leaveScenarioCall() {
   stopHoldMic();
   stopCallClock();
   clearTimeout(ui.callTimer);
+  clearTimeout(chatFromCallTimer);
+  chatFromCallTimer = null;
   delete root.dataset.sceneCall;
   ui.voiceListening = false;
   stopScenarioAutomation();
@@ -2527,10 +2539,19 @@ function render() {
   if (onCall && root.dataset.sceneCall === "1") return;
   if (onChat && ui.voiceListening) return;
   if (!onCall) {
-    delete root.dataset.sceneCall;
-    clearTimeout(ui.callTimer);
     stopRingtone();
+    stopLiveCall();
     stopCallClock();
+    clearTimeout(ui.callTimer);
+    delete root.dataset.sceneCall;
+    if (!onChat) {
+      clearTimeout(chatFromCallTimer);
+      chatFromCallTimer = null;
+      stopHoldMic();
+      stopSpeech();
+      ui.voiceListening = false;
+      stopScenarioAutomation();
+    }
   }
 
   if (tab === "lab") {
@@ -3110,6 +3131,7 @@ async function onClick(event) {
     try {
       await scenarioChat.forgetMemories(ui.activePersona);
       toast("已忘掉这个人设记得的事");
+      render();
     } catch {
       toast("这次没忘掉，等会儿再试");
     }
