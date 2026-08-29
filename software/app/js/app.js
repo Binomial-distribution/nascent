@@ -676,12 +676,12 @@ function renderSettings() {
       <strong>协议版本</strong>
       <small>${NlConst.protoVersion}</small>
     </div>
+    <p class="demo-note">当前为 Web UI demo · 入口 shell：${SHELL_LABEL[shell]}</p>
     <div class="group">设备调试</div>
     <button class="list-row" data-act="lab">
       <strong>硬件联调</strong>
       <small>传感器、灯语、档位、BOOT 停机。产品页还没做完时用这一页验板。</small>
     </button>
-    <p class="demo-note">当前为 Web UI demo · 入口 shell：${SHELL_LABEL[shell]}</p>
   </main>
   ${nav("settings")}`;
 }
