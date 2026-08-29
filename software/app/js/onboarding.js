@@ -237,6 +237,14 @@ export function mountOnboarding(root, { onComplete }) {
     });
   }
 
+  function jumpTo(id) {
+    const idx = steps.indexOf(id);
+    if (idx < 0) return;
+    fadeTo(() => {
+      state.stepIndex = idx;
+    });
+  }
+
   function fadeTo(mutate) {
     if (state.fading) return;
     state.fading = true;
@@ -314,7 +322,7 @@ export function mountOnboarding(root, { onComplete }) {
         return `
           <div class="ob-stack">
             <p class="ob-kicker">产品</p>
-            <h2>你这次购买的是哪种萨福产品？</h2>
+            <h2>你这次购买的是哪种产品？</h2>
             <p class="ob-sub">先认准手上的这一台，后续指南会按型号展开。</p>
             <button class="ob-choice ${state.draft.productId === "fitme" ? "selected" : ""}" data-ob="product" data-product="fitme">
               <strong>Fit me!听我的</strong>
@@ -329,7 +337,10 @@ export function mountOnboarding(root, { onComplete }) {
           <div class="ob-center">
             <p class="ob-kicker">陪伴者</p>
             <h1 class="ob-welcome" style="font-size:1.55rem;line-height:1.45">接下来几个小问题，<br>帮你找到最合拍的陪伴者（TA）</h1>
-            <button class="primary ob-cta" data-ob="next" style="margin-top:28px">开始</button>
+            <div class="ob-actions" style="margin-top:28px">
+              <button class="ghost ob-cta" data-ob="companion-later">稍后设置</button>
+              <button class="primary ob-cta" data-ob="next">开始</button>
+            </div>
           </div>`;
       case "companion-tone":
         return `
@@ -338,7 +349,10 @@ export function mountOnboarding(root, { onComplete }) {
             <h2>你希望陪你的 TA 是什么样的性格？</h2>
             <p class="ob-sub">先选一个基调，之后仍可在「我的」里调整。</p>
             ${renderSingleChoices(COMPANION_TONES, state.draft.companionTone, "pick-tone", "tone")}
-            <button class="primary ob-cta" data-ob="tone-next" ${state.draft.companionTone ? "" : "disabled"}>继续</button>
+            <div class="ob-actions">
+              <button class="ghost ob-cta" data-ob="companion-later">稍后设置</button>
+              <button class="primary ob-cta" data-ob="tone-next" ${state.draft.companionTone ? "" : "disabled"}>继续</button>
+            </div>
           </div>`;
       case "companion-pace":
         return `
@@ -346,7 +360,10 @@ export function mountOnboarding(root, { onComplete }) {
             <p class="ob-kicker">TA · 节奏</p>
             <h2>你更喜欢慢慢被带入，还是直接开始？</h2>
             ${renderSingleChoices(COMPANION_PACING, state.draft.companionPace, "pick-pace", "pace")}
-            <button class="primary ob-cta" data-ob="pace-next" ${state.draft.companionPace ? "" : "disabled"}>继续</button>
+            <div class="ob-actions">
+              <button class="ghost ob-cta" data-ob="companion-later">稍后设置</button>
+              <button class="primary ob-cta" data-ob="pace-next" ${state.draft.companionPace ? "" : "disabled"}>继续</button>
+            </div>
           </div>`;
       case "care-remind":
         return `
@@ -610,6 +627,16 @@ export function mountOnboarding(root, { onComplete }) {
           persist();
         }
         goNext();
+        return;
+      }
+
+      if (act === "companion-later") {
+        state.draft.personaSkipped = true;
+        if (!state.draft.companionTone) state.draft.companionTone = "";
+        if (!state.draft.companionPace) state.draft.companionPace = "";
+        persist();
+        // 跳过剩余陪伴者问题，直接到清洁提醒页。
+        jumpTo("care-remind");
         return;
       }
 
