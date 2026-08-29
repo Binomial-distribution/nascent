@@ -348,7 +348,7 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert "hr_trend" in blob
     assert "press_l" not in blob
     assert "recent_turns" not in blob
-    assert "顾深" in messages[0]["content"]
+    assert "陆聿" in messages[0]["content"]
     assert "角色卡" in messages[0]["content"]
     assert "请依据以下受控上下文" not in blob
     assert messages[-1]["role"] == "user"

@@ -1067,7 +1067,7 @@ function renderPersonaForm() {
   <main class="page">
     <form id="persona-form">
       <label class="form-label" for="persona-name">名称</label>
-      <input class="form-input" id="persona-name" name="name" maxlength="40" required value="${escapeHtml(DEFAULT_CUSTOM_PERSONA.name)}" placeholder="例如：顾深" />
+      <input class="form-input" id="persona-name" name="name" maxlength="40" required value="${escapeHtml(DEFAULT_CUSTOM_PERSONA.name)}" placeholder="例如：陆聿" />
       <span class="form-label">风格</span>
       <div class="chip-row">
         ${STYLE_TAGS.map((tag) => `<button type="button" class="chip" data-act="toggle-tag" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}
@@ -1662,10 +1662,10 @@ function renderPersonaFixed() {
   const list = ui.personas.length ? ui.personas : PERSONA_PRESETS;
   return `${topbar("固定人设", { back: true, backTo: "#/settings/persona" })}
   <main class="page">
-    <p class="sub">点选一个人设作为当天陪伴风格。</p>
+    <p class="sub">点选一个人设作为当天陪伴风格。首选「${PERSONA_CARDS.gentle?.name || "陆聿"}」为固有人设 001。</p>
     ${list.map((p) => `
       <button class="ob-choice ${ui.persona.presetId === p.id ? "selected" : ""}" data-act="persona-pick" data-id="${p.id}">
-        <strong>${p.name}</strong>
+        <strong>${p.name}${p.id === "gentle" ? " · 固有 001" : ""}</strong>
         <span>${p.tone}</span>
       </button>
     `).join("")}
@@ -1722,7 +1722,7 @@ function renderPersonaCustom(editId = null) {
     </div>
     <p class="ob-hint">${clonedVoice ? `已经记下这段声音（演示，尚未送云端）${draft.tts?.localClipName ? `：${escapeHtmlApp(draft.tts.localClipName)}` : ""}。通话仍用人设系统音色。` : "单人、尽量安静、至少 10 秒。本轮只在本机记下，不会上传克隆。"}</p>
     <label class="ob-label" for="persona-assistant-name">他的名字</label>
-    <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如顾深" />
+    <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如陆聿" />
     <label class="ob-label" for="persona-user-name">他怎么叫你</label>
     <input id="persona-user-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(draft.user_name)}" placeholder="宝贝、丫头，或你的名字" />
     <label class="ob-label" for="persona-profile">他是谁</label>

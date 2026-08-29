@@ -239,7 +239,7 @@ async def generate_body_insight(
 
 def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
     persona = request.persona if isinstance(request.persona, dict) else {}
-    name = str(persona.get("assistant_name") or persona.get("name") or "顾深").strip() or "顾深"
+    name = str(persona.get("assistant_name") or persona.get("name") or "陆聿").strip() or "陆聿"
     spoken = str(persona.get("spoken") or "").strip()
     phase = request.scene_id
     if request.session_mode == "wild":

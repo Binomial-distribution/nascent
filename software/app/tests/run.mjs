@@ -377,8 +377,7 @@ assert(scenarioTurns.phase("persona:gentle") === "aftercare", "user asking to re
 assert(aftercare.dialogue.includes("陪"), "aftercare fallback stays with the user");
 
 const opening = personaOpeningLine({ id: "gentle" }, "approaching");
-assert(opening.includes("收工") || opening.includes("抱一会儿"), "preset opening uses the boyfriend greeting");
-assert(opening.includes("（") && opening.includes("）"), "opening keeps an unread stage aside");
+assert(opening.includes("怎么喊你") || opening.includes("抱一会儿"), "preset opening uses the builtin-001 greeting");
 assert(!opening.includes("慢慢靠近"), "opening is not the old coaching script");
 const caption = formatCaptionHtml("过来。（轻声）抱你");
 assert(caption.includes("class=\"aside\"") && caption.includes("（轻声）"), "captions keep asides visible");
@@ -386,17 +385,18 @@ assert(caption.startsWith("过来。"), "spoken words stay outside the aside spa
 assert(!formatCaptionHtml("<img>").includes("<img>"), "caption html escapes markup");
 stopRingtone();
 const payload = personaPayload({ id: "gentle" });
-assert(payload.assistant_name === "顾深" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.assistant_name === "陆聿" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.system_prompt && payload.system_prompt.includes("biometric_response_system"), "builtin-001 full system prompt is attached");
 assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");
-assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "顾深 uses the boyfriend MiniMax voice");
-assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "顾深 is a male MiniMax id");
+assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "陆聿 uses the boyfriend MiniMax voice");
+assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "陆聿 is a male MiniMax id");
 assert(PERSONA_CARDS.playful.tts.minimax === "male-qn-qingse", "阿北 uses a male MiniMax id");
 assert(PERSONA_CARDS.calm.tts.minimax === "danya_xuejie", "阿月 uses a female MiniMax id");
 assert(!/male-/i.test(PERSONA_CARDS.calm.tts.minimax), "阿月 is not a male MiniMax id");
-assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "顾深 speaks calmly");
+assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "陆聿 speaks calmly");
 assert(PERSONA_CARDS.playful.tts.emotion === "happy", "阿北 speaks happily");
 assert(PERSONA_CARDS.calm.tts.emotion === "whisper", "阿月 uses a whisper emotion");
-assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "顾深 maps to MiMo Milo");
+assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "陆聿 maps to MiMo Milo");
 assert(PERSONA_CARDS.playful.tts.mimo === "Dean", "阿北 maps to MiMo Dean");
 assert(PERSONA_CARDS.calm.tts.mimo === "茉莉", "阿月 maps to MiMo 茉莉");
 
@@ -438,7 +438,7 @@ assert(quizPayload.assistant_name === "顾深" && quizPayload.spoken.includes("�
 assert(quizPayload.tts?.minimax === "junlang_nanyou", "quiz card keeps the vibe MiniMax voice");
 
 const promptText = cardToPromptText(PERSONA_CARDS.gentle);
-assert(promptText.includes("人设:") && promptText.includes("怎么叫她:"), "character card text uses Chinese labels");
+assert(promptText.includes("陆聿") && promptText.includes("biometric_response_system"), "builtin-001 system prompt is used for gentle");
 assert(!promptText.includes("Profile:"), "character card text does not use English Profile label");
 const approachingSummary = experienceSummary("approaching", {});
 assert(approachingSummary.includes("带她"), "phase summary talks about her, not him");
@@ -459,14 +459,14 @@ const threadFetch = async (_url, options = {}) => {
   return jsonResponse({ dialogue: "我在。", scene_ctrl: "stay" });
 };
 const firstThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
-await firstThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "今天过得怎么样");
+await firstThread.send({ key: "persona:gentle", id: "gentle", name: "陆聿" }, "今天过得怎么样");
 assert(firstThread.messages("persona:gentle").length === 2, "first send stores the opening turn");
 const resumedThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
 assert(
   resumedThread.messages("persona:gentle").length === 2,
   "a new ScenarioChatState hydrates prior turns from storage",
 );
-await resumedThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "过来陪我");
+await resumedThread.send({ key: "persona:gentle", id: "gentle", name: "陆聿" }, "过来陪我");
 const recent = turnBodies[1]?.recent_turns || [];
 assert(
   recent.some((item) => item.role === "user" && item.content === "今天过得怎么样")
@@ -480,7 +480,7 @@ const styleChat = new ScenarioChatState({
   fetchImpl: async () => jsonResponse({ dialogue: "过来。", scene_ctrl: "stay", tts_style: "低语" }),
   storage: styleStore,
 });
-const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "在吗");
+const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "陆聿" }, "在吗");
 assert(styled.tts_style === "低语", "send returns this turn's tts_style for TTS");
 styleChat.clearAll();
 assert(styleChat.messages("persona:gentle").length === 0, "clearAll drops in-memory scenario threads");

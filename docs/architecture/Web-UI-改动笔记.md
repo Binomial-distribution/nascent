@@ -2,9 +2,27 @@
 
 短记录已合入或准备合入的 Web UI 小改动，便于联调对照。权威产品结论仍以 `docs/architecture/` 其它文档为准。
 
+## 2026-08-29 · 固有人设 001（男友原型）接入固定人设
+
+**分支：** `feat/persona-builtin-001`
+
+- 权威可读文档：`docs/architecture/personas/固有人设001-男友原型.md`
+- 可执行 system prompt：`docs/architecture/personas/固有人设001-system-prompt.md` → 运行时 `software/backend/app/services/personas/builtin_001.py`
+- 固定人设 `gentle` 更换为「陆聿」（姓名仍可产品定稿）；turn payload 只传 `persona_id` / 角色卡字段，**不上传**整份 `system_prompt`
+- 后端 `prompt_builder`：固定 `SYSTEM_PROMPT` 始终在前；仅当 `persona_id` 为 `gentle` / `001` 时由服务端拼接陆聿正文；**忽略**请求体里的 `system_prompt`
+
+**与当前 main 能力对照（调研，非本 PR 范围）：**
+
+| 能力 | main 现状 |
+|------|-----------|
+| 文字对话框聊伴侣 | 有：情景页 composer + Agent `/v1` turn；实时通话 ASR/TTS 后也可改用文字 |
+| UI 选择框当用户回复 | 人设/问卷芯片有；对话中 LLM 结构化「点选回复」尚未产品化（人设 prompt 里写了方向，工程未出 choice chips） |
+| 心率 / 档位进 LLM | 有：`buildSensorContext` → `hr_trend`、`current_level` 等脱敏趋势；PR #18 手环 HR；本固有人设含 `biometric_response_system` |
+| 来电进文字聊 | 已合入 PR #22：点人设来电 → 左滑接通 → 上滑文字聊 |
+
 ## 2026-08-29 · 修复 onboarding 结束后再冒出一轮引导
 
-**分支：** `fix/onboarding-exit-rerender`
+**已合入 main：** PR #26
 
 完成礼 `heart.prependCard` 会同步触发 `heart.subscribe(render)`；若此时 hash 仍是 `#/onboarding`，`shouldForceOnboarding` 会再次 `startOnboardingFlow`（`gateReady` 被打回 false），随后 `render` 的 early-return 把主界面挡住。
 
@@ -12,7 +30,8 @@
 
 ## 2026-08-29 · Onboarding 意图 / 陪伴者问卷（合并既有步骤）
 
-**分支：** `feat/ob-intent-companion-quiz`
+**已合入 main：** PR #19
+
 
 **合并关系：**
 

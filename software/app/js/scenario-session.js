@@ -627,7 +627,7 @@ function stubTurn(persona, text, phase) {
 }
 
 function stubDialogue(persona, text, phase) {
-  const name = persona?.name || "顾深";
+  const name = persona?.name || "陆聿";
   if (phase === "aftercare" || /事后|抚慰|抱抱|歇|休息|累了/.test(text)) {
     return "我还在沙发这边陪着。过来靠一会儿，还是先歇着，你说。";
   }
