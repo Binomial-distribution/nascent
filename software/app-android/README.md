@@ -13,6 +13,19 @@ K10，现在已经删除；GATT 的 UUID 一个都没改，所以 `BleBridge` �
 
 App 不内嵌第二份 UI，也不自己实现安全总督。总督仍在网页的 `governor.js` 里。
 
+## 健康手环心率
+
+玩具 GATT 与心率是两条路。本壳只收 Gadgetbridge fork 的 Broadcast，再回调网页的
+`window.__nascentOnHeartRateSample`。合同见
+[`docs/implementation/mi-band7-gadgetbridge-bridge.md`](../../docs/implementation/mi-band7-gadgetbridge-bridge.md)。
+
+- Action：`love.nascent.action.HEART_RATE_SAMPLE`
+- 权限：`love.nascent.permission.RECEIVE_HEART_RATE`（signature，两 APK 同一证书）
+- JS 桥：`NascentHeartRate.available()` 恒为 true；**没有**发往玩具的方法
+
+网页负责平滑、基线和断流。心率不得变成档位指令。网站 / PWA 没有这条桥。
+
+
 ## 怎么跑
 
 1. 电脑上先把网站拉起来（见 [`../app/README.md`](../app/README.md)）。

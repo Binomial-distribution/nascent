@@ -38,6 +38,7 @@ import {
 } from "./persona-cards.js";
 import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
+import { heartRate, hrChipText, nativeHeartRateAvailable } from "./hr.js";
 import {
   COMPANION_TONES,
   isOnboardingDone,
@@ -175,7 +176,7 @@ function loadDevices() {
       k10Battery: raw.k10Battery ?? 100,
       bandConnected: Boolean(raw.bandConnected),
       bandSerial: raw.bandSerial || "MI-WT-9C41",
-      bandName: raw.bandName || "小米手表",
+      bandName: raw.bandName || "小米手环 7",
       bandBattery: raw.bandBattery ?? 100,
       productId: raw.productId || "",
     };
@@ -185,7 +186,7 @@ function loadDevices() {
       k10Battery: 100,
       bandConnected: false,
       bandSerial: "MI-WT-9C41",
-      bandName: "小米手表",
+      bandName: "小米手环 7",
       bandBattery: 100,
       productId: "",
     };
@@ -585,8 +586,19 @@ function deviceStatusText(connected, uplink) {
 }
 
 function bandStatusText() {
-  if (!ui.devices.bandConnected) return "健康手环未连接";
-  return `已连接：${ui.devices.bandSerial} · 电量 ${ui.devices.bandBattery}%`;
+  const snap = heartRate.snapshot;
+  if (snap.live && snap.bpm != null) {
+    const trend = {
+      unknown: snap.collectingBaseline ? "采集基线" : "趋势未知",
+      steady: "平稳",
+      increasing: "上升",
+      decreasing: "回落",
+    }[snap.trend] || "趋势未知";
+    return `已连接：${snap.bpm} BPM · ${trend}`;
+  }
+  if (snap.quality === "stale") return "健康手环已失联";
+  if (!ui.devices.bandConnected && !heartRate.hasEverSampled) return "健康手环未连接";
+  return `已连接：${ui.devices.bandSerial}`;
 }
 
 /** 主设备状态条：心绪/亲密时刻悬浮，或设置页可点连接 */
@@ -615,14 +627,24 @@ function statusBar({
   </${tag}>`;
 }
 
+function bandIsOn() {
+  return heartRate.hasEverSampled || ui.devices.bandConnected;
+}
+
 function bandStatusBar({ connectable = true } = {}) {
-  const on = ui.devices.bandConnected;
+  const on = bandIsOn() && heartRate.snapshot.quality !== "stale";
+  const native = nativeHeartRateAvailable();
   const tag = connectable ? "button" : "div";
+  const hint = native
+    ? (heartRate.snapshot.live
+      ? "小米手环 7 · 实时心率仅本机显示"
+      : "在 Gadgetbridge 中连接手环后，心率会自动到达")
+    : (on ? `${ui.devices.bandName} · 点击断开（演示）` : `默认 ${ui.devices.bandName} · 网站可模拟连接`);
   return `<${tag} class="status ${on ? "is-connected" : ""}" ${connectable ? 'data-act="connect-band"' : ""}>
     ${icon("bluetooth")}
     <span class="status-copy">
       <span>${bandStatusText()}</span>
-      <small class="status-hint">${on ? `${ui.devices.bandName} · 点击断开` : `默认 ${ui.devices.bandName} · 通过蓝牙连接`}</small>
+      <small class="status-hint">${hint}</small>
     </span>
     ${icon("chevron")}
   </${tag}>`;
@@ -909,7 +931,7 @@ function renderScenarioChat() {
     <div class="source-strip">
       <span>温感 ${sensorLabel(sensors.temperature_state)}</span>
       <span>压力 ${sensorLabel(sensors.pressure_rhythm)}</span>
-      <span>心率 ${sensors.hr_source === "none" ? "未接入" : "趋势未知"}</span>
+      <span>${hrChipText(sensors)}</span>
     </div>
     <div class="chat-thread">
       <div class="chat-day">通话已接通 · ${phaseUi.label}</div>
@@ -1022,7 +1044,10 @@ function wellnessCopy(session, recentCount) {
     : session.pressure.direction === "rising"
       ? "压力节律后段更连续"
       : "压力节律整体平稳";
-  return `${temp}，${pressure}。数据完整度：${quality}。这一段对照了 ${recentCount} 次近期记录。这是使用与传感趋势的身心参考，不是健康检测，也不能替代医生或专业人士建议。本机暂无小米手环心率与接触面温感。`;
+  const hrNote = heartRate.snapshot.live
+    ? "本次心率只作为参考性生理趋势，不是健康检测。"
+    : "本机暂无可用的小米手环心率与接触面温感。";
+  return `${temp}，${pressure}。数据完整度：${quality}。这一段对照了 ${recentCount} 次近期记录。这是使用与传感趋势的身心参考，不是健康检测，也不能替代医生或专业人士建议。${hrNote}`;
 }
 
 function renderRecords() {
@@ -1303,7 +1328,7 @@ function renderSettings() {
       ${addressRow}
     </div>
     <div class="device-block">
-      <p class="device-section-label">健康手环 · 默认小米手表</p>
+      <p class="device-section-label">健康手环 · 小米手环 7</p>
       ${bandStatusBar()}
     </div>
     <button class="list-row" data-act="reread-guide">
@@ -2893,10 +2918,16 @@ async function connectOrDisconnect() {
 }
 
 function connectOrDisconnectBand() {
+  if (nativeHeartRateAvailable()) {
+    toast(heartRate.snapshot.live
+      ? "实时心率来自 Gadgetbridge，请在那边断开手环"
+      : "请在 Gadgetbridge 中连接小米手环 7，心率会自动到达");
+    return;
+  }
   ui.devices.bandConnected = !ui.devices.bandConnected;
   saveDevices();
   toast(ui.devices.bandConnected
-    ? `已连接：${ui.devices.bandSerial}`
+    ? `已模拟连接：${ui.devices.bandSerial}`
     : "已断开健康手环");
   render();
 }
@@ -2932,7 +2963,7 @@ function patchTelemetry() {
     const chips = root.querySelectorAll(".scenario-chat-page .source-strip span");
     if (chips[0]) chips[0].textContent = `温感 ${sensorLabel(sensors.temperature_state)}`;
     if (chips[1]) chips[1].textContent = `压力 ${sensorLabel(sensors.pressure_rhythm)}`;
-    if (chips[2]) chips[2].textContent = `心率 ${sensors.hr_source === "none" ? "未接入" : "趋势未知"}`;
+    if (chips[2]) chips[2].textContent = hrChipText(sensors);
   }
 }
 
@@ -2948,6 +2979,22 @@ subscribe(({ connected }) => {
 
 heart.subscribe(render);
 bodyNotes.subscribe(render);
+heartRate.subscribe((snap) => {
+  if (snap.live && !ui.devices.bandConnected) {
+    ui.devices.bandConnected = true;
+    saveDevices();
+  }
+  const bar = root.querySelector('[data-act="connect-band"]');
+  if (bar) {
+    bar.classList.toggle("is-connected", bandIsOn() && heartRate.snapshot.quality !== "stale");
+    const text = bar.querySelector(".status-copy span");
+    if (text) text.textContent = bandStatusText();
+  }
+  const { tab, page, sessionId } = route();
+  if (tab === "intimacy" && page === "scenario" && sessionId === "chat") {
+    patchTelemetry();
+  }
+});
 window.addEventListener("hashchange", render);
 
 async function loadPersonas() {
