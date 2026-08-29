@@ -20,6 +20,8 @@ AO3400A 本体能过 5.7A，所以那颗电阻是安全论证的一部分，不�
 
 ## 接线
 
+验证期 BOM 与接线原理图（给硬件赛道评审用的那两份）：[`docs/bom.md`](docs/bom.md)、[`docs/schematic.png`](docs/schematic.png)、[`docs/bom-and-schematic.pdf`](docs/bom-and-schematic.pdf)。
+
 | 功能 | 引脚 | 备注 |
 |---|---|---|
 | DHT11 数据 | GPIO4 | 单总线，4.7k 上拉到 3V3 |
