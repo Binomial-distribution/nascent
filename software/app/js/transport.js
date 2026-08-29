@@ -43,6 +43,8 @@ export class TransportClient {
     // 两条通道的事件都转发到同一组监听者。只有一条会处于连接状态，
     // 所以不需要区分事件来自哪一条。
     this._statsListeners = new Set();
+    this._connectionPhaseListeners = new Set();
+    this._connectionPhase = { phase: "idle", message: "设备未连接" };
 
     for (const c of [this._ble, this._ws]) {
       c.onUplink((u) => {
@@ -53,6 +55,11 @@ export class TransportClient {
       });
       c.onStats((stats) => {
         for (const fn of this._statsListeners) fn(stats);
+      });
+      c.onConnectionPhase((state) => {
+        if (c !== this.active && state.phase !== "idle") return;
+        this._connectionPhase = state;
+        for (const fn of this._connectionPhaseListeners) fn(state);
       });
     }
   }
@@ -86,6 +93,10 @@ export class TransportClient {
     return this._ble.connected || this._ws.connected;
   }
 
+  get connectionPhase() {
+    return this._connectionPhase;
+  }
+
   get available() {
     return this.active.available;
   }
@@ -108,6 +119,12 @@ export class TransportClient {
   onStats(fn) {
     this._statsListeners.add(fn);
     return () => this._statsListeners.delete(fn);
+  }
+
+  onConnectionPhase(fn) {
+    this._connectionPhaseListeners.add(fn);
+    fn(this._connectionPhase);
+    return () => this._connectionPhaseListeners.delete(fn);
   }
 
   /**

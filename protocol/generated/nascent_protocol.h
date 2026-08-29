@@ -13,7 +13,7 @@
 #define NL_VERSION_MAJOR (0)
 #define NL_VERSION_MINOR (3)
 #define NL_LEVEL_MIN (1)
-#define NL_LEVEL_MAX (8)
+#define NL_LEVEL_MAX (9)
 #define NL_DUTY_CAP_PCT (90)
 #define NL_UPLINK_HZ (12)
 #define NL_UPLINK_PERIOD_MS (83)
@@ -276,7 +276,7 @@ static inline const char *nl_rhythm_name(uint8_t v) {
     return v < NL_RHYTHM_COUNT ? NL_RHYTHM_NAMES[v] : "?";
 }
 
-// ---- 八档表 ----
+// ---- 档位表 ----
 typedef struct {
     uint8_t level;
     uint8_t duty_pct;
@@ -294,6 +294,7 @@ static const nl_level_row_t NL_LEVEL_TABLE[] = {
     {6, 65, NL_PATTERN_STRONG_PULSE, 6, 255, 110, 50}, // 深入
     {7, 78, NL_PATTERN_MIXED, 7, 255, 70, 60}, // 高强度
     {8, 90, NL_PATTERN_PEAK, 8, 255, 70, 60}, // 峰值
+    {9, 90, NL_PATTERN_PEAK, 8, 255, 48, 48}, // 原板第九节奏
 };
 
 static inline const nl_level_row_t *nl_level_row(uint8_t level) {

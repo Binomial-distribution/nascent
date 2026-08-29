@@ -73,8 +73,8 @@ void Ao3400::finishPress() {
   // 正常路径不会走到这里（tick 只在开机态发短按），留着是防御。
   if (!powered_) return;
 
-  // 协议封顶 NL_LEVEL_MAX = 8 而原板有九档，requestLevel 永远不会
-  // 主动按到第 9 档，所以这个回绕在正常路径上不会发生，是防御性的。
+  // 协议目标最多到原板第 9 档，不会主动再多按一次；这个回绕只服务
+  // 联调页的原始点按，是防御性的，产品控制永远走 requestLevel(target)。
   step_ = static_cast<uint8_t>(step_ % ORIGINAL_STEP_COUNT + 1);
 }
 
@@ -135,7 +135,7 @@ void Ao3400::requestLevel(uint8_t target) {
   portENTER_CRITICAL(&g_mux);
   goal_step_ = target;
   goal_active_ = true;
-  // 最坏路径是"长按关机 + 长按开机 + 升到第 8 档" = 2 长按 + 7 短按。
+  // 最坏路径是"长按关机 + 长按开机 + 升到第 9 档" = 2 长按 + 8 短按。
   // 给点余量，超了就停手要求 resync，绝不无限按下去。
   press_budget_ = static_cast<uint8_t>(ORIGINAL_STEP_COUNT + 4);
   portEXIT_CRITICAL(&g_mux);

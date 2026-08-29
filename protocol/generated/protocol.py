@@ -17,7 +17,7 @@ class NlConst:
     VERSION_MAJOR = 0
     VERSION_MINOR = 3
     LEVEL_MIN = 1
-    LEVEL_MAX = 8
+    LEVEL_MAX = 9
     DUTY_CAP_PCT = 90
     UPLINK_HZ = 12
     UPLINK_PERIOD_MS = 83
@@ -295,6 +295,7 @@ LEVEL_TABLE = (
     {"level": 6, "duty_pct": 65, "pattern": Pattern.STRONG_PULSE, "lit": 6, "rgb": (255, 110, 50), "semantic": "深入"},
     {"level": 7, "duty_pct": 78, "pattern": Pattern.MIXED, "lit": 7, "rgb": (255, 70, 60), "semantic": "高强度"},
     {"level": 8, "duty_pct": 90, "pattern": Pattern.PEAK, "lit": 8, "rgb": (255, 70, 60), "semantic": "峰值"},
+    {"level": 9, "duty_pct": 90, "pattern": Pattern.PEAK, "lit": 8, "rgb": (255, 48, 48), "semantic": "原板第九节奏"},
 )
 
 
@@ -347,7 +348,7 @@ class BleDownlink(BaseModel):
     """app -> toy-sidecar（BLE write 或 WiFi WebSocket）"""
 
     cmd: Cmd
-    level: int | None = None
+    level: int | None = None  # set_level：0=正常关机（不闩锁），1..LEVEL_MAX=目标档位
     pattern: Pattern | None = None
     mode: Mode | None = None
     led: LedState | None = None

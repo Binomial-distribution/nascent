@@ -101,7 +101,7 @@ class HardwareSkill(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     skill_id: Literal["rhythm_segment", "set_pattern"]
-    level: int | None = Field(default=None, ge=1, le=8)
+    level: int | None = Field(default=None, ge=1, le=9)
     pattern: str | None = Field(default=None, max_length=32)
     duration_s: int = Field(ge=1, le=900)
     requires_confirmation: bool = True
@@ -153,9 +153,11 @@ class ControlDecisionRequest(BaseModel):
     template_skill_allowlist: list[
         Literal["rhythm_segment", "set_pattern", "hold_current"]
     ] = Field(default_factory=list, max_length=12)
-    current_level: int = Field(default=0, ge=0, le=8)
+    current_level: int = Field(default=0, ge=0, le=9)
     remaining_seconds: int | None = Field(default=None, ge=0)
     consent_state: Literal["unknown", "confirmed", "withdrawn"] = "confirmed"
+    # 与亲密同意分开：每次情景开始时只在客户端内存中授权，默认不授权设备自动调节。
+    automation_authorized: bool = False
     sensor_context: dict[str, object] = Field(default_factory=dict)
     explicit_user_signal: str = Field(default="", max_length=500)
     recent_feedback: Literal["unknown", "comfortable", "slow_down", "pause", "keep"] = (
@@ -170,12 +172,13 @@ class ControlDecision(BaseModel):
     recommended_skill_id: (
         Literal["rhythm_segment", "set_pattern", "hold_current"] | None
     ) = None
-    recommended_level: int | None = Field(default=None, ge=1, le=8)
+    recommended_level: int | None = Field(default=None, ge=1, le=9)
     recommended_pattern: str | None = Field(default=None, max_length=32)
     hold_seconds: int = Field(default=30, ge=1, le=900)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reason_codes: list[str] = Field(default_factory=list, max_length=8)
-    requires_user_confirmation: Literal[True] = True
+    # 未做本次情景授权时保持 true；已授权后建议仍须经客户端 Governor，但无需逐条弹窗。
+    requires_user_confirmation: bool = True
     action: None = None
 
 
@@ -220,7 +223,7 @@ class ParallelDataFlow(BaseModel):
     )
     device: list[str] = Field(
         default_factory=lambda: [
-            "用户确认",
+            "本次情景授权",
             "Governor",
             "sendCommand()",
             "设备安全规则",

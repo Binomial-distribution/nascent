@@ -135,6 +135,10 @@ git push -u origin feat/your-small-task
 
 没有 PlatformIO 时，在 PR 里写明「本机未构建、请 Reviewer 补跑」，不要假装已经验证过。控制端不再依赖 Flutter。
 
+涉及 Web UI、Android 原生桥、系统权限或小米手环时，还必须执行
+[`Web 与 Android 共用 UI：Bug 修复与权限检查清单`](implementation/Web与Android共用UI调试检查.md)。
+共享页面的 Bug 不能只验证浏览器，Android 桥的 Bug 也不能只看 Kotlin 编译通过。
+
 # 7. Pull Request 与评审
 
 开发开始后尽早创建 Draft PR，不必等整块板或整层 App 做完。PR 应说明改了什么、为什么修改、用户或设备影响、验证结果、明确未包含的工作以及需要谁 Review。完成后由相应 Reviewer 确认，再合并 main。

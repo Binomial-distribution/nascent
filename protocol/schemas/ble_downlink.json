@@ -159,7 +159,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "set_level：0=正常关机（不闩锁），1..LEVEL_MAX=目标档位"
     },
     "pattern": {
       "anyOf": [

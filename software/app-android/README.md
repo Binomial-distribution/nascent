@@ -13,6 +13,9 @@ K10，现在已经删除；GATT 的 UUID 一个都没改，所以 `BleBridge` �
 
 App 不内嵌第二份 UI，也不自己实现安全总督。总督仍在网页的 `governor.js` 里。
 
+每次修复 UI、设备连接或权限 Bug，都必须同时验证共享 Web UI 与 Android 真机。
+强制清单见 [`docs/implementation/Web与Android共用UI调试检查.md`](../../docs/implementation/Web与Android共用UI调试检查.md)。
+
 ## 健康手环心率
 
 玩具 GATT 与心率是两条路。本壳只收 Gadgetbridge fork 的 Broadcast，再回调网页的

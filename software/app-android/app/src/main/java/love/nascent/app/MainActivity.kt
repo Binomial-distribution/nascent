@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -41,7 +42,6 @@ class MainActivity : AppCompatActivity() {
         setup = findViewById(R.id.setup)
         urlField = findViewById(R.id.server_url)
         val open = findViewById<Button>(R.id.open_site)
-        val change = findViewById<Button>(R.id.change_server)
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity() {
 
         bridge = BleBridge(this, webView)
         webView.addJavascriptInterface(bridge, "NascentNative")
+        webView.addJavascriptInterface(ShellBridge(), "NascentShell")
         heartRate = HeartRateBridge(this, webView)
         webView.addJavascriptInterface(heartRate, "NascentHeartRate")
 
@@ -89,15 +90,11 @@ class MainActivity : AppCompatActivity() {
         open.setOnClickListener {
             val url = normalize(urlField.text.toString())
             if (url == null) {
-                Toast.makeText(this, "请输入 http:// 或 https:// 地址", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "请输入完整的连接地址", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             prefs().edit().putString(KEY_URL, url).apply()
             loadSite(url)
-        }
-        change.setOnClickListener {
-            bridge.disconnect()
-            showSetup()
         }
     }
 
@@ -149,15 +146,23 @@ class MainActivity : AppCompatActivity() {
     private fun showSetup() {
         setup.visibility = LinearLayout.VISIBLE
         webView.visibility = WebView.GONE
-        findViewById<Button>(R.id.change_server).visibility = Button.GONE
         urlField.setText(prefs().getString(KEY_URL, "http://10.0.2.2:8000"))
     }
 
     private fun loadSite(url: String) {
         setup.visibility = LinearLayout.GONE
         webView.visibility = WebView.VISIBLE
-        findViewById<Button>(R.id.change_server).visibility = Button.VISIBLE
         webView.loadUrl(url)
+    }
+
+    inner class ShellBridge {
+        @JavascriptInterface
+        fun openConnectionSettings() {
+            runOnUiThread {
+                bridge.disconnect()
+                showSetup()
+            }
+        }
     }
 
     private fun prefs() = getSharedPreferences("nascent", Context.MODE_PRIVATE)

@@ -15,7 +15,7 @@ from app.services.agent_contract import (
     TemplateDraftRequest,
 )
 from app.services.memory import InMemoryMemoryProvider
-from app.services.llm import _apply_control_policy
+from app.services.llm import _apply_control_policy, _control_must_hold
 from app.services.preference import (
     InMemoryPreferenceStore,
     PreferenceObservation,
@@ -98,6 +98,39 @@ async def test_parallel_turn_starts_chat_and_control_together(monkeypatch):
     assert result.chat.dialogue == "chat ready"
     assert result.control.reason_codes == ["test"]
     assert result.data_flow.device[-2] == "sendCommand()"
+
+
+def test_control_requires_session_automation_authorization():
+    request = ControlDecisionRequest(
+        user_id="u",
+        session_id="s",
+        template_id="tpl",
+        template_skill_allowlist=["rhythm_segment"],
+        current_level=9,
+        consent_state="confirmed",
+        automation_authorized=False,
+        sensor_context={
+            "temperature_quality": "valid",
+            "pressure_quality": "partial",
+            "data_age_ms": 0,
+        },
+    )
+    assert _control_must_hold(request)
+
+    allowed = request.model_copy(update={"automation_authorized": True})
+    assert not _control_must_hold(allowed)
+
+    decision = _apply_control_policy(
+        ControlDecision(
+            decision="recommend",
+            recommended_skill_id="rhythm_segment",
+            recommended_level=9,
+        ),
+        ["rhythm_segment"],
+        automation_authorized=True,
+    )
+    assert decision.recommended_level == 9
+    assert decision.requires_user_confirmation is False
 
 
 @pytest.mark.asyncio
@@ -958,4 +991,3 @@ async def test_clone_minimax_upload_then_voice_clone(monkeypatch):
     assert any("voice_clone" in item["url"] and item["json"]["voice_id"] == voice_id for item in calls)
     payload = minimax_payload("我在", model="speech-02-turbo", voice=voice_id)
     assert payload["voice_setting"]["voice_id"] == voice_id
-

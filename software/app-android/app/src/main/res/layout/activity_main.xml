@@ -10,15 +10,6 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <Button
-        android:id="@+id/change_server"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|top"
-        android:layout_margin="8dp"
-        android:text="@string/change_server"
-        android:visibility="gone" />
-
     <LinearLayout
         android:id="@+id/setup"
         android:layout_width="match_parent"

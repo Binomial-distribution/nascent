@@ -89,7 +89,8 @@ export class Governor {
 
     if (cmd.cmd === NlCmd.SET_LEVEL) {
       const lv = cmd.level;
-      if (lv == null || lv < NlConst.levelMin || lv > NlConst.levelMax) {
+      const normalPowerOff = lv === 0 && !automatic;
+      if (lv == null || (!normalPowerOff && (lv < NlConst.levelMin || lv > NlConst.levelMax))) {
         return "档位超出范围。";
       }
       if (automatic && this._insert === NlInsertState.UNKNOWN) {

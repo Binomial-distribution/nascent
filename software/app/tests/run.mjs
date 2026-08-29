@@ -40,7 +40,7 @@ import {
   pushVadFrame,
   shouldBargeIn,
 } from "../js/live-call.js";
-import { accelMag, fsrContact, imuHealth, insertCopy, sensorLogicView, uplinkStatCopy } from "../js/lab.js";
+import { accelMag, connectionDiagnostic, fsrContact, imuHealth, insertCopy, sensorLogicView, uplinkStatCopy } from "../js/lab.js";
 
 let failed = 0;
 let passed = 0;
@@ -103,6 +103,18 @@ assert(
 assert(
   gov2.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: NlConst.levelMax + 1, auth: "" })) === "档位超出范围。",
   "level above max is rejected",
+);
+assert(
+  gov2.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 9, auth: "" })) == null,
+  "manual ninth level is allowed",
+);
+assert(
+  gov2.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 0, auth: "" })) == null,
+  "manual level zero is normal power off",
+);
+assert(
+  gov2.reject(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: 0, auth: "" }), { automatic: true }) === "档位超出范围。",
+  "automatic control cannot power off",
 );
 
 {
@@ -584,6 +596,10 @@ assert(!spokeLocal, "cloud TTS failure does not fake a browser voice");
 assert(failedSpeech.played === false && failedSpeech.interrupted === false, "failed cloud TTS reports not played");
 
 assert(insertCopy(NlInsertState.INSERTED) === "在使用中", "lab copy is in-use not medical insertion");
+assert(
+  connectionDiagnostic({ phase: "error", message: "GATT 133" }) === "阶段 error · GATT 133",
+  "lab keeps raw connection diagnostics out of product status bars",
+);
 assert(insertCopy(NlInsertState.UNKNOWN) === "不确定", "unknown insert copy");
 assert(accelMag([0, 0, 0]) < 0.15, "zero accel is empty");
 assert(imuHealth([0, 0, 0]).ok === false, "zero accel is I2C miss");

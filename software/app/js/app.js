@@ -36,7 +36,16 @@ import {
   savedPersonaToDraft,
   speakOptionsForPersona,
 } from "./persona-cards.js";
-import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
+import {
+  connectDevice,
+  disconnectDevice,
+  getConnected,
+  getConnectionState,
+  getUplink,
+  link,
+  sendCommand,
+  subscribe,
+} from "./session.js";
 import { patchLabDom, renderLab, saveCheck } from "./lab.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import { heartRate, hrChipText, nativeHeartRateAvailable } from "./hr.js";
@@ -47,12 +56,6 @@ import {
   shouldForceOnboarding,
   fullGuidePages,
 } from "./onboarding.js";
-
-const SHELL_LABEL = {
-  website: "网站",
-  pwa: "已安装的 App（PWA）",
-  "android-app": "Nascent App",
-};
 
 const LLM_OPTIONS = [
   { id: "gpt-4o-mini", label: "GPT-4o mini" },
@@ -74,6 +77,7 @@ const SCENES = [
 ];
 
 const LOCAL_USER = "local-demo";
+const AUTO_CONTROL_INTERVAL_MS = 10_000;
 const STYLE_TAGS = ["温柔", "强势", "SM 风格", "安静", "玩心"];
 const TALK_FREQS = ["少说话", "适中", "多一些回应"];
 
@@ -108,6 +112,18 @@ const ui = {
   quizAnswers: emptyQuizAnswers(),
   callTimer: null,
   voiceListening: false,
+  pendingScenarioPersona: null,
+  scenarioAutomation: {
+    active: false,
+    authorized: false,
+    sessionId: "",
+    timer: null,
+    pendingTimer: null,
+    inFlight: false,
+    modeSetting: false,
+    lastSensorKey: "",
+    generation: 0,
+  },
 };
 
 const PREFS_KEY = "nascent.prefs";
@@ -548,6 +564,9 @@ function route() {
 
 function go(path) {
   location.hash = path;
+  requestAnimationFrame(() => {
+    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  });
 }
 
 function toast(text) {
@@ -578,14 +597,35 @@ function closeSheet() {
   ui.sheet = null;
 }
 
-function deviceStatusText(connected, uplink) {
-  if (!connected) return "设备未连接";
-  const serial = ui.devices.k10Serial;
+/**
+ * 原机的开机与关机是同一个长按取反动作。产品页和硬件调试页必须共用
+ * 这条已经在实机验证过的指令，不能一个走 set_level、另一个走原按键。
+ */
+async function toggleOriginalPower(successCopy) {
+  const reason = await emit(new BleDownlink({
+    cmd: NlCmd.PRESS_KEY,
+    key: NlKeyPress.HOLD,
+    auth: "",
+  }));
+  if (!reason) toast(successCopy);
+  return reason;
+}
+
+function deviceStatusText(connected, uplink, state = getConnectionState()) {
+  if (!connected) {
+    return {
+      permission: "等待允许连接…",
+      scanning: "正在寻找设备…",
+      connecting: "正在连接…",
+      initializing: "正在准备…",
+      error: "暂时无法连接 · 点此重试",
+    }[state?.phase] || "连接设备";
+  }
   const bat = `电量 ${ui.devices.k10Battery}%`;
   if (uplink?.insertState === NlInsertState.INSERTED) {
-    return `已连接：${serial} · ${bat} · 在使用中`;
+    return `已连接 · 使用中 · ${bat}`;
   }
-  return `已连接：${serial} · ${bat}`;
+  return `已连接 · ${bat}`;
 }
 
 function bandStatusText() {
@@ -613,6 +653,7 @@ function statusBar({
 } = {}) {
   const connected = getConnected();
   const uplink = getUplink();
+  const connection = getConnectionState();
   const tag = clickable || connectable ? "button" : "div";
   const act = connectable ? 'data-act="connect"' : clickable ? 'data-act="settings"' : "";
   const classes = [
@@ -623,8 +664,7 @@ function statusBar({
   return `<${tag} class="${classes}" data-status ${act}>
     ${icon("bluetooth")}
     <span class="status-copy">
-      <span data-status-text>${deviceStatusText(connected, uplink)}</span>
-      ${connectable ? `<small class="status-hint">${connectHint()}</small>` : ""}
+      <span data-status-text>${deviceStatusText(connected, uplink, connection)}</span>
     </span>
     ${icon(trailing)}
   </${tag}>`;
@@ -636,18 +676,11 @@ function bandIsOn() {
 
 function bandStatusBar({ connectable = true } = {}) {
   const on = bandIsOn() && heartRate.snapshot.quality !== "stale";
-  const native = nativeHeartRateAvailable();
   const tag = connectable ? "button" : "div";
-  const hint = native
-    ? (heartRate.snapshot.live
-      ? "小米手环 7 · 实时心率仅本机显示"
-      : "在 Gadgetbridge 中连接手环后，心率会自动到达")
-    : (on ? `${ui.devices.bandName} · 点击断开（演示）` : `默认 ${ui.devices.bandName} · 网站可模拟连接`);
   return `<${tag} class="status ${on ? "is-connected" : ""}" ${connectable ? 'data-act="connect-band"' : ""}>
     ${icon("bluetooth")}
     <span class="status-copy">
       <span>${bandStatusText()}</span>
-      <small class="status-hint">${hint}</small>
     </span>
     ${icon("chevron")}
   </${tag}>`;
@@ -757,7 +790,7 @@ function knowledgeCard(card, index) {
 function renderIntimacy() {
   return `${topbar("亲密时刻")}
   <main class="page intimacy-home">
-    ${statusBar({ clickable: true, trailing: "shield" })}
+    ${statusBar({ connectable: true, trailing: "shield" })}
     <h2 class="lead">选择今天的靠近方式</h2>
     <p class="sub">想有人陪着说话，或快慢都自己来，选下面一种。</p>
     <div class="entry-stack">
@@ -777,24 +810,32 @@ function entry(page, ico, title, subtitle) {
 }
 
 function renderControl() {
+  const connected = getConnected();
   const uplink = getUplink();
   const reported = uplink?.level ?? 0;
   if (ui.draftLevel === reported) ui.draftLevel = null;
-  const level = ui.draftLevel ?? reported;
+  const level = ui.draftLevel ?? (reported > 0 ? reported : 1);
   const mode = uplink?.mode ?? NlMode.FREE;
+  const disabled = connected ? "" : "disabled";
   return `${topbar("自我控制", { back: true })}
   <main class="page control-page">
+    ${statusBar({ connectable: true, trailing: connected ? "check" : "chevron" })}
     <button class="stop" data-act="stop">${icon("stop")} 停 止</button>
+    <div class="power-actions" aria-label="设备电源">
+      <button class="power-on ${reported > 0 ? "active" : ""}" data-act="power-on" ${disabled}>开启</button>
+      <button class="power-off ${reported === 0 ? "active" : ""}" data-act="power-off" ${disabled}>关闭</button>
+    </div>
+    <p class="power-hint">停止后，请在设备上确认恢复。</p>
     <div class="control-stage">
-      <div class="level" data-level-label>档位 ${level} / ${NlConst.levelMax}</div>
-      <input id="level-slider" type="range" min="0" max="${NlConst.levelMax}" step="1" value="${level}" />
+      <div class="level" data-level-label>${reported === 0 ? "启动" : "档位"} ${level} / ${NlConst.levelMax}</div>
+      <input id="level-slider" type="range" min="1" max="${NlConst.levelMax}" step="1" value="${level}" ${disabled} />
     </div>
     <div class="modes">
       ${[
         [NlMode.FREE, "手动"],
         [NlMode.WILD, "失控"],
       ].map(([value, label]) => `
-        <button data-act="mode" data-mode="${value}" class="${mode === value ? "active" : ""}">${label}</button>
+        <button data-act="mode" data-mode="${value}" class="${mode === value ? "active" : ""}" ${disabled}>${label}</button>
       `).join("")}
     </div>
     <p class="hint">健康提示：不适应立刻停。润滑不够先补上。胸闷、头晕或疼痛时请停止。</p>
@@ -897,6 +938,7 @@ function renderScenarioCall() {
     </div>
     <h2>${escapeHtml(persona.name)}</h2>
     <p class="sub" data-call-status>正在呼叫你…</p>
+    ${ui.scenarioAutomation.authorized ? `<p class="auto-control-badge">本次情景已开启设备自动调节</p>` : ""}
     <div class="call-captions" data-call-captions hidden>
       <div class="call-line user" data-call-user-row hidden>
         <span class="call-who">你</span>
@@ -930,7 +972,7 @@ function renderScenarioChat() {
     action: personaAvatarHtml(persona, "avatar top-avatar"),
   })}
   <main class="insight-page scenario-chat-page">
-    <div class="scope-strip"><strong>${phaseUi.label}</strong><span>想更近、想慢、想停，直接说就好</span></div>
+    <div class="scope-strip"><strong>${phaseUi.label}</strong><span>${ui.scenarioAutomation.authorized ? "设备自动调节中 · 想更近、想慢、想停，直接说" : "想更近、想慢、想停，直接说就好"}</span></div>
     <div class="source-strip">
       <span>温感 ${sensorLabel(sensors.temperature_state)}</span>
       <span>压力 ${sensorLabel(sensors.pressure_rhythm)}</span>
@@ -1271,31 +1313,9 @@ function pad(n) {
   return String(n).padStart(2, "0");
 }
 
-function connectHint() {
-  const reason = link.unavailableReason;
-  if (reason) return reason;
-
-  if (link.channel === CHANNEL.WIFI) {
-    return link.address
-      ? `将连接 ${link.address}，玩具需要和你在同一个 2.4GHz 局域网内。`
-      : "请先在下面填写玩具的地址。WiFi 是备用通道，平时用蓝牙就好。";
-  }
-  if (currentShell() === "android-app") {
-    return "App 用系统蓝牙直连玩具。WebView 没有 Web Bluetooth，这是刻意走原生桥。";
-  }
-  return "网站通过 Web Bluetooth 直连玩具。请用 Chrome / Edge，并从 localhost 或 HTTPS 打开。";
-}
-
 function renderSettings() {
-  const shell = currentShell();
-  const installRow = shell === "website"
-    ? `<button class="list-row" data-act="install-pwa">
-        <strong>安装为 App</strong>
-        <small>与网站同一套 Web UI，装到主屏幕后仍直连玩具。</small>
-      </button>`
-    : "";
   const channelRow = `<div class="list-row">
-      <strong>通道</strong>
+      <strong>连接方式</strong>
       <small>${Object.values(CHANNEL).map((c) => `
         <button class="chip${link.channel === c ? " active" : ""}" data-act="channel" data-channel="${c}">${CHANNEL_LABEL[c]}</button>
       `).join("")}</small>
@@ -1306,32 +1326,21 @@ function renderSettings() {
         <small>
           <input id="toy-address" type="text" inputmode="url" spellcheck="false"
                  placeholder="192.168.1.20 或 nascent.local" value="${escapeHtmlApp(link.address)}">
-          只保存在本次运行内，刷新页面需要重填。
+          仅在本次使用中保存。
         </small>
       </div>`
     : "";
   const provisionRow = `<div class="list-row">
-      <strong>让玩具接入 WiFi</strong>
+      <strong>设置设备 WiFi</strong>
       <small>
         <input id="wifi-ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false"
                placeholder="2.4 GHz 网络名称">
         <input id="wifi-psk" type="password" maxlength="63" autocomplete="off"
                placeholder="密码（开放网络可留空）">
-        <button type="button" class="primary" data-act="provision-wifi">写入玩具</button>
-        须先连上设备。密码只走蓝牙或已建立的设备链路，不上云、不进记录。
-        写入后断开蓝牙约 20 秒，再把通道切到 WiFi 并填玩具地址。
+        <button type="button" class="primary" data-act="provision-wifi">保存</button>
+        请先连接设备。保存后稍等片刻，再选择 WiFi。
       </small>
     </div>`;
-
-  // —— 入口（Web UI demo 暂隐，保留勿删）——
-  // const entrySection = `
-  //   <div class="group">入口</div>
-  //   <div class="list-row">
-  //     <strong>当前是${SHELL_LABEL[shell]}</strong>
-  //     <small>网站和 App 共用这一份页面，连的都是玩具本身——中间已经没有别的板子了。</small>
-  //   </div>
-  //   ${installRow}
-  // `;
 
   return `${topbar("我的")}
   <main class="page">
@@ -1358,8 +1367,7 @@ function renderSettings() {
     </button>
     <div class="list-row">
       <strong>停止后如何恢复</strong>
-      <small>只能长按玩具上的 BOOT 键两秒。网站和 App 都无法远程恢复，这是刻意的——
-      设备固件里根本没有「远程恢复」这条路径，不是我们没做入口。</small>
+      <small>请在设备上长按恢复键两秒。</small>
     </div>
     <button class="list-row" data-act="toggle-app-lock">
       <strong>打开时需要输入锁屏密码</strong>
@@ -1392,15 +1400,9 @@ function renderSettings() {
       <small>${ui.prefs.subscribed ? "已订阅" : "订阅与会员管理"}</small>
     </button>
     <div class="group">关于</div>
-    <div class="list-row">
-      <strong>协议版本</strong>
-      <small>${NlConst.protoVersion}</small>
-    </div>
-    <p class="demo-note">当前为 Web UI demo · 入口 shell：${SHELL_LABEL[shell]}</p>
-    <div class="group">设备调试</div>
     <button class="list-row" data-act="lab">
-      <strong>硬件联调</strong>
-      <small>传感器、灯语、档位、BOOT 停机。产品页还没做完时用这一页验板。</small>
+      <strong>硬件调试</strong>
+      <small>查看连接、传感器与设备状态</small>
     </button>
   </main>
   ${nav("settings")}`;
@@ -1958,6 +1960,19 @@ function beginScenarioCall(persona) {
     toast("请先选择一个人设");
     return;
   }
+  ui.pendingScenarioPersona = persona;
+  openSheet(`
+    <h2>这次是否开启设备自动调节？</h2>
+    <p class="sub" style="text-align:left">开启后，会根据对话和身体状态温和调整。离开情景或连接中断时会自动关闭。</p>
+    <button class="primary" data-act="scenario-start-auto">开启自动调节</button>
+    <button class="ghost" data-act="scenario-start-manual">仅陪伴，不自动控制</button>
+  `);
+}
+
+function startScenarioCall(persona, { automationAuthorized = false } = {}) {
+  if (!persona) return;
+  closeSheet();
+  ui.pendingScenarioPersona = null;
   ui.activePersona = persona;
   ui.scenarioHandoff = false;
   scenarioChat.setPhase(persona.key, "approaching");
@@ -1968,7 +1983,135 @@ function beginScenarioCall(persona) {
   clearTimeout(ui.callTimer);
   delete root.dataset.sceneCall;
   unlockSpeechPlayback();
+  startScenarioAutomation(persona, automationAuthorized);
   go("#/intimacy/scenario/call");
+}
+
+function stopScenarioAutomation() {
+  const auto = ui.scenarioAutomation;
+  auto.generation += 1;
+  clearInterval(auto.timer);
+  clearTimeout(auto.pendingTimer);
+  auto.active = false;
+  auto.authorized = false;
+  auto.sessionId = "";
+  auto.timer = null;
+  auto.pendingTimer = null;
+  auto.inFlight = false;
+  auto.modeSetting = false;
+  auto.lastSensorKey = "";
+}
+
+function startScenarioAutomation(persona, authorized) {
+  stopScenarioAutomation();
+  const auto = ui.scenarioAutomation;
+  auto.generation += 1;
+  auto.active = true;
+  auto.authorized = Boolean(authorized);
+  auto.sessionId = `scenario-${Date.now().toString(36)}`;
+  if (!auto.authorized) return;
+  ensureScenarioMode();
+  auto.timer = setInterval(() => requestAutomaticControl(), AUTO_CONTROL_INTERVAL_MS);
+  auto.pendingTimer = setTimeout(() => requestAutomaticControl(), 800);
+}
+
+async function ensureScenarioMode() {
+  const auto = ui.scenarioAutomation;
+  if (!auto.active || !auto.authorized || !getConnected() || auto.modeSetting) return;
+  if (getUplink()?.mode === NlMode.SCENARIO) return;
+  auto.modeSetting = true;
+  try {
+    const reason = await sendCommand(
+      new BleDownlink({ cmd: NlCmd.SET_MODE, mode: NlMode.SCENARIO, auth: "" }),
+      { automatic: true },
+    );
+    if (reason) toast(reason);
+  } finally {
+    auto.modeSetting = false;
+  }
+}
+
+function scenarioControlTemplate(persona) {
+  const templateId = String(persona?.key || "local-scenario");
+  const saved = templateId.startsWith("template:")
+    ? ui.templates.find((item) => `template:${item.template_id}` === templateId)
+    : null;
+  const allowlist = saved?.skills?.map((item) => item.skill_id)
+    .filter((id) => id === "rhythm_segment" || id === "set_pattern") || ["rhythm_segment"];
+  return { templateId: saved?.template_id || templateId, allowlist };
+}
+
+async function requestAutomaticControl({ explicitSignal = "" } = {}) {
+  const auto = ui.scenarioAutomation;
+  if (!auto.active || !auto.authorized || auto.inFlight || !getConnected()) return;
+  const uplink = getUplink();
+  if (!uplink) return;
+  const generation = auto.generation;
+  await ensureScenarioMode();
+  if (!auto.active || !auto.authorized || auto.generation !== generation) return;
+  if (getUplink()?.mode !== NlMode.SCENARIO) return;
+  const persona = ui.activePersona;
+  const template = scenarioControlTemplate(persona);
+  const sensor = buildSensorContext(uplink, { bandConnected: ui.devices.bandConnected });
+  auto.inFlight = true;
+  try {
+    const response = await fetch("/v1/agent/control-decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: LOCAL_USER,
+        session_id: auto.sessionId,
+        session_mode: "scenario",
+        template_id: template.templateId,
+        template_skill_allowlist: template.allowlist,
+        current_level: Number(uplink.level) || 0,
+        consent_state: "confirmed",
+        automation_authorized: true,
+        sensor_context: sensor,
+        explicit_user_signal: String(explicitSignal || "").slice(0, 500),
+        recent_feedback: /慢|轻|小一点/.test(explicitSignal)
+          ? "slow_down"
+          : /停|暂停|不要/.test(explicitSignal)
+            ? "pause"
+            : /继续|保持/.test(explicitSignal)
+              ? "keep"
+              : "unknown",
+      }),
+    });
+    if (!response.ok) return;
+    const decision = await response.json();
+    if (!auto.active || !auto.authorized || auto.generation !== generation) return;
+    const target = Number(decision?.recommended_level);
+    if (decision?.decision !== "recommend" || decision?.requires_user_confirmation !== false) return;
+    if (!Number.isInteger(target) || target < NlConst.levelMin || target > NlConst.levelMax) return;
+    const reason = await sendCommand(
+      new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: target, auth: "" }),
+      { automatic: true },
+    );
+    if (reason) toast(reason);
+    else toast(`情景自动调到第 ${target} 档`);
+  } catch {
+    // Control 不可用时保持当前档位；对话与手动控制继续可用。
+  } finally {
+    if (auto.generation === generation) auto.inFlight = false;
+  }
+}
+
+function scheduleAutomaticControlForSensorChange() {
+  const auto = ui.scenarioAutomation;
+  if (!auto.active || !auto.authorized || !getConnected()) return;
+  const sensor = buildSensorContext(getUplink(), { bandConnected: ui.devices.bandConnected });
+  const key = JSON.stringify([
+    sensor.insert_state,
+    sensor.temperature_state,
+    sensor.pressure_rhythm,
+    getUplink()?.alert || "none",
+    getUplink()?.mode || NlMode.FREE,
+  ]);
+  if (key === auto.lastSensorKey) return;
+  auto.lastSensorKey = key;
+  clearTimeout(auto.pendingTimer);
+  auto.pendingTimer = setTimeout(() => requestAutomaticControl(), 300);
 }
 
 function startCallSequence() {
@@ -2116,6 +2259,7 @@ function leaveScenarioCall() {
   clearTimeout(ui.callTimer);
   delete root.dataset.sceneCall;
   ui.voiceListening = false;
+  stopScenarioAutomation();
 }
 
 function stashQuizDraft() {
@@ -2195,6 +2339,7 @@ function render() {
       uplink: getUplink(),
       channel: link.channel,
       token: link.token,
+      connectionState: getConnectionState(),
       lastReject: ui.labReject,
       uplinkStats: link.uplinkStats,
     });
@@ -2311,6 +2456,7 @@ async function sendScenarioLine(text, { speak = true, skipRender = false } = {})
   });
   if (!skipRender) render();
   const turn = await pending;
+  requestAutomaticControl({ explicitSignal: text });
   if (!skipRender) render();
   requestAnimationFrame(() => root.querySelector(".chat-thread")?.scrollTo(0, 99999));
   if (speak && turn?.dialogue) {
@@ -2455,9 +2601,7 @@ async function onPersonaSubmit(event) {
 }
 
 async function onLevelCommit(level) {
-  // 滑到 0 只表示原机关机（长按取反），不是急停闩锁。
-  // 急停走红色「停止」键；若滑块也发 stop，之后加档会被丢掉，直到 BOOT 长按 2 秒。
-  ui.draftLevel = level === 0 ? null : level;
+  ui.draftLevel = level;
   await emit(new BleDownlink({ cmd: NlCmd.SET_LEVEL, level, auth: "" }));
 }
 
@@ -2494,7 +2638,12 @@ async function onClick(event) {
       go("#/intimacy");
     }
   }
-  else if (act === "sub") go(`#/intimacy/${t.dataset.page}`);
+  else if (act === "sub") {
+    if (t.dataset.page === "control" && getConnected() && getUplink()?.mode !== NlMode.FREE) {
+      await emit(new BleDownlink({ cmd: NlCmd.SET_MODE, mode: NlMode.FREE, auth: "" }));
+    }
+    go(`#/intimacy/${t.dataset.page}`);
+  }
   else if (act === "settings") go("#/settings");
   else if (act === "persona-settings") go("#/settings/persona");
   else if (act === "view-persona-settings") go("#/settings/persona");
@@ -2632,8 +2781,21 @@ async function onClick(event) {
   else if (act === "favorites") showFavorites();
   else if (act === "stop") {
     ui.draftLevel = null;
+    stopScenarioAutomation();
     await emit(new BleDownlink({ cmd: NlCmd.STOP, auth: "" }));
     render();
+  }
+  else if (act === "scenario-start-auto") {
+    startScenarioCall(ui.pendingScenarioPersona, { automationAuthorized: true });
+  }
+  else if (act === "scenario-start-manual") {
+    startScenarioCall(ui.pendingScenarioPersona, { automationAuthorized: false });
+  }
+  else if (act === "power-on") {
+    await toggleOriginalPower("正在开启设备");
+  }
+  else if (act === "power-off") {
+    await toggleOriginalPower("正在关闭设备");
   }
   else if (act === "mode") {
     await emit(new BleDownlink({ cmd: NlCmd.SET_MODE, mode: t.dataset.mode, auth: "" }));
@@ -2765,8 +2927,11 @@ async function onClick(event) {
     await emit(new BleDownlink({ cmd: NlCmd.SET_LED, led: t.dataset.led, auth: "" }));
   }
   else if (act === "lab-power-on" || act === "lab-power-off") {
-    toast(act === "lab-power-on" ? "长按开机：GPIO7 拉高约 1.2 秒" : "长按关机：同样是 1.2 秒取反");
-    await emit(new BleDownlink({ cmd: NlCmd.PRESS_KEY, key: NlKeyPress.HOLD, auth: "" }));
+    await toggleOriginalPower(
+      act === "lab-power-on"
+        ? "长按开机：GPIO7 拉高约 1.2 秒"
+        : "长按关机：同样是 1.2 秒取反",
+    );
   }
   else if (act === "lab-tap") {
     toast("点按调档：GPIO7 短接约 120ms");
@@ -2780,6 +2945,9 @@ async function onClick(event) {
   }
   else if (act === "lab-check") {
     return;
+  }
+  else if (act === "lab-connection-settings") {
+    window.NascentShell?.openConnectionSettings?.();
   }
   else if (act === "connect") connectOrDisconnect();
   else if (act === "connect-band") connectOrDisconnectBand();
@@ -2975,41 +3143,44 @@ async function provisionWifi() {
   if (reason) return;
   const pskEl = root.querySelector("#wifi-psk");
   if (pskEl) pskEl.value = "";
-  toast("已写入玩具。断开蓝牙约 20 秒后，把通道切到 WiFi 并填玩具地址。");
+  toast("已保存。稍等片刻后即可选择 WiFi");
 }
 
 async function connectOrDisconnect() {
   if (getConnected()) {
-    await link.disconnect();
+    await disconnectDevice();
     toast("已断开主设备");
     render();
     return;
   }
+  const state = getConnectionState();
+  if (["permission", "scanning", "connecting", "initializing"].includes(state.phase)) return;
   readToyAddress();
   try {
-    await link.connect();
+    await connectDevice();
     if (!ui.devices.k10Serial) ui.devices.k10Serial = "NL-TOY-7F2A";
     saveDevices();
-    toast(`已连接：${ui.devices.k10Serial}`);
+    toast("设备已连接");
     render();
   } catch (err) {
     // 用户在系统蓝牙选择器里点了取消，不是错误，不要弹提示。
     if (err?.name === "NotFoundError") return;
-    toast(err.message || String(err));
+    if (route().tab === "lab") toast(err.message || String(err));
+    else toast("暂时无法连接，请稍后重试");
   }
 }
 
 function connectOrDisconnectBand() {
   if (nativeHeartRateAvailable()) {
     toast(heartRate.snapshot.live
-      ? "实时心率来自 Gadgetbridge，请在那边断开手环"
-      : "请在 Gadgetbridge 中连接小米手环 7，心率会自动到达");
+      ? "健康手环正在同步"
+      : "请先连接健康手环并开启实时心率");
     return;
   }
   ui.devices.bandConnected = !ui.devices.bandConnected;
   saveDevices();
   toast(ui.devices.bandConnected
-    ? `已模拟连接：${ui.devices.bandSerial}`
+    ? "健康手环已连接"
     : "已断开健康手环");
   render();
 }
@@ -3017,22 +3188,25 @@ function connectOrDisconnectBand() {
 function patchTelemetry() {
   const connected = getConnected();
   const uplink = getUplink();
+  const connection = getConnectionState();
   ingestUplinkSample(uplink);
+  scheduleAutomaticControlForSensorChange();
   const { tab, page, sessionId } = route();
   root.querySelectorAll("[data-status]").forEach((el) => {
     el.classList.toggle("is-connected", connected);
     const text = el.querySelector("[data-status-text]");
-    if (text) text.textContent = deviceStatusText(connected, uplink);
+    if (text) text.textContent = deviceStatusText(connected, uplink, connection);
   });
   if (tab === "intimacy" && page === "control") {
     const slider = root.querySelector("#level-slider");
     if (slider && document.activeElement !== slider) {
       const reported = uplink?.level ?? 0;
       if (ui.draftLevel == null || ui.draftLevel === reported) {
-        ui.draftLevel = null;
-        slider.value = String(reported);
+        if (reported > 0) ui.draftLevel = null;
+        const shown = reported > 0 ? reported : (ui.draftLevel ?? 1);
+        slider.value = String(shown);
         const label = root.querySelector("[data-level-label]");
-        if (label) label.textContent = `档位 ${reported} / ${NlConst.levelMax}`;
+        if (label) label.textContent = `${reported > 0 ? "档位" : "启动"} ${shown} / ${NlConst.levelMax}`;
       }
     }
     const mode = uplink?.mode ?? NlMode.FREE;
@@ -3048,14 +3222,24 @@ function patchTelemetry() {
     if (chips[2]) chips[2].textContent = hrChipText(sensors);
   }
   if (tab === "lab") {
-    patchLabDom(root, { connected, uplink, token: link.token, uplinkStats: link.uplinkStats });
+    patchLabDom(root, {
+      connected,
+      uplink,
+      token: link.token,
+      connectionState: connection,
+      uplinkStats: link.uplinkStats,
+    });
   }
 }
 
 let lastConnected = getConnected();
-subscribe(({ connected }) => {
-  if (connected !== lastConnected) {
+let lastConnectionPhase = getConnectionState().phase;
+subscribe(({ connected, connectionState }) => {
+  if (connected !== lastConnected || connectionState.phase !== lastConnectionPhase) {
     lastConnected = connected;
+    lastConnectionPhase = connectionState.phase;
+    if (!connected && ui.scenarioAutomation.authorized) stopScenarioAutomation();
+    if (connected && ui.scenarioAutomation.authorized) ensureScenarioMode();
     render();
     return;
   }
@@ -3120,8 +3304,17 @@ bodyNotes.load().then(() => render());
 
 if ("wakeLock" in navigator) {
   document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" && ui.scenarioAutomation.authorized) {
+      stopScenarioAutomation();
+    }
     if (document.visibilityState === "visible" && route().page === "control") {
       try { await navigator.wakeLock.request("screen"); } catch { /* ignore */ }
+    }
+  });
+} else {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" && ui.scenarioAutomation.authorized) {
+      stopScenarioAutomation();
     }
   });
 }
