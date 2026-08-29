@@ -313,8 +313,8 @@ assert(parseHash("#/intimacy").page === "root", "intimacy root is the two-entry 
 assert(parseHash("#/intimacy/scenario").page === "scenario", "scenario list lives under intimacy");
 assert(parseHash("#/intimacy/scenario/new").sessionId === "new", "persona form uses scenario/new");
 assert(parseHash("#/intimacy/scenario/play").sessionId === "play", "legacy play hash still parses");
-assert(parseHash("#/intimacy/scenario/chat").sessionId === "chat", "persona pick opens text chat");
-assert(parseHash("#/intimacy/scenario/call").sessionId === "call", "voice call remains a secondary route");
+assert(parseHash("#/intimacy/scenario/call").sessionId === "call", "persona pick opens the incoming call");
+assert(parseHash("#/intimacy/scenario/chat").sessionId === "chat", "text chat is the swipe-up page after the call");
 assert(SCENARIO_FLOW.includes("call") && SCENARIO_FLOW.includes("chat"), "scenario flow includes call and chat");
 assert(parseHash("#/intimacy/control").page === "control", "self-control is a nested intimacy page");
 assert(parseHash("#/records").tab === "records" && parseHash("#/records").view == null, "records long page is a root tab");
