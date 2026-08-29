@@ -19,4 +19,6 @@ cp .env.example .env
 
 仓库只跟踪本 README 和 `.env.example`。目录里其它文件（`.env`、证书、`*.pem`）都被 gitignore。
 
+验证期设置页（「我的 → 云端接口」）可以在不改这个文件的情况下把密钥写进后端进程内存。POST 需要 `NASCENT_RUNTIME_TOKEN`（请求头 `X-Nascent-Runtime-Token`）；未配置口令时公网 POST 一律 403。本机 `debug` 且来自 127.0.0.1 / ::1 可豁免。`llm_base_url` / `speech_base_url` 只允许启动时环境里的主机和硅基流动正规 API 根。那条路不落盘，重启后端即失效。正式部署仍以本目录的 `.env` 为准。
+
 不要把密钥写进 `protocol/`、`software/app/`、固件 `local_config.h` 以外的源码，也不要贴进飞书当唯一出处。

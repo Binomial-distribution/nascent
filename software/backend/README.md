@@ -30,6 +30,7 @@ app/
   routers/persona.py      GET  /v1/persona
   routers/plugin.py       「连接我的 AI」邀请、心跳与待处理建议
   routers/mcp.py          外部 AI 用的 MCP 骨架（用户看不见这个名字）
+  routers/runtime.py      GET/POST /v1/runtime-config（验证期设置页覆盖密钥，不落盘）
   services/llm.py         Chat/Control Prompt、Schema 与安全回退
   services/providers/     OpenAI 兼容 Chat 与 ASR/TTS，换厂商只改密钥文件
   services/agent.py       Agent 编排与记忆检索
@@ -75,7 +76,7 @@ uvicorn app.main:app --reload
 网站在 <http://127.0.0.1:8000>，接口文档在 <http://127.0.0.1:8000/docs>。
 后端同时托管 `software/app/` 里的静态页，不另起前端构建。
 
-配置走环境变量，前缀 `NASCENT_`。部署把密钥写在 `secrets/.env`（见 [`secrets/README.md`](secrets/README.md)）；本机也可以继续用 `.env`。两处都已被 gitignore。
+配置走环境变量，前缀 `NASCENT_`。部署把密钥写在 `secrets/.env`（见 [`secrets/README.md`](secrets/README.md)）；本机也可以继续用 `.env`。两处都已被 gitignore。验证期也可以在网页「我的 → 云端接口」填写同一组地址和密钥：只写进程内存和本机 localStorage，不写 `.env`、不进 git、不进数据导出。POST 要带本机口令 `NASCENT_RUNTIME_TOKEN`（请求头 `X-Nascent-Runtime-Token`）；未配置则公网 POST 一律 403。本机 debug 且来自 127.0.0.1 / ::1 可豁免。地址只允许启动时环境里的主机和硅基流动正规 API 根。共享演示后端时，后打开的浏览器仍可能用本机密钥盖掉进程内配置。重启后端会回到环境变量；页面再打开时若本机还留着密钥，会重新 POST 上去。
 
 逻辑别名是 `nascent-chat-9b` / `nascent-control-9b`。发给供应商的 HTTP `model` 必须是供应商认识的 ID，所以 `.env.example` 默认写 `Qwen/Qwen3.5-9B`。两 lane 使用独立 timeout、prompt 和 schema，即使暂时指向同一个快照。
 

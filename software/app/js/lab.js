@@ -185,12 +185,6 @@ export function renderLab({
       <strong data-lab="link">${connected ? "已连接 · 点击断开" : "未连接 · 点击连接 Nascent-Toy"}</strong>
       <small>${CHANNEL_LABEL[channel] || channel} · 广播名 ${NlBle.deviceName} · 协议 ${NlConst.protoVersion}</small>
     </button>
-    ${typeof window !== "undefined" && window.NascentShell?.openConnectionSettings
-      ? `<button class="list-row" data-act="lab-connection-settings">
-          <strong>更改服务地址</strong>
-          <small>重新填写 Android 壳加载的页面地址</small>
-        </button>`
-      : ""}
     <p class="lab-note" data-lab="connection-detail">${escapeLab(connectionDiagnostic(connectionState))}</p>
     ${kv("会话令牌", token ? "已签发" : "无")}
     ${kv("最近一帧 ts", uplink ? String(uplink.ts) : "—", "ts")}

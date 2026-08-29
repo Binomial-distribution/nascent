@@ -44,6 +44,7 @@ js/
   onboarding.js   首次引导
   lab.js          硬件联调页（#/lab，从「我的」最下方进入）
   ai-plugin.js    「连接我的 AI」邀请与建议桥（调档仍走 sendCommand）
+  cloud-config.js 设置页云端接口：本机 API 地址、密钥与口令，不进数据导出
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS
   live-call.js         通话连续听：VAD 切句、云端转写与播报
   app.js          A/B/C 三层界面与身体笔记独立导航
