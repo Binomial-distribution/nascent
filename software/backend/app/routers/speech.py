@@ -21,6 +21,8 @@ class SpeakRequest(BaseModel):
     voice: str | None = Field(default=None, max_length=256)
     fallback_voice: str | None = Field(default=None, max_length=256)
     emotion: str | None = Field(default=None, max_length=32)
+    tts_style: str | None = Field(default=None, max_length=16)
+    provider: str | None = Field(default=None, max_length=16)
 
 
 class TranscriptResponse(BaseModel):
@@ -60,12 +62,18 @@ async def speak(request: SpeakRequest) -> Response:
     voice = (request.voice or "").strip() or None
     fallback = (request.fallback_voice or "").strip() or None
     emotion = (request.emotion or "").strip() or None
+    tts_style = (request.tts_style or "").strip() or None
+    provider = (request.provider or "").strip().lower() or None
+    if provider and provider not in {"minimax", "mimo"}:
+        provider = None
     try:
         audio = await speech_provider.synthesize(
             request.text,
             voice,
             fallback_voice=fallback,
             emotion=emotion,
+            tts_style=tts_style,
+            provider=provider,
         )
     except ValueError as exc:
         logger.warning("TTS rejected text: %s", type(exc).__name__)

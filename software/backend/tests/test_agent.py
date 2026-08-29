@@ -283,6 +283,7 @@ def test_chat_stub_aftercare_does_not_escalate():
     )
     assert turn.action is None
     assert turn.scene_ctrl == "end"
+    assert turn.tts_style == "温柔"
     assert "高潮" not in turn.dialogue
 
 
@@ -324,6 +325,8 @@ def test_prompt_includes_sensor_trends_and_aftercare():
     assert "答非所问" in SYSTEM_PROMPT
     assert "括号" in SYSTEM_PROMPT
     assert "不要念出来" in SYSTEM_PROMPT
+    assert "tts_style" in SYSTEM_PROMPT
+    assert "温柔" in SYSTEM_PROMPT
 
 
 def test_prompt_history_is_real_messages_not_json_blob():
@@ -409,6 +412,10 @@ def test_custom_persona_uploads_and_lists_for_selection():
     assert "陆予" in names
     other = client.get("/v1/persona/custom", params={"user_id": "other-user"})
     assert other.json() == []
+    deleted = client.delete("/v1/persona/custom", params={"user_id": "quiz-user"})
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_count"] >= 1
+    assert client.get("/v1/persona/custom", params={"user_id": "quiz-user"}).json() == []
 
 
 def test_siliconflow_console_url_normalizes_to_api_root():
@@ -444,6 +451,7 @@ async def test_generate_turn_uses_completion_provider(monkeypatch):
             "action": None,
             "scene_ctrl": "stay",
             "emotion": "calm",
+            "tts_style": "俏皮",
         })
 
     monkeypatch.setattr(settings, "llm_api_key", "test")
@@ -461,6 +469,7 @@ async def test_generate_turn_uses_completion_provider(monkeypatch):
     )
     assert result.dialogue == "按你的节奏来"
     assert result.action is None
+    assert result.tts_style == "俏皮"
     assert captured["model"] == "Qwen/Qwen3.5-9B"
     blob = json_lib.dumps(captured["messages"], ensure_ascii=False)
     assert "press_l" not in blob
@@ -488,6 +497,7 @@ def test_speech_routes_fail_closed_without_vendor_config():
     assert clone.status_code == 503
     health = client.get("/healthz")
     assert health.json()["speech"] == "stub"
+    assert health.json()["tts"] == "stub"
 
 
 @pytest.mark.asyncio
@@ -603,13 +613,31 @@ async def test_synthesize_falls_back_when_fish_returns_402(monkeypatch):
 def test_minimax_payload_uses_free_system_voice():
     from app.services.providers.speech import minimax_payload
 
-    payload = minimax_payload("我在", model="speech-02-turbo", voice="female-tianmei")
+    payload = minimax_payload("我在", model="speech-02-turbo", voice="junlang_nanyou")
     assert payload["model"] == "speech-02-turbo"
     assert payload["text"] == "我在"
     assert payload["language_boost"] == "Chinese"
-    assert payload["voice_setting"]["voice_id"] == "female-tianmei"
+    assert payload["voice_setting"]["voice_id"] == "junlang_nanyou"
+    assert payload["voice_setting"]["emotion"] == "calm"
     assert payload["stream"] is False
     assert "input" not in payload
+
+
+def test_mimo_payload_puts_style_on_user_and_line_on_assistant():
+    from app.services.providers.speech import mimo_payload, spoken_text
+    from app.services.tts_style import minimax_emotion_for_style
+
+    payload = mimo_payload("过来。（轻声）我在。", voice="junlang_nanyou", tts_style="低语")
+    assert payload["model"] == "mimo-v2.5-tts"
+    assert payload["messages"][0]["role"] == "user"
+    assert "轻" in payload["messages"][0]["content"]
+    assert payload["messages"][1]["role"] == "assistant"
+    assert payload["messages"][1]["content"] == spoken_text("过来。（轻声）我在。")
+    assert "（" not in payload["messages"][1]["content"]
+    assert payload["audio"]["format"] == "mp3"
+    assert payload["audio"]["voice"] == "Milo"
+    assert minimax_emotion_for_style("俏皮") == "happy"
+    assert minimax_emotion_for_style("低语") == "whisper"
 
 
 def test_spoken_text_keeps_chinese_and_strips_stage_notes():
@@ -675,7 +703,7 @@ async def test_synthesize_uses_minimax_t2a_when_configured(monkeypatch):
     monkeypatch.setattr(settings, "minimax_group_id", "g1")
     monkeypatch.setattr(settings, "minimax_base_url", "https://api.minimaxi.com")
     monkeypatch.setattr(settings, "tts_model", "speech-02-turbo")
-    monkeypatch.setattr(settings, "tts_voice", "female-tianmei")
+    monkeypatch.setattr(settings, "tts_voice", "junlang_nanyou")
     monkeypatch.setattr(settings, "tts_timeout_s", 1.0)
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
 
@@ -683,7 +711,7 @@ async def test_synthesize_uses_minimax_t2a_when_configured(monkeypatch):
     assert result == audio
     assert captured["url"] == "https://api.minimaxi.com/v1/t2a_v2"
     assert captured["params"]["GroupId"] == "g1"
-    assert captured["json"]["voice_setting"]["voice_id"] == "female-tianmei"
+    assert captured["json"]["voice_setting"]["voice_id"] == "junlang_nanyou"
 
 
 def test_preset_tts_maps_boyfriend_male_and_girlfriend_female():
@@ -692,6 +720,9 @@ def test_preset_tts_maps_boyfriend_male_and_girlfriend_female():
     assert PRESET_TTS["gentle"]["minimax"] == "junlang_nanyou"
     assert PRESET_TTS["playful"]["minimax"] == "male-qn-qingse"
     assert PRESET_TTS["calm"]["minimax"] == "danya_xuejie"
+    assert PRESET_TTS["gentle"]["mimo"] == "Milo"
+    assert PRESET_TTS["playful"]["mimo"] == "Dean"
+    assert PRESET_TTS["calm"]["mimo"] == "茉莉"
     assert PRESET_TTS["gentle"]["gender"] == "male"
     assert PRESET_TTS["playful"]["gender"] == "male"
     assert PRESET_TTS["calm"]["gender"] == "female"
@@ -703,9 +734,11 @@ def test_preset_tts_maps_boyfriend_male_and_girlfriend_female():
 def test_speak_request_accepts_voice():
     from app.routers.speech import SpeakRequest
 
-    req = SpeakRequest(text="我在", voice="junlang_nanyou", emotion="happy")
+    req = SpeakRequest(text="我在", voice="junlang_nanyou", emotion="happy", tts_style="俏皮", provider="mimo")
     assert req.voice == "junlang_nanyou"
     assert req.emotion == "happy"
+    assert req.tts_style == "俏皮"
+    assert req.provider == "mimo"
 
 
 @pytest.mark.asyncio
@@ -757,6 +790,114 @@ async def test_synthesize_uses_request_voice_in_minimax_payload(monkeypatch):
     assert result == audio
     assert captured["json"]["voice_setting"]["voice_id"] == "male-qn-qingse"
     assert captured["json"]["voice_setting"]["emotion"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_maps_tts_style_to_minimax_emotion(monkeypatch):
+    import httpx
+
+    from app.config import settings
+    from app.services.providers import speech as speech_provider
+
+    audio = b"ID3" + b"\x00" * 40
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers=None, json=None, params=None):
+            captured["json"] = json
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"audio": audio.hex(), "status": 2},
+                    "base_resp": {"status_code": 0, "status_msg": "success"},
+                },
+                request=request,
+            )
+
+    monkeypatch.setattr(settings, "minimax_api_key", "test")
+    monkeypatch.setattr(settings, "minimax_group_id", "")
+    monkeypatch.setattr(settings, "minimax_base_url", "https://api.minimaxi.com")
+    monkeypatch.setattr(settings, "tts_model", "speech-02-turbo")
+    monkeypatch.setattr(settings, "tts_timeout_s", 1.0)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    result = await speech_provider.synthesize(
+        "我在",
+        "junlang_nanyou",
+        emotion="calm",
+        tts_style="俏皮",
+    )
+    assert result == audio
+    assert captured["json"]["voice_setting"]["emotion"] == "happy"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_mimo_uses_chat_completions(monkeypatch):
+    import base64
+
+    import httpx
+
+    from app.config import settings
+    from app.services.providers import speech as speech_provider
+
+    audio = b"ID3" + b"\x00" * 40
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers=None, json=None, params=None):
+            captured["url"] = url
+            captured["json"] = json
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{
+                        "message": {
+                            "audio": {"data": base64.b64encode(audio).decode("ascii")},
+                        }
+                    }]
+                },
+                request=request,
+            )
+
+    monkeypatch.setattr(settings, "mimo_api_key", "test")
+    monkeypatch.setattr(settings, "mimo_base_url", "https://api.xiaomimimo.com/v1")
+    monkeypatch.setattr(settings, "minimax_api_key", "")
+    monkeypatch.setattr(settings, "speech_api_key", "")
+    monkeypatch.setattr(settings, "speech_base_url", "")
+    monkeypatch.setattr(settings, "tts_timeout_s", 1.0)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    result = await speech_provider.synthesize(
+        "过来。（轻声）",
+        "junlang_nanyou",
+        tts_style="低语",
+        provider="mimo",
+    )
+    assert result == audio
+    assert captured["url"] == "https://api.xiaomimimo.com/v1/chat/completions"
+    assert captured["json"]["messages"][0]["role"] == "user"
+    assert captured["json"]["messages"][1]["content"] == "过来。"
+    assert captured["json"]["audio"]["voice"] == "Milo"
 
 
 @pytest.mark.asyncio

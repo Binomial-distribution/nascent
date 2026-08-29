@@ -11,6 +11,7 @@ import {
   personaAvatarHtml,
   resetSensorWindow,
   scenarioChat,
+  THREAD_KEY,
   speakDialogue,
   startRingtone,
   stopRingtone,
@@ -118,6 +119,7 @@ function loadPrefs() {
         ? raw.appearance
         : "default",
       subscribed: Boolean(raw.subscribed),
+      ttsProvider: raw.ttsProvider === "mimo" ? "mimo" : "minimax",
     };
   } catch {
     return {
@@ -127,6 +129,7 @@ function loadPrefs() {
       notifyVeiled: true,
       appearance: "default",
       subscribed: false,
+      ttsProvider: "minimax",
     };
   }
 }
@@ -431,6 +434,7 @@ async function uploadCustomPersona(item) {
 }
 
 function mergeRemoteCustoms(remote) {
+  if (ui.skipRemoteCustoms) return;
   if (!Array.isArray(remote)) return;
   const localById = new Map(ui.persona.customs.map((item) => [item.id, item]));
   const merged = remote.map((item) => {
@@ -1329,6 +1333,10 @@ function renderSettings() {
       <strong>外观</strong>
       <small>${appearanceSummary()}</small>
     </button>
+    <button class="list-row" data-act="tts-settings">
+      <strong>语音合成</strong>
+      <small>${ttsProviderSummary()}</small>
+    </button>
     <button class="list-row" data-act="subscribe-settings">
       <strong>Nascent Love+</strong>
       <small>${ui.prefs.subscribed ? "已订阅" : "订阅与会员管理"}</small>
@@ -1366,6 +1374,10 @@ function appearanceSummary() {
   }[ui.prefs.appearance] || "默认";
 }
 
+function ttsProviderSummary() {
+  return ui.prefs.ttsProvider === "mimo" ? "小米 MiMo" : "MiniMax";
+}
+
 function renderLocalData() {
   return `${topbar("本地数据", { back: true, backTo: "#/settings" })}
   <main class="page">
@@ -1400,9 +1412,15 @@ function confirmClearLocalData() {
     </div>
   `);
   sheet.querySelector("[data-clear-cancel]").onclick = () => closeSheet();
-  sheet.querySelector("[data-clear-confirm]").onclick = () => {
+  sheet.querySelector("[data-clear-confirm]").onclick = async () => {
     heart.clearLocal();
     bodyNotes.clearTemporaryChats();
+    scenarioChat.clearAll();
+    try { localStorage.removeItem(THREAD_KEY); } catch { /* ignore */ }
+    try {
+      await fetch(`/v1/persona/custom?user_id=${encodeURIComponent(LOCAL_USER)}`, { method: "DELETE" });
+    } catch { /* ignore */ }
+    ui.skipRemoteCustoms = true;
     ui.persona = {
       mode: null,
       presetId: "gentle",
@@ -1471,7 +1489,7 @@ function renderPersonaCustom(editId = null) {
   const draft = personaFormDraft(editing);
   const name = draft.assistant_name || draft.name || "";
   const avatar = ui.draftAvatar || editing?.avatar || "";
-  const clonedVoice = String(draft.tts?.voice || "").trim();
+  const clonedVoice = String(draft.tts?.localClipName || draft.tts?.voice || "").trim();
   const selectedVibe = PERSONA_VIBES.find((item) => item.id === draft.vibe);
   const backTo = ui.scenarioHandoff
     ? "#/intimacy/scenario"
@@ -1502,12 +1520,7 @@ function renderPersonaCustom(editId = null) {
         <input id="persona-voice-file" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-m4a,.mp3,.m4a,.wav" hidden />
       </label>
     </div>
-    <p class="ob-hint">${clonedVoice ? "已经记下他的声音，保存后通话会用这个音色。" : "单人、尽量安静、至少 10 秒，请用自己的声音或已获授权的音频。"}</p>
-    ${ui.cloneNeedsTranscript ? `
-      <label class="ob-label" for="persona-voice-transcript">这段音频在说什么</label>
-      <input id="persona-voice-transcript" class="ob-field" maxlength="500" placeholder="把这段录音里说的话写下来" />
-      <button type="button" class="ghost" data-act="persona-clone-retry" style="margin-bottom:12px">再试一次</button>
-    ` : ""}
+    <p class="ob-hint">${clonedVoice ? `已经记下这段声音（演示，尚未送云端）${draft.tts?.localClipName ? `：${escapeHtmlApp(draft.tts.localClipName)}` : ""}。通话仍用人设系统音色。` : "单人、尽量安静、至少 10 秒。本轮只在本机记下，不会上传克隆。"}</p>
     <label class="ob-label" for="persona-assistant-name">他的名字</label>
     <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如顾深" />
     <label class="ob-label" for="persona-user-name">他怎么叫你</label>
@@ -1667,6 +1680,23 @@ function renderAppearanceSettings() {
   <main class="page">
     ${options.map(([id, title, hint]) => `
       <button class="ob-choice ${ui.prefs.appearance === id ? "selected" : ""}" data-act="appearance-set" data-mode="${id}">
+        <strong>${title}</strong>
+        <span>${hint}</span>
+      </button>
+    `).join("")}
+  </main>`;
+}
+
+function renderTtsSettings() {
+  const options = [
+    ["minimax", "MiniMax", "默认。情感走 voice_setting.emotion，人设用系统音色。"],
+    ["mimo", "小米 MiMo", "风格写在 user 消息里，台词只放 assistant。ASR 仍走硅基 SenseVoice。"],
+  ];
+  return `${topbar("语音合成", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="sub">只换怎么念台词。听写还是同一条 ASR，不换成本地模型。</p>
+    ${options.map(([id, title, hint]) => `
+      <button class="ob-choice ${ui.prefs.ttsProvider === id ? "selected" : ""}" data-act="tts-set" data-provider="${id}">
         <strong>${title}</strong>
         <span>${hint}</span>
       </button>
@@ -1899,12 +1929,14 @@ function answerIncomingCall() {
 function prepareLiveCall() {
   stopLiveCall();
   liveCall = createLiveCall({
-    tts: () => speakOptionsForPersona(ui.activePersona),
+    tts: () => speakOptionsForPersona(ui.activePersona, { provider: ui.prefs.ttsProvider }),
     onUtterance: async (text) => {
       updateCallCaption("user", text);
       const turn = await sendScenarioLine(text, { speak: false, skipRender: true });
       if (turn?.dialogue) updateCallCaption("assistant", turn.dialogue);
-      return turn?.dialogue || "";
+      return turn?.dialogue
+        ? { dialogue: turn.dialogue, tts_style: turn.tts_style }
+        : "";
     },
     onStatus: (status) => {
       const labels = {
@@ -2090,6 +2122,7 @@ function render() {
     else if (page === "safeword") root.innerHTML = renderSafewordManage();
     else if (page === "notify") root.innerHTML = renderNotifySettings();
     else if (page === "appearance") root.innerHTML = renderAppearanceSettings();
+    else if (page === "tts") root.innerHTML = renderTtsSettings();
     else if (page === "subscribe") root.innerHTML = renderSubscribeSettings();
     else if (page === "storage") root.innerHTML = renderStorageSettings();
     else root.innerHTML = renderSettings();
@@ -2189,7 +2222,11 @@ async function sendScenarioLine(text, { speak = true, skipRender = false } = {})
   if (!skipRender) render();
   requestAnimationFrame(() => root.querySelector(".chat-thread")?.scrollTo(0, 99999));
   if (speak && turn?.dialogue) {
-    const result = await speakDialogue(turn.dialogue, speakOptionsForPersona(persona));
+    const result = await speakDialogue(turn.dialogue, {
+      ...speakOptionsForPersona(persona, { provider: ui.prefs.ttsProvider }),
+      tts_style: turn.tts_style,
+      provider: ui.prefs.ttsProvider,
+    });
     if (!result?.played && !result?.interrupted) toast("这次没播出声音，看文字就好");
   }
   return turn;
@@ -2212,58 +2249,29 @@ async function onPersonaVoicePicked(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
-  ui.pendingCloneFile = file;
+  rememberLocalVoiceClip(file);
+}
+
+function rememberLocalVoiceClip(file) {
+  stashPersonaDraft();
+  const current = readPersonaCardDraftFromForm();
+  ui.draftPersonaCard = {
+    ...current,
+    tts: {
+      ...(current.tts || {}),
+      localClipName: file.name || "voice.mp3",
+      localClipDemo: true,
+    },
+  };
+  ui.pendingCloneFile = null;
   ui.cloneNeedsTranscript = false;
-  await clonePendingVoice();
+  render();
+  toast("已经记下这段声音（演示，尚未送云端）");
 }
 
 async function clonePendingVoice() {
   const file = ui.pendingCloneFile;
-  if (!file) return;
-  stashPersonaDraft();
-  const transcript = String(root.querySelector("#persona-voice-transcript")?.value || "").trim();
-  const personaId = ui.persona.editingId
-    || ui.draftPersonaCard?.id
-    || `draft${Date.now().toString(36)}`;
-  try {
-    const body = new FormData();
-    body.append("file", file, file.name || "voice.wav");
-    body.append("persona_id", String(personaId).slice(0, 128));
-    if (transcript) body.append("transcript", transcript.slice(0, 500));
-    const response = await fetch("/v1/speech/clone", { method: "POST", body });
-    if (response.status === 400) {
-      const payload = await response.json().catch(() => ({}));
-      if (String(payload.detail || "").includes("transcript")) {
-        ui.cloneNeedsTranscript = true;
-        render();
-        toast("这段音频在说什么？填一下再试");
-        return;
-      }
-      toast("没能记下这段声音，人设还可以照常保存");
-      return;
-    }
-    if (!response.ok) {
-      toast("没能记下这段声音，人设还可以照常保存");
-      return;
-    }
-    const json = await response.json();
-    const voiceId = String(json?.voice_id || "").trim();
-    if (!voiceId) {
-      toast("没能记下这段声音，人设还可以照常保存");
-      return;
-    }
-    const current = readPersonaCardDraftFromForm();
-    ui.draftPersonaCard = {
-      ...current,
-      tts: { ...(current.tts || {}), voice: voiceId },
-    };
-    ui.pendingCloneFile = null;
-    ui.cloneNeedsTranscript = false;
-    render();
-    toast("已经记下他的声音");
-  } catch {
-    toast("没能记下这段声音，人设还可以照常保存");
-  }
+  if (file) rememberLocalVoiceClip(file);
 }
 
 function selectedSkills(form) {
@@ -2497,6 +2505,13 @@ async function onClick(event) {
     toast("外观已更新");
     render();
   }
+  else if (act === "tts-settings") go("#/settings/tts");
+  else if (act === "tts-set") {
+    ui.prefs.ttsProvider = t.dataset.provider === "mimo" ? "mimo" : "minimax";
+    savePrefs();
+    toast(ui.prefs.ttsProvider === "mimo" ? "已切换为小米 MiMo" : "已切换为 MiniMax");
+    render();
+  }
   else if (act === "subscribe-settings") go("#/settings/subscribe");
   else if (act === "subscribe-toggle") {
     ui.prefs.subscribed = !ui.prefs.subscribed;
@@ -2596,8 +2611,8 @@ async function onClick(event) {
     }
     if (keepUser) filled.user_name = keepUser;
     filled.vibe = t.dataset.vibe;
-    if (current.tts?.voice) {
-      filled.tts = { ...(filled.tts || {}), voice: current.tts.voice };
+    if (current.tts?.voice || current.tts?.localClipDemo || current.tts?.localClipName) {
+      filled.tts = { ...(filled.tts || {}), ...current.tts };
     }
     ui.draftPersonaCard = filled;
     ui.suppressPersonaStash = true;

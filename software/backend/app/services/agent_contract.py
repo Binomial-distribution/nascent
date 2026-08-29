@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .tts_style import TtsStyle, normalize_tts_style
 
 
 class AvatarState(BaseModel):
@@ -44,10 +46,16 @@ class AgentTurn(BaseModel):
     avatar: AvatarState = AvatarState()
     scene_ctrl: Literal["stay", "next", "end"] = "stay"
     emotion: Literal["gentle", "playful", "calm"] = "calm"
+    tts_style: TtsStyle = "平静"
     # Agent 只能给建议，绝不能产出设备命令。
     action: None = None
     memory_proposals: list[MemoryProposal] = Field(default_factory=list)
     skill_proposals: list[SkillProposal] = Field(default_factory=list, max_length=4)
+
+    @field_validator("tts_style", mode="before")
+    @classmethod
+    def _coerce_tts_style(cls, value: object) -> str:
+        return normalize_tts_style(value)
 
 
 class AgentTurnRequest(BaseModel):

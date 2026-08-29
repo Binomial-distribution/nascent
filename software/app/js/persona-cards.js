@@ -32,6 +32,7 @@ export const SWEET_BOYFRIEND = {
   tts: {
     minimax: "junlang_nanyou",
     cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:charles",
+    mimo: "Milo",
     emotion: "calm",
   },
 };
@@ -64,6 +65,7 @@ export const PERSONA_CARDS = {
     tts: {
       minimax: "male-qn-qingse",
       cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:david",
+      mimo: "Dean",
       emotion: "happy",
     },
   },
@@ -93,6 +95,7 @@ export const PERSONA_CARDS = {
     tts: {
       minimax: "danya_xuejie",
       cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:claire",
+      mimo: "茉莉",
       emotion: "whisper",
     },
   },
@@ -423,6 +426,32 @@ export function personaOpeningLine(persona, phase) {
   return card.spoken || SWEET_BOYFRIEND.spoken;
 }
 
+export const TTS_STYLES = ["温柔", "俏皮", "低语", "平静", "着急", "开心"];
+
+export const TTS_STYLE_TO_EMOTION = {
+  温柔: "calm",
+  平静: "calm",
+  俏皮: "happy",
+  开心: "happy",
+  低语: "whisper",
+  着急: "surprised",
+};
+
+const TTS_STYLE_ALIASES = {
+  calm: "平静",
+  gentle: "温柔",
+  happy: "开心",
+  playful: "俏皮",
+  whisper: "低语",
+  surprised: "着急",
+};
+
+export function normalizeTtsStyle(value) {
+  const raw = String(value || "").trim();
+  if (TTS_STYLES.includes(raw)) return raw;
+  return TTS_STYLE_ALIASES[raw] || TTS_STYLE_ALIASES[raw.toLowerCase()] || "平静";
+}
+
 export function personaTts(persona) {
   const card = cardForPersona(persona);
   const tts = normalizeTts(card.tts || persona?.tts, card.vibe || persona?.id || card.id);
@@ -430,19 +459,24 @@ export function personaTts(persona) {
   return {
     minimax: tts.minimax,
     cosyvoice: tts.cosyvoice,
+    mimo: tts.mimo,
     emotion: tts.emotion,
     voice: cloned || tts.minimax,
     fallbackVoice: cloned.startsWith("speech:") ? cloned : tts.cosyvoice,
     cloned,
+    localClipDemo: Boolean(tts.localClipDemo),
+    localClipName: tts.localClipName || "",
   };
 }
 
-export function speakOptionsForPersona(persona) {
+export function speakOptionsForPersona(persona, { provider } = {}) {
   const tts = personaTts(persona);
+  const useMimo = provider === "mimo";
   return {
-    voice: tts.voice,
+    voice: useMimo ? (tts.mimo || "Milo") : tts.voice,
     fallbackVoice: tts.fallbackVoice,
     emotion: tts.emotion === "whisper" ? "whisper" : tts.emotion,
+    provider: provider || "",
   };
 }
 
@@ -452,6 +486,7 @@ export function personaPayload(persona) {
   const payloadTts = {
     minimax: tts.minimax,
     cosyvoice: tts.cosyvoice,
+    mimo: tts.mimo,
     emotion: tts.emotion,
   };
   if (tts.cloned) payloadTts.voice = tts.cloned;
@@ -476,11 +511,15 @@ function normalizeTts(value, vibe) {
   const preset = PERSONA_CARDS[vibe]?.tts || DEFAULT_TTS;
   const raw = value && typeof value === "object" ? value : {};
   const cloned = String(raw.voice || "").trim().slice(0, 256);
+  const demoClip = Boolean(raw.localClipDemo);
   return {
     minimax: String(raw.minimax || preset.minimax).trim() || DEFAULT_TTS.minimax,
     cosyvoice: String(raw.cosyvoice || preset.cosyvoice).trim() || DEFAULT_TTS.cosyvoice,
+    mimo: String(raw.mimo || preset.mimo || DEFAULT_TTS.mimo || "Milo").trim(),
     emotion: String(raw.emotion || preset.emotion).trim() || DEFAULT_TTS.emotion,
-    ...(cloned ? { voice: cloned } : {}),
+    localClipName: String(raw.localClipName || "").trim().slice(0, 120),
+    localClipDemo: demoClip,
+    ...(cloned && !demoClip ? { voice: cloned } : {}),
   };
 }
 

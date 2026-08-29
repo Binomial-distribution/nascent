@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import re
 
 import httpx
 
 from ...config import settings
+from ..tts_style import minimax_emotion_for_style, mimo_style_prompt, normalize_tts_style
 
 MAX_AUDIO_BYTES = 2_000_000
 MAX_CLONE_BYTES = 20_000_000
@@ -30,22 +32,32 @@ MINIMAX_TO_COSYVOICE = {
     "male-qn-qingse": "FunAudioLLM/CosyVoice2-0.5B:david",
     "danya_xuejie": "FunAudioLLM/CosyVoice2-0.5B:claire",
 }
+MINIMAX_TO_MIMO = {
+    "junlang_nanyou": "Milo",
+    "male-qn-qingse": "Dean",
+    "danya_xuejie": "茉莉",
+}
+MIMO_DEFAULT_BASE = "https://api.xiaomimimo.com/v1"
+MIMO_VOICES = frozenset({"Milo", "Dean", "茉莉", "冰糖", "mimo_default"})
 PRESET_TTS = {
     "gentle": {
         "minimax": "junlang_nanyou",
         "cosyvoice": "FunAudioLLM/CosyVoice2-0.5B:charles",
+        "mimo": "Milo",
         "emotion": "calm",
         "gender": "male",
     },
     "playful": {
         "minimax": "male-qn-qingse",
         "cosyvoice": "FunAudioLLM/CosyVoice2-0.5B:david",
+        "mimo": "Dean",
         "emotion": "happy",
         "gender": "male",
     },
     "calm": {
         "minimax": "danya_xuejie",
         "cosyvoice": "FunAudioLLM/CosyVoice2-0.5B:claire",
+        "mimo": "茉莉",
         "emotion": "whisper",
         "gender": "female",
     },
@@ -130,6 +142,70 @@ def resolve_minimax_emotion(emotion: str | None) -> str:
     return "calm"
 
 
+def resolve_mimo_voice(voice: str | None) -> str:
+    raw = (voice or "").strip()
+    if raw in MIMO_VOICES:
+        return raw
+    mapped = MINIMAX_TO_MIMO.get(raw)
+    if mapped:
+        return mapped
+    if raw in {"danya_xuejie"} or raw.startswith("female"):
+        return "茉莉"
+    return "Milo"
+
+
+def mimo_payload(
+    text: str,
+    *,
+    voice: str,
+    tts_style: str | None = None,
+    model: str | None = None,
+) -> dict:
+    spoken = spoken_text(text) or text.strip()[:500]
+    return {
+        "model": model or settings.mimo_model or "mimo-v2.5-tts",
+        "messages": [
+            {"role": "user", "content": mimo_style_prompt(tts_style)},
+            {"role": "assistant", "content": spoken},
+        ],
+        "audio": {
+            "format": "mp3",
+            "voice": resolve_mimo_voice(voice),
+        },
+    }
+
+
+def decode_mimo_audio(body: object) -> bytes:
+    if not isinstance(body, dict):
+        raise ValueError("TTS returned no audio")
+    choices = body.get("choices") or []
+    message = (choices[0].get("message") if choices and isinstance(choices[0], dict) else {}) or {}
+    audio = message.get("audio") if isinstance(message, dict) else None
+    data = None
+    if isinstance(audio, dict):
+        data = audio.get("data") or audio.get("b64_json")
+    elif isinstance(audio, str):
+        data = audio
+    if not data and isinstance(message, dict) and isinstance(message.get("content"), list):
+        for part in message["content"]:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "audio":
+                nested = part.get("audio") if isinstance(part.get("audio"), dict) else part
+                data = nested.get("data") or nested.get("b64_json")
+                if data:
+                    break
+    if not isinstance(data, str) or not data.strip():
+        raise ValueError("TTS returned no audio")
+    try:
+        raw = base64.b64decode(data.strip())
+    except (ValueError, TypeError) as exc:
+        raise ValueError("TTS returned no audio") from exc
+    if len(raw) < 32:
+        raise ValueError("TTS returned no audio")
+    return raw
+
+
 def is_siliconflow_voice(voice: str) -> bool:
     raw = (voice or "").strip()
     return raw.startswith("speech:") or "cosyvoice" in raw.lower()
@@ -210,13 +286,31 @@ async def synthesize(
     *,
     fallback_voice: str | None = None,
     emotion: str | None = None,
+    tts_style: str | None = None,
+    provider: str | None = None,
 ) -> bytes:
     clipped = spoken_text(text) or text.strip()[:500]
     if not clipped:
         raise ValueError("TTS text is empty")
     chosen = ((voice or "").strip()[:256] or settings.tts_voice).strip()
-    emotion_name = (emotion or "").strip()[:32] or "calm"
+    style = normalize_tts_style(tts_style) if (tts_style or "").strip() else None
+    emotion_name = (
+        minimax_emotion_for_style(style) if style else resolve_minimax_emotion(emotion)
+    )
     fallback = (fallback_voice or "").strip()[:256]
+    chosen_provider = (provider or settings.tts_provider or "minimax").strip().lower()
+    if chosen_provider == "mimo" and settings.mimo_configured and not is_siliconflow_voice(chosen):
+        try:
+            return await _synthesize_mimo(clipped, voice=chosen, tts_style=style or "平静")
+        except (httpx.HTTPError, ValueError):
+            if settings.minimax_configured:
+                return await _synthesize_minimax(clipped, voice=chosen, emotion=emotion_name)
+            if settings.speech_configured:
+                return await _synthesize_siliconflow(
+                    clipped,
+                    voice=resolve_cosyvoice(chosen, fallback),
+                )
+            raise
     if is_siliconflow_voice(chosen):
         if not settings.speech_configured:
             raise ValueError("TTS unavailable")
@@ -231,6 +325,8 @@ async def synthesize(
                     voice=resolve_cosyvoice(chosen, fallback),
                 )
             raise
+    if settings.mimo_configured:
+        return await _synthesize_mimo(clipped, voice=chosen, tts_style=style or "平静")
     if not settings.speech_configured:
         raise ValueError("TTS unavailable")
     silicon_voice = chosen
@@ -298,6 +394,22 @@ async def _post_minimax(text: str, *, voice: str, emotion: str) -> bytes:
         )
         response.raise_for_status()
         return decode_minimax_audio(response.json())
+
+
+async def _synthesize_mimo(text: str, *, voice: str, tts_style: str = "平静") -> bytes:
+    payload = mimo_payload(text, voice=voice, tts_style=tts_style)
+    base = (settings.mimo_base_url or MIMO_DEFAULT_BASE).rstrip("/")
+    async with httpx.AsyncClient(timeout=settings.tts_timeout_s) as client:
+        response = await client.post(
+            f"{base}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.mimo_api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        return decode_mimo_audio(response.json())
 
 
 async def clone_voice(

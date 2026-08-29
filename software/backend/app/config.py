@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     minimax_api_key: str = ""
     minimax_group_id: str = ""
     minimax_base_url: str = "https://api.minimaxi.com"
+    mimo_api_key: str = ""
+    mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    mimo_model: str = "mimo-v2.5-tts"
+    tts_provider: str = "minimax"
 
     # 内容审核开关。默认开着——关掉它是个需要明确动作的决定，
     # 不该因为忘配环境变量而悄悄失效。
@@ -63,6 +67,12 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_llm_base_url(cls, value: object) -> str:
         return normalize_llm_base_url(str(value or ""))
+
+    @field_validator("tts_provider", mode="before")
+    @classmethod
+    def _normalize_tts_provider(cls, value: object) -> str:
+        raw = str(value or "minimax").strip().lower()
+        return raw if raw in {"minimax", "mimo"} else "minimax"
 
     @property
     def llm_configured(self) -> bool:
@@ -85,8 +95,12 @@ class Settings(BaseSettings):
         return bool(self.minimax_api_key)
 
     @property
+    def mimo_configured(self) -> bool:
+        return bool(self.mimo_api_key)
+
+    @property
     def tts_configured(self) -> bool:
-        return self.minimax_configured or self.speech_configured
+        return self.minimax_configured or self.mimo_configured or self.speech_configured
 
 
 settings = Settings()

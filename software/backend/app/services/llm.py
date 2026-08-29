@@ -240,8 +240,14 @@ def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
     else:
         dialogue = spoken or f"{name}在。过来，今天想被哄，还是想被抱？"
     emotion = "gentle" if phase in {"climax_window", "aftercare"} else "playful"
+    tts_style = "温柔" if phase in {"climax_window", "aftercare"} else "俏皮"
     scene_ctrl = "end" if phase == "aftercare" else "stay"
-    return AgentTurn(dialogue=dialogue, emotion=emotion, scene_ctrl=scene_ctrl)
+    return AgentTurn(
+        dialogue=dialogue,
+        emotion=emotion,
+        tts_style=tts_style,
+        scene_ctrl=scene_ctrl,
+    )
 
 
 def _body_insight_stub(scope: str, sessions: list[dict[str, object]]) -> tuple[str, str | None]:

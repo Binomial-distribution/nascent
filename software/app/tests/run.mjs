@@ -297,6 +297,9 @@ assert(!/male-/i.test(PERSONA_CARDS.calm.tts.minimax), "阿月 is not a male Min
 assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "顾深 speaks calmly");
 assert(PERSONA_CARDS.playful.tts.emotion === "happy", "阿北 speaks happily");
 assert(PERSONA_CARDS.calm.tts.emotion === "whisper", "阿月 uses a whisper emotion");
+assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "顾深 maps to MiMo Milo");
+assert(PERSONA_CARDS.playful.tts.mimo === "Dean", "阿北 maps to MiMo Dean");
+assert(PERSONA_CARDS.calm.tts.mimo === "茉莉", "阿月 maps to MiMo 茉莉");
 
 const filledCard = draftToCard({
   assistant_name: "小测",
@@ -373,6 +376,16 @@ assert(
 );
 assert(turnBodies[1]?.memory_policy === "off", "resumed turns keep memory_policy off");
 
+const styleStore = memoryStore();
+const styleChat = new ScenarioChatState({
+  fetchImpl: async () => jsonResponse({ dialogue: "过来。", scene_ctrl: "stay", tts_style: "低语" }),
+  storage: styleStore,
+});
+const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "在吗");
+assert(styled.tts_style === "低语", "send returns this turn's tts_style for TTS");
+styleChat.clearAll();
+assert(styleChat.messages("persona:gentle").length === 0, "clearAll drops in-memory scenario threads");
+
 const offlineStore = memoryStore();
 const offlineFirst = new ScenarioChatState({ fetchImpl: null, storage: offlineStore });
 await offlineFirst.send({ key: "persona:calm", id: "calm", name: "阿月" }, "我在这儿");
@@ -396,6 +409,8 @@ assert(nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "你好
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "" }) === "rising", "sensors or silence do not auto-declare climax");
 assert(nextExperiencePhase("rising", { sceneCtrl: "next", userText: "" }) === "rising", "model next during rising does not open the climax window");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "要到了" }) === "climax_window", "user language can open the climax window");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "不想更近" }) === "rising", "saying they do not want closer does not open climax");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "我到了" }) === "rising", "arriving home does not open climax");
 assert(nextExperiencePhase("climax_window", { sceneCtrl: "end", userText: "" }) === "aftercare", "ending the scene always aftercares");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "累了" }) === "aftercare", "saying they are tired enters aftercare");
 
@@ -431,10 +446,12 @@ await speakUtterance("我在", async (path, options = {}) => {
     ok: true,
     blob: async () => new Blob([new Uint8Array(64)], { type: "audio/mpeg" }),
   };
-}, { voice: "junlang_nanyou", fallbackVoice: "FunAudioLLM/CosyVoice2-0.5B:charles", emotion: "calm" });
+}, { voice: "junlang_nanyou", fallbackVoice: "FunAudioLLM/CosyVoice2-0.5B:charles", emotion: "calm", tts_style: "俏皮", provider: "mimo" });
 assert(ttsPath === "/v1/speech/speak", "assistant lines request cloud TTS");
 assert(ttsBody.voice === "junlang_nanyou", "speak body includes persona voice");
 assert(ttsBody.text === "我在", "speak body still sends the spoken line");
+assert(ttsBody.tts_style === "俏皮", "speak body includes this turn's tts_style");
+assert(ttsBody.provider === "mimo", "speak body can select the MiMo provider");
 
 let spokeLocal = false;
 globalThis.speechSynthesis = {

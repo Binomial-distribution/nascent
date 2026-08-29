@@ -177,7 +177,9 @@ export function createLiveCall({
   }
 
   async function playReply(text) {
-    if (!text || closed) return;
+    const spoken = typeof text === "string" ? text : String(text?.dialogue || text?.text || "");
+    const ttsStyle = typeof text === "object" && text ? text.tts_style : "";
+    if (!spoken || closed) return;
     stopPlayback();
     setStatus("speaking");
     playing = true;
@@ -185,10 +187,11 @@ export function createLiveCall({
     bargeLoudSince = 0;
     onPlayback?.(true);
     try {
-      const result = await speakDialogue(text, {
+      const result = await speakDialogue(spoken, {
         fetchImpl,
         onStart() { playbackStartedAt = Date.now(); },
         ...(typeof tts === "function" ? tts() : tts),
+        ...(ttsStyle ? { tts_style: ttsStyle } : {}),
       });
       if (!result?.played && !result?.interrupted && !closed) {
         onError?.("这次没播出声音，看字幕就好");

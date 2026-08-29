@@ -1,8 +1,8 @@
 /** 情景漫游会话：头像压缩、通话后的 9B 文字回合。麦克风 PCM 只走 /v1/speech；传感只发脱敏趋势。 */
 
-import { personaPayload, speakOptionsForPersona } from "./persona-cards.js";
+import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalizeTtsStyle } from "./persona-cards.js";
 
-const THREAD_KEY = "nascent.scenario.threads";
+export const THREAD_KEY = "nascent.scenario.threads";
 const THREAD_KEEP = 40;
 const TURN_SEND = 12;
 
@@ -65,9 +65,17 @@ export function nextExperiencePhase(phase, { sceneCtrl = "stay", userText = "" }
   if (/事后|抚慰|抱抱|歇|休息|累了|够了|结束吧|想停|不要了|结束/.test(text)) return "aftercare";
   if (sceneCtrl === "end") return "aftercare";
   // 高潮窗口只能由用户自己的话打开，不能靠传感器或模型的 next。
-  if (/高潮|要到了|快到了|去了|到了|更近/.test(text) && current !== "aftercare") return "climax_window";
+  if (userOpenedClimaxWindow(text) && current !== "aftercare") return "climax_window";
   if (current === "approaching" && (sceneCtrl === "next" || text.trim())) return "rising";
   return current;
+}
+
+function userOpenedClimaxWindow(text) {
+  const t = String(text || "");
+  if (/高潮|要到了|快到了|要去了|快去了/.test(t)) return true;
+  if (/(不[想要]|别|没).{0,6}更近/.test(t)) return false;
+  if (/想更近|再更近|更近[一一点些]|再近一点/.test(t)) return true;
+  return false;
 }
 
 export async function fileToAvatarDataUrl(file) {
@@ -206,6 +214,10 @@ export async function speakUtterance(text, fetchImpl = globalThis.fetch, tts = {
   if (voice) body.voice = voice;
   if (fallbackVoice) body.fallback_voice = fallbackVoice;
   if (emotion) body.emotion = emotion;
+  const ttsStyle = String(tts?.tts_style || "").trim().slice(0, 16);
+  const provider = String(tts?.provider || "").trim().slice(0, 16);
+  if (ttsStyle) body.tts_style = ttsStyle;
+  if (provider === "minimax" || provider === "mimo") body.provider = provider;
   const response = await fetchImpl("/v1/speech/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -267,13 +279,20 @@ export async function speakDialogue(text, {
   voice = "",
   fallbackVoice = "",
   emotion = "",
+  tts_style = "",
+  provider = "",
   persona = null,
 } = {}) {
   const clipped = String(text || "").trim();
   if (!clipped) return { played: false, interrupted: false };
   stopSpeech();
   const token = speechToken;
-  const tts = persona ? speakOptionsForPersona(persona) : { voice, fallbackVoice, emotion };
+  const style = tts_style ? normalizeTtsStyle(tts_style) : "";
+  const tts = {
+    ...(persona ? speakOptionsForPersona(persona, { provider }) : { voice, fallbackVoice, emotion, provider }),
+    ...(style ? { tts_style: style, emotion: TTS_STYLE_TO_EMOTION[style] || "calm" } : {}),
+    ...(provider ? { provider } : {}),
+  };
   try {
     const blob = await speakUtterance(clipped, fetchImpl, tts);
     if (token !== speechToken) return { played: false, interrupted: true };
@@ -323,6 +342,12 @@ export class ScenarioChatState {
     this._persist();
   }
 
+  clearAll() {
+    this._threads.clear();
+    this._phases.clear();
+    this._persist();
+  }
+
   async send(persona, text, extras = {}) {
     const trimmed = String(text || "").trim();
     if (!trimmed || this.sending) return null;
@@ -348,7 +373,12 @@ export class ScenarioChatState {
       });
       this._threads.set(key, thread.slice(-THREAD_KEEP));
       this._persist();
-      return { dialogue: turn.dialogue, sceneCtrl: turn.scene_ctrl, phase: next };
+      return {
+        dialogue: turn.dialogue,
+        sceneCtrl: turn.scene_ctrl,
+        phase: next,
+        tts_style: turn.tts_style || stubTtsStyle(trimmed, next),
+      };
     } finally {
       this.sending = false;
     }
@@ -375,7 +405,11 @@ export class ScenarioChatState {
       recent_turns: recent,
     };
     if (!this._fetch) {
-      return { dialogue: stubDialogue(persona, text, phase), scene_ctrl: stubSceneCtrl(text, phase) };
+      return {
+        dialogue: stubDialogue(persona, text, phase),
+        scene_ctrl: stubSceneCtrl(text, phase),
+        tts_style: stubTtsStyle(text, phase),
+      };
     }
     try {
       const response = await this._fetch("/v1/agent/turn", {
@@ -384,16 +418,25 @@ export class ScenarioChatState {
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        return { dialogue: stubDialogue(persona, text, phase), scene_ctrl: stubSceneCtrl(text, phase) };
+        return {
+          dialogue: stubDialogue(persona, text, phase),
+          scene_ctrl: stubSceneCtrl(text, phase),
+          tts_style: stubTtsStyle(text, phase),
+        };
       }
       const body = await response.json();
       const dialogue = String(body?.dialogue || "").trim();
       return {
         dialogue: dialogue || stubDialogue(persona, text, phase),
         scene_ctrl: ["stay", "next", "end"].includes(body?.scene_ctrl) ? body.scene_ctrl : "stay",
+        tts_style: body?.tts_style ? normalizeTtsStyle(body.tts_style) : stubTtsStyle(text, phase),
       };
     } catch {
-      return { dialogue: stubDialogue(persona, text, phase), scene_ctrl: stubSceneCtrl(text, phase) };
+      return {
+        dialogue: stubDialogue(persona, text, phase),
+        scene_ctrl: stubSceneCtrl(text, phase),
+        tts_style: stubTtsStyle(text, phase),
+      };
     }
   }
 
@@ -481,10 +524,17 @@ function stubDialogue(persona, text, phase) {
   return persona?.spoken || `${name}在。过来，今天想被哄，还是想被抱？`;
 }
 
+function stubTtsStyle(text, phase) {
+  if (phase === "aftercare" || /事后|抚慰|抱抱|歇|休息|累了/.test(text)) return "温柔";
+  if (/高潮|要到了|快到了|要去了/.test(text)) return "着急";
+  if (phase === "rising") return "俏皮";
+  return "平静";
+}
+
 function stubSceneCtrl(text, phase) {
   if (/事后|抚慰|抱抱|歇|休息|累了|够了|结束/.test(text) || phase === "aftercare") return "end";
   if (phase === "approaching" && String(text || "").trim()) return "next";
-  if (/高潮|要到了|快到了|更近/.test(text)) return "next";
+  if (/高潮|要到了|快到了|想更近/.test(text)) return "next";
   return "stay";
 }
 
