@@ -63,7 +63,7 @@ Info 读出的会话令牌由玩具侧生成，TTL 为 `SESSION_TOKEN_TTL_MS`。
 { "cmd": "set_level", "level": 3, "pattern": "wave", "auth": "<session_token>" }
 ```
 
-`cmd` 只允许 `stop | set_mode | set_level | set_pattern | set_led`。
+`cmd` 只允许 `stop | set_mode | set_level | set_pattern | set_led | set_wifi`。
 
 枚举里还有第六个值 `resume`，但**它不是任何链路上的合法指令**。
 固件的 `SafetyGovernor::onCommand` 已经不再识别这个值——解除闩锁只能由玩具侧
@@ -81,6 +81,7 @@ BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置
 | `set_level` | `level`、可选 `pattern` |
 | `set_pattern` | `pattern` |
 | `set_led` | `led`（只含 state 语义，不接受逐帧灯效） |
+| `set_wifi` | `wifi_ssid`、可选 `wifi_psk`。写入玩具 NVS，不驱动按键。密码不上行、不进云端、不打串口日志 |
 
 ### 固件侧的硬性拒绝规则
 
@@ -90,7 +91,9 @@ BOOT 键的处理函数直接调用 `clearLatch()`。写进来会被丢弃并置
 2. `cmd` 不在枚举内，**或等于 `resume`** → 丢弃并置 `alert = "bad_cmd"`。
 3. `level < LEVEL_MIN` 或 `level > LEVEL_MAX` → 丢弃并置 `alert = "bad_cmd"`。
    注意是**丢弃**，不是钳位后执行。
-4. 急停或安全词生效期间，**只接受 `stop`**，其余全部丢弃。
+4. 急停或安全词生效期间，**只接受 `stop`**，其余全部丢弃（含 `set_wifi`）。
+5. `set_wifi` 在闸门鉴权通过后写入玩具 NVS，**不进入 SafetyGovernor 调档**。
+   SSID 为空/过长，或密码既非空也不是 8–63 位 → `bad_cmd`。密码不得打进串口。
 
 `set_led` 永远不能覆盖安全灯：安全词白呼吸的 `priority` 是 100，模式层是 0。
 

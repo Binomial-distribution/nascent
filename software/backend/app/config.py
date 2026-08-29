@@ -6,6 +6,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _env_files() -> tuple[Path, ...]:
+    """部署约定 secrets/.env 优先；本机旧的 backend/.env 仍可作为回退。"""
+    preferred = _BACKEND_ROOT / "secrets" / ".env"
+    legacy = _BACKEND_ROOT / ".env"
+    files: list[Path] = []
+    if legacy.is_file():
+        files.append(legacy)
+    if preferred.is_file():
+        files.append(preferred)
+    return tuple(files) if files else (preferred,)
+
+
 def normalize_llm_base_url(url: str) -> str:
     """Accept a vendor console URL, but always call the OpenAI-compatible root."""
 
@@ -21,10 +33,10 @@ def normalize_llm_base_url(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    """运行配置。密钥只从环境变量或 .env 读，不进版本库。"""
+    """运行配置。密钥只从环境变量或 secrets/.env 读，不进版本库。"""
 
     model_config = SettingsConfigDict(
-        env_file=_BACKEND_ROOT / ".env",
+        env_file=_env_files(),
         env_prefix="NASCENT_",
         env_ignore_empty=False,
         extra="ignore",

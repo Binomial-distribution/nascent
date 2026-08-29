@@ -1,4 +1,4 @@
-import { ChannelBase } from "./channel.js";
+import { ChannelBase, encodeDownlink } from "./channel.js";
 import { NlWifi } from "./protocol.js";
 
 const HANDSHAKE_TIMEOUT_MS = 8000;
@@ -105,7 +105,7 @@ export class WsClient extends ChannelBase {
     const token = this._token;
     if (!token) throw new Error("尚未取得会话令牌");
     if (this._socket?.readyState !== WebSocket.OPEN) throw new Error("尚未连接设备");
-    this._socket.send(JSON.stringify({ ...cmd.toJson(), auth: token }));
+    this._socket.send(JSON.stringify(encodeDownlink(cmd, token)));
   }
 
   async disconnect() {

@@ -43,9 +43,19 @@ App 不内嵌第二份 UI，也不自己实现安全总督。总督仍在网页�
 手机浏览器上它和 Web Bluetooth 不可能同时可用：网站是纯 HTTP，所以局域网地址不是
 安全上下文、Web Bluetooth 不可用；给网站上 HTTPS 之后 `ws://` 又会被混合内容拦掉。
 
-本 App 没有这个矛盾——`usesCleartextTraffic="true"` 允许明文，蓝牙走原生 GATT 桥
+本 App 没有这个矛盾——`usesCleartextTraffic="true"` 与
+`res/xml/network_security_config.xml` 允许明文，蓝牙走原生 GATT 桥
 而不依赖安全上下文，两条通道都能用。所以 **WiFi 通道以本 App 和桌面 Chrome
 作为主要验证路径**，手机浏览器上以 BLE 为准。
+
+## 设置页给 ESP32 配 WiFi
+
+网站、PWA、本 App 共用 `software/app/` 的「我的」页，没有第二套 Kotlin UI。
+
+1. 通道保持「蓝牙」，连上玩具。
+2. 填写 2.4 GHz SSID 和密码，点「写入玩具」。指令是协议里的 `set_wifi`，
+   经 `Governor` → 原生 GATT → 玩具 `DownlinkGate`，写入 NVS。密码不上云。
+3. 断开蓝牙，等固件空闲约 20 秒切到 WiFi；把通道切到 WiFi，填玩具局域网地址。
 
 ## 恢复不在 App 里
 

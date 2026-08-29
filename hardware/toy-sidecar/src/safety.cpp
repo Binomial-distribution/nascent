@@ -29,6 +29,10 @@ void SafetyGovernor::onCommand(const nl_command_t &cmd, uint32_t now_ms) {
   // 真正的保证是这里不存在这条代码路径。过滤会漏，不存在的分支不会漏。
   if (cmd.cmd == NL_CMD_RESUME) return;
 
+  // 配网不是档位指令。闸门已经把 SSID 写进 NVS；这里什么都不做，
+  // 尤其不能落到 recompute() 去改按键。
+  if (cmd.cmd == NL_CMD_SET_WIFI) return;
+
   // 闩锁期间其余指令一律丢弃，包括换模式。
   if (latched_) return;
 

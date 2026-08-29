@@ -92,9 +92,9 @@ enum NlAlert {
 }
 
 enum NlCmd {
-  stop, setMode, setLevel, setPattern, setLed, resume;
+  stop, setMode, setLevel, setPattern, setLed, resume, setWifi;
 
-  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume'];
+  static const List<String> _wire = ['stop', 'set_mode', 'set_level', 'set_pattern', 'set_led', 'resume', 'set_wifi'];
   String get wireName => _wire[index];
   static NlCmd fromWire(int i) => (i >= 0 && i < _wire.length) ? NlCmd.values[i] : NlCmd.values.first;
   static NlCmd fromWireName(String? n) {
@@ -396,6 +396,10 @@ class BleDownlink {
   final NlPattern? pattern;
   final NlMode? mode;
   final NlLedState? led;
+  /// 仅 set_wifi；写入玩具 NVS，不上云、不上行
+  final String? wifiSsid;
+  /// 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
+  final String? wifiPsk;
   /// session token；缺失或过期整包丢弃
   final String auth;
   const BleDownlink({
@@ -404,6 +408,8 @@ class BleDownlink {
     this.pattern,
     this.mode,
     this.led,
+    this.wifiSsid,
+    this.wifiPsk,
     required this.auth,
   });
 
@@ -413,6 +419,8 @@ class BleDownlink {
     pattern: j['pattern'] == null ? null : NlPattern.fromWireName(j['pattern'] as String),
     mode: j['mode'] == null ? null : NlMode.fromWireName(j['mode'] as String),
     led: j['led'] == null ? null : NlLedState.fromWireName(j['led'] as String),
+    wifiSsid: j['wifi_ssid'] == null ? null : j['wifi_ssid'] as String,
+    wifiPsk: j['wifi_psk'] == null ? null : j['wifi_psk'] as String,
     auth: j['auth'] as String,
   );
 
@@ -422,6 +430,8 @@ class BleDownlink {
     'pattern': pattern?.wireName,
     'mode': mode?.wireName,
     'led': led?.wireName,
+    'wifi_ssid': wifiSsid,
+    'wifi_psk': wifiPsk,
     'auth': auth,
   };
 }

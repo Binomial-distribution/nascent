@@ -29,7 +29,9 @@ cd nascent
 
 协议 `0.3.0-demo` 删掉了行空板 K10 工程，所以 DFRobot 的 `platform-unihiker` 平台也不再需要——现在只有 `hardware/toy-sidecar/` 一个固件工程，平台就是标准的 `espressif32`。如果你的 `~/.platformio` 里还留着 `platform-unihiker`，它只是占空间，不影响构建。
 
-WiFi 备用通道的凭据写在被 gitignore 的 `hardware/toy-sidecar/include/local_config.h`（有 `.example` 模板）。不建这个文件也能正常构建，只是 WiFi 通道不启用，只剩 BLE。
+WiFi 备用通道的凭据优先由设置页 `set_wifi` 写入玩具 NVS；没有 NVS 时回退到
+被 gitignore 的 `hardware/toy-sidecar/include/local_config.h`（有 `.example` 模板）。
+两处都没有也能正常构建，只是 WiFi 通道不启用，只剩 BLE。
 
 **开始新任务前：**
 
@@ -69,7 +71,7 @@ git switch -c feat/your-small-task
 | `hardware/VENDOR.md` | 第三方库来源、版本、裁剪规则 | 升级库必须同步改这个文件 |
 | `software/app/` | 浏览器控制端（FastAPI 托管的静态网站） | A 层不放调强度的控件。发指令只走 `sendCommand()`，不许绕过 `Governor` |
 | `software/app-android/` | 同一套 Web UI 的 Android 壳 | 只做 WebView + 原生 GATT 桥。不要在 Kotlin 里重写页面或总督 |
-| `software/backend/` | FastAPI 云端 | 云端只给建议，不控制硬件。密钥只进 `.env`，不进仓库 |
+| `software/backend/` | FastAPI 云端 | 云端只给建议，不控制硬件。密钥只进 `secrets/.env`（或本机 `.env`），不进仓库 |
 | `datasheets/` | 已选型器件的厂商 datasheet | 不放视频、超大原稿、临时导出 |
 | `docs/` | 协作规范、决策记录 | 确认结论和开放问题应分开记录 |
 | `docs/architecture/` | 产品架构（权威副本） | 必须进本仓库。飞书只作讨论草稿，改完要同步回这里再提交 |

@@ -124,6 +124,7 @@ class Cmd(str, Enum):
     SET_PATTERN = "set_pattern"
     SET_LED = "set_led"
     RESUME = "resume"
+    SET_WIFI = "set_wifi"
 
     @property
     def wire(self) -> int:
@@ -335,6 +336,8 @@ class BleDownlink(BaseModel):
     pattern: Pattern | None = None
     mode: Mode | None = None
     led: LedState | None = None
+    wifi_ssid: str | None = None  # 仅 set_wifi；写入玩具 NVS，不上云、不上行
+    wifi_psk: str | None = None  # 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
     auth: str  # session token；缺失或过期整包丢弃
 
 

@@ -5,8 +5,9 @@
 // local_config.h 已被 .gitignore 排除（`**/local_config.h`），**不要提交**。
 // WiFi 密码和真实设备标识都属于不进仓库的东西。
 //
-// 不创建这个文件也能正常构建：WiFi 通道会因为 SSID 为空而不启用，
-// 手机走 BLE 连设备。WiFi 只是备用通道。
+// 不创建这个文件也能正常构建：没有 NVS 凭据时 WiFi 通道不启用，
+// 手机走 BLE 连设备。验证期推荐在设置页用蓝牙写入 SSID，本文件只作回退。
+// WiFi 只是备用通道。
 #pragma once
 
 // 玩具侧作 STA 接入的局域网。必须是 2.4 GHz —— ESP32-S3 不支持 5 GHz。

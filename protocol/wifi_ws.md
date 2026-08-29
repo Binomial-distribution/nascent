@@ -17,8 +17,9 @@ ws://<玩具 IP>:81/nl
 端口 `NL_WIFI_WS_PORT`、路径 `NL_WIFI_WS_PATH` 来自契约，两端不许各写一份。
 同时用 mDNS 播 `NL_WIFI_MDNS_HOST`，即 `ws://nascent.local:81/nl`。
 
-WiFi 凭据不进仓库：写在 gitignored 的 `hardware/toy-sidecar/include/local_config.h`，
-沿用仓库既有的做法。没有这个文件时 WiFi 通道直接不启用，只有 BLE。
+WiFi 凭据不进仓库：优先由已鉴权的 `set_wifi` 写入玩具 NVS；没有 NVS 时回退到
+gitignored 的 `hardware/toy-sidecar/include/local_config.h`。两处都没有时
+WiFi 通道不启用，只有 BLE。设置页配网必须先走蓝牙（或已在网上的 WiFi 通道改连别的路由器）。
 
 mDNS 的 `.local` 解析在移动端浏览器上并不可靠，所以 App 的设置页保留手填 IP，
 mDNS 只是省事的那条路，不是唯一的路。
@@ -74,6 +75,7 @@ App 用它做协议主版本门控，与 BLE 读 Info 特征等价。收到握�
    玩具侧按关机时序断电，与 BLE 断连的处理完全一致。
 3. **`level` 收到后必须再钳一次。** 不信任来自链路的任何数值。
 4. 急停或安全词生效期间只接受 `stop`。
+5. `set_wifi` 与 BLE 相同：写入 NVS，不驱动按键。已在网上时可用它改连别的路由器。
 
 ## 已知限制（不要静默）
 

@@ -55,3 +55,23 @@
 
 **未改：** `protocol/contract.yaml`、玩具侧固件、Gadgetbridge fork 源码（独立 APK，见 `docs/implementation/mi-band7-gadgetbridge-bridge.md`）。
 
+## 2026-08-29 · 设置页给 ESP32 配 WiFi；后端 secrets 目录
+
+**分支：** `feat/app-android-wifi-secrets`
+
+**改动：**
+
+1. **协议**  
+   `cmd` 追加 `set_wifi`；`BleDownlink` 追加可空 `wifi_ssid` / `wifi_psk`。闸门写入 NVS，不调档。密码不上行、不进云端。
+
+2. **「我的」页**  
+   网站 / PWA / Android 同一套 UI：SSID + 密码 +「写入玩具」。须已连接。`Governor` 拒绝自动路径和空 SSID。
+
+3. **Android 壳**  
+   仍是 WebView + 原生 GATT，不重写页面。补了 `network_security_config` 以便 `http://` 与 `ws://`。
+
+4. **后端**  
+   `software/backend/secrets/` 作为部署密钥目录。只提交 README 与 `.env.example`。
+
+**未改：** 不停机远程恢复；不开 SoftAP；不把真实密钥提交进仓库。Service Worker 缓存升至 `nascent-shell-v18`。
+

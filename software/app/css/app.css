@@ -666,7 +666,8 @@ input[type="range"] {
   outline: 1.5px solid var(--coral);
 }
 
-.list-row input[type="text"] {
+.list-row input[type="text"],
+.list-row input[type="password"] {
   display: block;
   width: 100%;
   margin: 6px 0;
@@ -676,6 +677,10 @@ input[type="range"] {
   color: var(--text);
   font-size: 0.95rem;
   border: 1px solid var(--line);
+}
+
+.list-row small .primary {
+  margin: 8px 0 4px;
 }
 
 .primary, .ghost {
