@@ -1513,6 +1513,10 @@ function startOnboardingFlow() {
         ui.devices.productId = draft.productId;
         saveDevices();
       }
+      if (draft?.bandPaired) {
+        ui.devices.bandConnected = true;
+        saveDevices();
+      }
       if (draft?.safeword && !draft.safewordSkipped) {
         ui.prefs.safewords = String(draft.safeword).trim() || ui.prefs.safewords;
         savePrefs();
@@ -1642,11 +1646,14 @@ function render() {
   if (root.classList.contains("onboarding") && !ui.gateReady) return;
 
   const force = shouldForceOnboarding();
-  if (force || !isOnboardingDone()) {
-    if (!ui.gateReady) {
-      startOnboardingFlow();
-      return;
-    }
+  if (force) {
+    // #/onboarding 每次都重新挂载，确保能看到最新引导页。
+    startOnboardingFlow();
+    return;
+  }
+  if (!isOnboardingDone() && !ui.gateReady) {
+    startOnboardingFlow();
+    return;
   }
 
   const { tab, page, sub, id, sessionId, view, query } = route();

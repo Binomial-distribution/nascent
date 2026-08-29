@@ -111,6 +111,7 @@ function buildSteps(experienceId) {
     "persona",
     "permissions",
     "pairing",
+    "pairing-band",
     ...guides,
     "safeword",
     "complete",
@@ -141,6 +142,7 @@ export function mountOnboarding(root, { onComplete }) {
       notification: false,
       storage: "local",
       paired: false,
+      bandPaired: false,
       safeword: "红灯",
       safewordSkipped: false,
       ...loadDraft(),
@@ -281,7 +283,7 @@ export function mountOnboarding(root, { onComplete }) {
             <div class="ob-card">
               <div>
                 <strong>蓝牙</strong>
-                <p>用于连接玩具，控制与状态同步。</p>
+                <p>用于连接萨福产品或健康手环。生理数据只会留在本 App 内使用。</p>
               </div>
               <button class="ghost" data-ob="perm-bt">${state.draft.bluetooth ? "已允许" : "允许"}</button>
             </div>
@@ -307,6 +309,20 @@ export function mountOnboarding(root, { onComplete }) {
               ${state.draft.paired ? "继续" : "模拟连接并轻震"}
             </button>
             <button class="ghost ob-cta" data-ob="pair-skip">暂时跳过</button>
+          </div>`;
+      case "pairing-band":
+        return `
+          <div class="ob-stack">
+            <p class="ob-kicker">设备配对</p>
+            <h2>连接健康手环</h2>
+            <p class="ob-sub">默认对接小米手表。连接后可在「我的」里查看状态，也可稍后设置。</p>
+            <div class="ob-pair ${state.draft.bandPaired ? "ok" : ""}">
+              ${state.draft.bandPaired ? "已连接健康手环" : "尚未连接"}
+            </div>
+            <button class="primary ob-cta" data-ob="${state.draft.bandPaired ? "next" : "pair-band"}">
+              ${state.draft.bandPaired ? "继续" : "模拟连接健康手环"}
+            </button>
+            <button class="ghost ob-cta" data-ob="pair-band-skip">暂时跳过</button>
           </div>`;
       case "guide:clean":
       case "guide:store":
@@ -516,6 +532,19 @@ export function mountOnboarding(root, { onComplete }) {
       }
       if (act === "pair-skip") {
         state.draft.paired = false;
+        persist();
+        goNext();
+        return;
+      }
+      if (act === "pair-band") {
+        state.draft.bandPaired = true;
+        persist();
+        if (navigator.vibrate) navigator.vibrate(40);
+        paint();
+        return;
+      }
+      if (act === "pair-band-skip") {
+        state.draft.bandPaired = false;
         persist();
         goNext();
         return;
