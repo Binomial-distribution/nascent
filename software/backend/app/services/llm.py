@@ -204,11 +204,12 @@ async def generate_body_insight(
     message: str,
     scope: str,
     sessions: list[dict[str, object]],
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, bool]:
     """用 Chat 9B 帮用户理解已授权记录，不产生设备建议或长期记忆。"""
 
     if not settings.llm_configured:
-        return _body_insight_stub(scope, sessions)
+        dialogue, candidate = _body_insight_stub(scope, sessions)
+        return dialogue, candidate, True
     try:
         content = await complete_json(
             model=settings.chat_llm_model or settings.llm_model,
@@ -235,10 +236,11 @@ async def generate_body_insight(
             max_tokens=260,
         )
         result = BodyInsightModelOutput.model_validate_json(content)
-        return result.dialogue, result.insight_candidate
+        return result.dialogue, result.insight_candidate, False
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
         logger.warning("Body insight fallback to stub: %s", openai_compat.error_summary(exc))
-        return _body_insight_stub(scope, sessions)
+        dialogue, candidate = _body_insight_stub(scope, sessions)
+        return dialogue, candidate, True
 
 
 def _agent_stub(request: AgentTurnRequest) -> AgentTurn:

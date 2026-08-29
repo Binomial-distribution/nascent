@@ -23,7 +23,7 @@ from .body_note_contract import (
 )
 
 
-InsightGenerator = Callable[[str, str, list[dict[str, object]]], Awaitable[tuple[str, str | None]]]
+InsightGenerator = Callable[[str, str, list[dict[str, object]]], Awaitable[tuple[str, str | None, bool]]]
 
 
 def _now() -> datetime:
@@ -226,7 +226,7 @@ async def run_insight_turn(
 
     scope = "recent" if comparisons else "current"
     selected = [current, *comparisons]
-    dialogue, candidate = await generator(request.message, scope, [_model_context(item) for item in selected])
+    dialogue, candidate, fallback = await generator(request.message, scope, [_model_context(item) for item in selected])
     sources = [
         InsightSource(
             session_id=item.session_id,
@@ -241,6 +241,7 @@ async def run_insight_turn(
         scope=scope,
         sources=sources,
         insight_candidate=candidate,
+        fallback=fallback,
     )
 
 

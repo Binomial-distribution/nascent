@@ -1,3 +1,64 @@
+@property --bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f8f1f4;
+}
+@property --bg-elev {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+@property --bg-card {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+@property --bg-soft {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f0e6eb;
+}
+@property --line {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #e2d4dc;
+}
+@property --text {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #211b25;
+}
+@property --muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #7a6b78;
+}
+@property --nav-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+@property --nav-border {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #eadfe5;
+}
+@property --hero-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #fff7fa;
+}
+@property --status-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f0e8ed;
+}
+@property --field-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #fff;
+}
+
 :root,
 [data-theme="light"] {
   --coral: #f4a7b9;
@@ -1214,7 +1275,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   text-align: left;
-  border-bottom: 1px solid #3a3144;
+  border-bottom: 1px solid var(--line);
 }
 
 .session-date, .session-main {
@@ -1269,7 +1330,7 @@ button:disabled {
 
 .record-section, .data-path {
   padding: 20px 0;
-  border-bottom: 1px solid #3a3144;
+  border-bottom: 1px solid var(--line);
 }
 
 .record-section h3, .data-path h3 { margin: 0 0 10px; font-size: 1rem; }
@@ -1314,7 +1375,7 @@ button:disabled {
 .feedback { margin-top: 14px; padding-left: 12px; border-left: 3px solid var(--coral); }
 .feedback p { margin: 5px 0 0; color: var(--muted); }
 
-.saved-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid #3a3144; }
+.saved-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .saved-note p { flex: 1; margin: 0; line-height: 1.55; }
 .inline-command {
   min-height: 44px;
@@ -1358,7 +1419,7 @@ button:disabled {
 .note-scope-actions small { font-size: 0.68rem; opacity: 0.8; }
 
 .scope-list { border-top: 1px solid #3a3144; }
-.scope-list div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #3a3144; }
+.scope-list div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .scope-list span { color: var(--muted); text-align: right; }
 .danger {
   width: 100%;
@@ -1440,7 +1501,7 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid #3a3144;
+  border-bottom: 1px solid var(--line);
   text-align: left;
 }
 .older-row small { color: var(--muted); }
