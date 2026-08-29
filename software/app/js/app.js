@@ -42,6 +42,15 @@ import {
   sendCommand,
   subscribe,
 } from "./session.js";
+import {
+  canOpenPlugin,
+  createInvite,
+  loadInvite,
+  pluginSummary,
+  revokeInvite,
+  startBridge,
+  subscribePlugin,
+} from "./ai-plugin.js";
 import { patchLabDom, renderLab, saveCheck } from "./lab.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import { heartRate, hrChipText, nativeHeartRateAvailable, nightHeartLog } from "./hr.js";
@@ -1487,6 +1496,11 @@ function renderSettings() {
       <strong>人设设置</strong>
       <small>${personaSummary()}</small>
     </button>
+    <div class="group">插件</div>
+    <button class="list-row${getConnected() || loadInvite() ? "" : " is-dim"}" data-act="${getConnected() || loadInvite() ? "ai-plugin" : "plugin-need-connect"}">
+      <strong>连接我的 AI</strong>
+      <small>${pluginSummary({ connected: getConnected(), invite: loadInvite() })}</small>
+    </button>
     <div class="group">通用</div>
     <button class="list-row" data-act="notify-settings">
       <strong>通知</strong>
@@ -1538,6 +1552,65 @@ function appearanceSummary() {
 
 function ttsProviderSummary() {
   return ui.prefs.ttsProvider === "mimo" ? "小米 MiMo" : "MiniMax";
+}
+
+function renderAiPlugin() {
+  const connected = getConnected();
+  const invite = loadInvite();
+  const canOpen = canOpenPlugin(connected);
+  if (!invite) {
+    return `${topbar("连接我的 AI", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="lead">把已经连上的设备，交给你正在用的 AI 来陪你调节。</p>
+    <p class="sub">这是你自己的 AI，不是官方伴侣。对方说什么我们不审，但设备绝不会做不安全的事。停下永远由你或设备说了算。</p>
+    ${canOpen
+      ? `<button class="primary" data-act="plugin-open">打开插件</button>`
+      : `<button class="list-row is-dim" data-act="plugin-need-connect">
+          <strong>还不能打开</strong>
+          <small>先连接设备，才能把调节交给你的 AI。</small>
+        </button>`}
+  </main>`;
+  }
+  const mcpJson = invite.mcp_json
+    ? escapeHtmlApp(JSON.stringify(invite.mcp_json, null, 2))
+    : "";
+  const mcpUrl = escapeHtmlApp(invite.mcp_url || "");
+  return `${topbar("连接我的 AI", { back: true, backTo: "#/settings" })}
+  <main class="page">
+    <p class="lead">${invite.ai_connected ? "你的 AI 正在陪你调节" : "邀请有效"}</p>
+    <p class="sub">打开你的 AI，按它的插件或连接方式把邀请贴进去。随时可以收回，收回后立刻失效。</p>
+    <button class="primary" data-act="plugin-copy">复制邀请</button>
+    <pre class="plugin-invite">${escapeHtmlApp(invite.invite_text || "")}</pre>
+    <button class="ghost danger-btn" data-act="plugin-revoke">收回邀请</button>
+    <details class="plugin-advanced">
+      <summary>给开发者 <span class="plugin-badge">MCP</span></summary>
+      <p class="microcopy">大多数人不用看这里。把下面这段交给会配置连接的 AI 客户端。</p>
+      <p class="microcopy">地址：${mcpUrl}</p>
+      <pre class="plugin-invite">${mcpJson}</pre>
+    </details>
+  </main>`;
+}
+
+function confirmOpenPlugin() {
+  const sheet = openSheet(`
+    <h2>确认你已成年</h2>
+    <p class="sub" style="margin:8px 0 18px">这份插件会把调节建议交给你自己的 AI。对方说什么我们不审，但设备绝不会做不安全的事。停下之后，只有你在设备上长按 BOOT 键两秒才能继续。</p>
+    <div class="ob-actions">
+      <button class="ghost" data-plugin-cancel>取消</button>
+      <button class="primary" data-plugin-adult>我已满 18 岁，打开插件</button>
+    </div>
+  `);
+  sheet.querySelector("[data-plugin-cancel]").onclick = () => closeSheet();
+  sheet.querySelector("[data-plugin-adult]").onclick = async () => {
+    closeSheet();
+    try {
+      await createInvite();
+      toast("邀请已准备好，复制后贴进你的 AI");
+      go("#/settings/plugin");
+    } catch (err) {
+      toast(err.message || "打不开插件");
+    }
+  };
 }
 
 function renderLocalData() {
@@ -2590,6 +2663,7 @@ function render() {
     else if (page === "tts") root.innerHTML = renderTtsSettings();
     else if (page === "subscribe") root.innerHTML = renderSubscribeSettings();
     else if (page === "storage") root.innerHTML = renderStorageSettings();
+    else if (page === "plugin") root.innerHTML = renderAiPlugin();
     else root.innerHTML = renderSettings();
   }
   else if (tab === "records" && view === "insight") {
@@ -2917,6 +2991,33 @@ async function onClick(event) {
   }
   else if (act === "settings") go("#/settings");
   else if (act === "persona-settings") go("#/settings/persona");
+  else if (act === "ai-plugin") go("#/settings/plugin");
+  else if (act === "plugin-need-connect") {
+    toast("先连接设备，才能把调节交给你的 AI。");
+    go("#/settings");
+  }
+  else if (act === "plugin-open") {
+    if (!canOpenPlugin(getConnected())) {
+      toast("先连接设备，才能把调节交给你的 AI。");
+      go("#/settings");
+      return;
+    }
+    confirmOpenPlugin();
+  }
+  else if (act === "plugin-copy") {
+    const text = loadInvite()?.invite_text || "";
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(
+      () => toast("邀请已复制"),
+      () => toast("请长按选中邀请再复制"),
+    );
+  }
+  else if (act === "plugin-revoke") {
+    revokeInvite().then(() => {
+      toast("已收回邀请，你的 AI 不能再调节设备");
+      go("#/settings/plugin");
+    });
+  }
   else if (act === "view-persona-settings") go("#/settings/persona");
   else if (act === "persona-customs") go("#/settings/persona/customs");
   else if (act === "persona-edit") {
@@ -3488,6 +3589,11 @@ subscribe(({ connected, connectionState }) => {
 
 heart.subscribe(render);
 bodyNotes.subscribe(render);
+subscribePlugin(() => {
+  const { tab, page } = route();
+  if (tab === "settings" && (page === "root" || page === "plugin")) render();
+});
+startBridge();
 heartRate.subscribe((snap) => {
   if (snap.live && !ui.devices.bandConnected) {
     ui.devices.bandConnected = true;

@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import agent, body_notes, persona, session, speech
+from .routers import agent, body_notes, mcp, persona, plugin, session, speech
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "app"
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -35,6 +35,8 @@ app.include_router(persona.router)
 app.include_router(agent.router)
 app.include_router(body_notes.router)
 app.include_router(speech.router)
+app.include_router(plugin.router)
+app.include_router(mcp.router)
 
 
 @app.get("/healthz")

@@ -704,7 +704,41 @@ input[type="range"] {
   text-align: left;
 }
 
-.list-row small { color: var(--muted); }
+.list-row.is-dim {
+  opacity: 0.55;
+}
+
+.plugin-invite {
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.plugin-advanced {
+  margin: 28px 0 12px;
+}
+
+.plugin-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.plugin-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
 .group { color: var(--coral); font-size: 0.8rem; margin: 24px 0 4px; }
 
 /* 通道切换（蓝牙 / WiFi）。沿用 .modes button 的选中样式，

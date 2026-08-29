@@ -43,6 +43,7 @@ js/
   body-notes.js   使用记录、笔记、临时对话和后端同步状态
   onboarding.js   首次引导
   lab.js          硬件联调页（#/lab，从「我的」最下方进入）
+  ai-plugin.js    「连接我的 AI」邀请与建议桥（调档仍走 sendCommand）
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS
   live-call.js         通话连续听：VAD 切句、云端转写与播报
   app.js          A/B/C 三层界面与身体笔记独立导航
@@ -129,3 +130,4 @@ cd software/app && node tests/run.mjs
 - 失控模式的倒计时展示（`Governor.wildElapsed` 已备好数据）
 - 断连重连的退避策略
 - 心绪持久化，以及身体笔记的账号鉴权和生产数据库持久化
+- 「连接我的 AI」邀请持久化与各家客户端一键安装（当前是进程内邀请 + 复制邀请）
