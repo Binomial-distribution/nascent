@@ -144,9 +144,11 @@ def find_suggestion(suggestion_id: str) -> Suggestion | None:
     return None
 
 
-def complete(suggestion_id: str, result: dict) -> Suggestion | None:
+def complete(suggestion_id: str, result: dict, invite_id: str | None = None) -> Suggestion | None:
     item = find_suggestion(suggestion_id)
     if item is None:
+        return None
+    if invite_id is not None and item.invite_id != invite_id:
         return None
     item.result = result
     queue = _pending.get(item.invite_id) or []
@@ -174,6 +176,8 @@ async def suggestion_from_level_delta(invite_id: str, delta: int) -> tuple[Cloud
     if current is None:
         return envelope("还不知道现在第几档。请把 Nascent App 打开并保持连接。"), None
     target = current + delta
+    if target < NlConst.LEVEL_MIN or target > NlConst.LEVEL_MAX:
+        return envelope("这个建议不可用，设备没有改。我们不会偷偷改成最近的合法档位。"), None
     raw = envelope("", CloudAction(set_level=target))
     filtered = await moderation.filter_envelope(raw)
     if filtered.action is None or filtered.action.set_level is None:

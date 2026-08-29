@@ -82,6 +82,16 @@ def test_mcp_has_no_resume_and_level_is_automatic():
     assert "不可用" in too_high.json()["result"]["content"][0]["text"]
 
 
+def test_complete_requires_matching_invite():
+    store.reset()
+    invite = store.create_invite(adult_confirmed=True)
+    item = store.new_suggestion(invite.id, cmd="stop", level=None, automatic=False)
+    assert store.complete(item.id, {"ok": True}, invite_id="someone-else") is None
+    assert store.peek_pending(invite.id) is not None
+    assert store.complete(item.id, {"ok": True}, invite_id=invite.id) is not None
+    assert store.peek_pending(invite.id) is None
+
+
 def test_revoke_kills_mcp():
     client = _client()
     invite = _open_invite(client)

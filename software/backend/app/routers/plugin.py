@@ -148,8 +148,8 @@ async def result(
     invite_id: str,
     x_nascent_invite: str | None = Header(default=None, alias=store.INVITE_HEADER),
 ) -> dict:
-    _invite_or_401(invite_id, x_nascent_invite)
-    item = store.complete(body.id, {"ok": body.ok, "reason": body.reason})
+    invite = _invite_or_401(invite_id, x_nascent_invite)
+    item = store.complete(body.id, {"ok": body.ok, "reason": body.reason}, invite_id=invite.id)
     if item is None:
         raise HTTPException(status_code=404, detail="找不到这条建议。")
     dialogue = "已经按你的 AI 的建议调整。" if body.ok else (body.reason or "这个建议没有被采用。")

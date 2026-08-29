@@ -956,6 +956,12 @@ assert(!isCalendarYesterday("2026-08-28", new Date(2026, 7, 28)), "the same cale
       === "当前无法确认使用状态，已暂停自动调节。",
     "plugin level tools go through automatic governor",
   );
+  const { shouldApplyLevel } = await import("../js/ai-plugin.js");
+  assert(shouldApplyLevel(4, 3), "pending +1 from current uplink is accepted");
+  assert(shouldApplyLevel(2, 3), "pending -1 from current uplink is accepted");
+  assert(!shouldApplyLevel(6, 3), "stale pending must not jump more than one level");
+  assert(!shouldApplyLevel(3, 3), "same-level pending is a no-op and discarded");
+  assert(!shouldApplyLevel(NlConst.levelMax + 1, NlConst.levelMax), "over-max pending is discarded not clamped");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

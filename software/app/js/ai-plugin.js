@@ -137,14 +137,28 @@ export function mapToolCall(name, snapshot = {}) {
   return null;
 }
 
-export async function applySuggestion(suggestion) {
+/** 云端给的档必须是当前档 ±1，过期心跳不能一次跳多档。 */
+export function shouldApplyLevel(suggested, current) {
+  if (suggested == null || current == null) return false;
+  const level = Number(suggested);
+  const now = Number(current);
+  if (Number.isNaN(level) || Number.isNaN(now)) return false;
+  if (level < NlConst.levelMin || level > NlConst.levelMax) return false;
+  return Math.abs(level - now) === 1;
+}
+
+export async function applySuggestion(suggestion, snapshot = getUplink() || {}) {
   if (!suggestion) return "没有建议。";
   if (suggestion.cmd === "stop") {
     return sendCommand(new BleDownlink({ cmd: NlCmd.STOP, auth: "" }));
   }
   if (suggestion.cmd === "set_level") {
+    if (!shouldApplyLevel(suggestion.level, snapshot.level)) {
+      return "这个建议已经过时，设备没有改。";
+    }
+    // 不信任队列里的 automatic 字段：插件调档永远按自动走总督。
     return sendCommand(
-      new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: suggestion.level, auth: "" }),
+      new BleDownlink({ cmd: NlCmd.SET_LEVEL, level: Number(suggestion.level), auth: "" }),
       { automatic: true },
     );
   }
@@ -154,6 +168,7 @@ export async function applySuggestion(suggestion) {
 async function heartbeatAndApply() {
   const invite = loadInvite();
   if (!invite || applying) return;
+  applying = true;
   const uplink = getUplink();
   const connected = getConnected();
   try {
@@ -174,7 +189,6 @@ async function heartbeatAndApply() {
     if (!pendingRes.ok) return;
     const { suggestion } = await pendingRes.json();
     if (!suggestion) return;
-    applying = true;
     const reason = await applySuggestion(suggestion);
     await fetch(`/v1/plugin/result?invite_id=${encodeURIComponent(invite.id)}`, {
       method: "POST",
