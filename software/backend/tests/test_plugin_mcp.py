@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, "software/backend")
 
+from app.protocol import NlConst
 from app.routers import mcp as mcp_router
 from app.routers import plugin as plugin_router
 from app.services import plugin_store as store
@@ -70,7 +71,7 @@ def test_mcp_has_no_resume_and_level_is_automatic():
     client.put(
         f"/v1/plugin/heartbeat?invite_id={invite['id']}",
         headers={"X-Nascent-Invite": invite["secret"]},
-        json={"connected": True, "level": 8, "insert_state": "inserted", "alert": "none"},
+        json={"connected": True, "level": NlConst.LEVEL_MAX, "insert_state": "inserted", "alert": "none"},
     )
     too_high = client.post(
         "/mcp",
