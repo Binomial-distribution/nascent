@@ -39,6 +39,7 @@ import {
 import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
 import {
+  COMPANION_TONES,
   isOnboardingDone,
   mountOnboarding,
   shouldForceOnboarding,
@@ -120,6 +121,10 @@ function loadPrefs() {
         : "default",
       subscribed: Boolean(raw.subscribed),
       ttsProvider: raw.ttsProvider === "mimo" ? "mimo" : "minimax",
+      cleanRemind: raw.cleanRemind !== false,
+      privacyWants: Array.isArray(raw.privacyWants) ? raw.privacyWants : [],
+      intent: raw.intent || "",
+      companionPace: raw.companionPace || "",
     };
   } catch {
     return {
@@ -130,6 +135,10 @@ function loadPrefs() {
       appearance: "default",
       subscribed: false,
       ttsProvider: "minimax",
+      cleanRemind: true,
+      privacyWants: [],
+      intent: "",
+      companionPace: "",
     };
   }
 }
@@ -1838,10 +1847,34 @@ function startOnboardingFlow() {
         ui.devices.bandConnected = true;
         saveDevices();
       }
+      if (draft?.companionTone) {
+        const tone = COMPANION_TONES.find((item) => item.id === draft.companionTone);
+        ui.persona.mode = "fixed";
+        ui.persona.presetId = tone?.presetId || "gentle";
+        if (draft.personaNote) ui.persona.customText = draft.personaNote;
+        savePersonaSettings();
+      }
+      if (draft?.intent) ui.prefs.intent = draft.intent;
+      if (draft?.companionPace) ui.prefs.companionPace = draft.companionPace;
+      if (draft?.careRemind) {
+        ui.prefs.cleanRemind = draft.careRemind === "yes";
+        if (draft.careRemind === "yes") ui.prefs.notifyEnabled = true;
+      }
+      if (Array.isArray(draft?.privacyComfort) && draft.privacyComfort.length) {
+        const wants = draft.privacyComfort.includes("both")
+          ? ["app_lock", "data_delete"]
+          : draft.privacyComfort.filter((id) => id !== "both");
+        ui.prefs.privacyWants = wants;
+        if (wants.includes("app_lock")) {
+          ui.appLock = true;
+          saveAppLock();
+        }
+      }
+      if (draft?.notification) ui.prefs.notifyEnabled = true;
       if (draft?.safeword && !draft.safewordSkipped) {
         ui.prefs.safewords = String(draft.safeword).trim() || ui.prefs.safewords;
-        savePrefs();
       }
+      savePrefs();
       if (firstCard) heart.prependCard(firstCard);
       if (location.hash.startsWith("#/onboarding")) location.hash = "#/heart";
       else if (!location.hash) location.hash = "#/heart";

@@ -1,13 +1,7 @@
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  // 缓存名带版本号：0.3.0 拆出了 transport / ws / channel 三个模块，
-<<<<<<< HEAD
-  // 沿用旧版本会让老客户端拿着一份缺文件的缓存，import 直接 404。
-  event.waitUntil(caches.open("nascent-shell-v14").then((cache) => cache.addAll([)
-=======
-  // 沿用 v1 会让老客户端拿着一份缺文件的缓存，import 直接 404。
-  event.waitUntil(caches.open("nascent-shell-v15").then((cache) => cache.addAll([)
->>>>>>> fc992b3 (fix: Chat 台词带 tts_style，并可选用小米 MiMo 念出来)
+  // 缓存名带版本号：模块拆分后，沿用旧缓存会让客户端缺文件、import 404。
+  event.waitUntil(caches.open("nascent-shell-v16").then((cache) => cache.addAll([
     "/",
     "/css/app.css",
     "/js/app.js",
@@ -34,7 +28,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(
-        names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v14")
+      names.filter((n) => n.startsWith("nascent-shell-") && n !== "nascent-shell-v16")
         .map((n) => caches.delete(n)),
     );
     await self.clients.claim();
@@ -50,7 +44,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request).then((res) => {
       const copy = res.clone();
-      caches.open("nascent-shell-v14").then((cache) => cache.put(event.request, copy)).catch(() => {});
+      caches.open("nascent-shell-v16").then((cache) => cache.put(event.request, copy)).catch(() => {});
       return res;
     }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
   );
