@@ -1,5 +1,6 @@
 /** 通话连续听：浏览器 VAD 切句，PCM 只 POST 到 /v1/speech/transcribe。 */
 
+import { apiUrl } from "./api.js";
 import { speakDialogue, stopSpeech, unlockSpeechPlayback } from "./scenario-session.js";
 
 export const VAD_DEFAULTS = {
@@ -136,7 +137,7 @@ export function pushVadFrame(state, rms, samples, now, opts = VAD_DEFAULTS) {
 export async function transcribeWav(blob, fetchImpl = globalThis.fetch) {
   const body = new FormData();
   body.append("file", blob, "utterance.wav");
-  const response = await fetchImpl("/v1/speech/transcribe", { method: "POST", body });
+  const response = await fetchImpl(apiUrl("/v1/speech/transcribe"), { method: "POST", body });
   if (!response.ok) throw new Error("transcribe failed");
   const json = await response.json();
   const text = String(json?.text || "").trim();

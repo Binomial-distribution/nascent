@@ -1,5 +1,6 @@
 /** 情景漫游会话：头像压缩、通话后的 9B 文字回合。麦克风 PCM 只走 /v1/speech；传感只发脱敏趋势。 */
 
+import { apiUrl } from "./api.js";
 import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalizeTtsStyle, cardForPersona } from "./persona-cards.js";
 import { heartRate as defaultHeartRate } from "./hr.js";
 
@@ -259,7 +260,7 @@ export async function speakUtterance(text, fetchImpl = globalThis.fetch, tts = {
   const provider = String(tts?.provider || "").trim().slice(0, 16);
   if (ttsStyle) body.tts_style = ttsStyle;
   if (provider === "minimax" || provider === "mimo") body.provider = provider;
-  const response = await fetchImpl("/v1/speech/speak", {
+  const response = await fetchImpl(apiUrl("/v1/speech/speak"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -396,7 +397,7 @@ export class ScenarioChatState {
     if (!proposal || proposal.status !== "pending") return false;
     const personaId = String(persona.id || persona.key || "scenario").slice(0, 128);
     if (this._fetch) {
-      const response = await this._fetch("/v1/agent/memory", {
+      const response = await this._fetch(apiUrl("/v1/agent/memory"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -425,7 +426,7 @@ export class ScenarioChatState {
     const personaId = String(persona.id || persona.key || "scenario").slice(0, 128);
     if (this._fetch) {
       const response = await this._fetch(
-        `/v1/agent/memory?user_id=${encodeURIComponent(DEMO_USER_ID)}&persona_id=${encodeURIComponent(personaId)}`,
+        apiUrl(`/v1/agent/memory?user_id=${encodeURIComponent(DEMO_USER_ID)}&persona_id=${encodeURIComponent(personaId)}`),
         { method: "DELETE" },
       );
       if (!response.ok) throw new Error("memory delete failed");
@@ -519,7 +520,7 @@ export class ScenarioChatState {
       return { ...stubTurn(persona, text, phase), stub: true };
     }
     try {
-      const response = await this._fetch("/v1/agent/turn", {
+      const response = await this._fetch(apiUrl("/v1/agent/turn"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

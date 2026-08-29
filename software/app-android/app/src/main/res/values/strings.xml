@@ -3,6 +3,6 @@
     <string name="app_name">Nascent</string>
     <string name="setup_title">连接 Nascent</string>
     <string name="setup_body">首次使用时，请输入电脑上显示的连接地址。之后可在“我的 → 云端接口”中更改网站地址和 API 密钥。</string>
-    <string name="setup_hint">http://192.168.1.8:8000</string>
+    <string name="setup_hint">https://nlove.divesee.com</string>
     <string name="open_site">继续</string>
 </resources>

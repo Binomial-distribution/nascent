@@ -150,3 +150,13 @@ def test_http_round_trip_omits_unset_fields():
     client.post("/v1/runtime-config", headers=AUTH, json={"reset": True})
     restored = client.get("/healthz")
     assert restored.json()["llm"] == "stub"
+
+
+def test_cors_allows_nlove_demo_origin():
+    client = TestClient(app)
+    res = client.get("/healthz", headers={"Origin": "https://nlove.divesee.com"})
+    assert res.status_code == 200
+    assert res.headers.get("access-control-allow-origin") == "https://nlove.divesee.com"
+
+    denied = client.get("/healthz", headers={"Origin": "https://evil.example"})
+    assert denied.headers.get("access-control-allow-origin") in {None, ""}

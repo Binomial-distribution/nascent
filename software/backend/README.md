@@ -75,6 +75,7 @@ uvicorn app.main:app --reload
 
 网站在 <http://127.0.0.1:8000>，接口文档在 <http://127.0.0.1:8000/docs>。
 后端同时托管 `software/app/` 里的静态页，不另起前端构建。
+公网通讯后端是 <https://loveapi.divesee.com>；演示 UI 在 <https://nlove.divesee.com>，跨域调用 `/v1`（CORS 只放行这个演示源）。
 
 配置走环境变量，前缀 `NASCENT_`。部署把密钥写在 `secrets/.env`（见 [`secrets/README.md`](secrets/README.md)）；本机也可以继续用 `.env`。两处都已被 gitignore。验证期也可以在网页「我的 → 云端接口」填写同一组地址和密钥：只写进程内存和本机 localStorage，不写 `.env`、不进 git、不进数据导出。POST 要带本机口令 `NASCENT_RUNTIME_TOKEN`（请求头 `X-Nascent-Runtime-Token`）；未配置则公网 POST 一律 403。本机 debug 且来自 127.0.0.1 / ::1 可豁免。地址只允许启动时环境里的主机和硅基流动正规 API 根。共享演示后端时，后打开的浏览器仍可能用本机密钥盖掉进程内配置。重启后端会回到环境变量；页面再打开时若本机还留着密钥，会重新 POST 上去。
 

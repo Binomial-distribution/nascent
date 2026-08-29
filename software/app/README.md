@@ -9,6 +9,7 @@
 | 入口 | 怎么打开 | 怎么连玩具侧 |
 |---|---|---|
 | 网站 | 下面这条命令后打开 <http://127.0.0.1:8000> | Chrome / Edge 的 Web Bluetooth |
+| 公网演示 | <https://nlove.divesee.com>，对话等 API 在 <https://loveapi.divesee.com> | 同上 |
 | PWA App | 设置页「安装为 App」，或浏览器添加到主屏幕 | 仍是 Web Bluetooth |
 | Android App | [`../app-android/`](../app-android/) 打开同一网站 | 原生 GATT 桥 |
 
@@ -44,6 +45,7 @@ js/
   onboarding.js   首次引导
   lab.js          硬件联调页（#/lab，从「我的」最下方进入）
   ai-plugin.js    「连接我的 AI」邀请与建议桥（调档仍走 sendCommand）
+  api.js          nlove 演示站把 /v1 指到 loveapi.divesee.com；本机仍走相对路径
   cloud-config.js 设置页云端接口：本机 API 地址、密钥与口令，不进数据导出
   persona-list.js 情景人设列表：隐藏、置顶、左滑
   scenario-session.js  情景聊天回合、头像压缩与云端 TTS
