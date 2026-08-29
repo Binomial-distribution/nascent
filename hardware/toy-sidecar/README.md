@@ -174,7 +174,12 @@ DLPF 42Hz 仍有高频残留，在 12Hz 采样下是相邻样本间的无规则�
 这是刻意的：规则抄成两份之后，只改了一边的修补会让另一条链路变成弱点，
 而攻击者只需要弱的那条。
 
-WiFi 凭据不进仓库：
+WiFi 凭据不进仓库，两条路都可以：
+
+1. **设置页配网（推荐）**：先用蓝牙连上玩具，在「我的」里填写 2.4 GHz
+   SSID 和密码，点「写入玩具」。闸门把凭据写进 NVS，密码不打串口。
+   断开蓝牙约 20 秒后固件会切到 WiFi 通道。
+2. **编译期回退**：没有 NVS 时才读 `include/local_config.h`。
 
 ```bash
 cp include/local_config.h.example include/local_config.h
@@ -240,7 +245,6 @@ pio device monitor -b 115200
 
 ## 还没做的
 
-- WiFi 凭据的 BLE 下发（现在只能靠 `local_config.h` 重烧）
 - 独立的急停拉环。BOOT 键短按已经接到 `SafetyGovernor::onEstop`，
   但那是开发板上的键，不是量产要的常闭拉环
 - 电量采样，所以 `low_battery` 灯语目前没有触发源

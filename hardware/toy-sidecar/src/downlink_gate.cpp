@@ -4,6 +4,8 @@
 #include <ArduinoJson.h>
 #include <string.h>
 
+#include "wifi_creds.h"
+
 namespace {
 
 // 在生成的名字表里查枚举序号。返回 -1 表示不在枚举内。
@@ -89,6 +91,25 @@ bool DownlinkGate::accept(const char *data, size_t len, uint32_t now_ms, nl_comm
     ++rejected_;
     alert_ = NL_ALERT_BAD_CMD;
     return false;
+  }
+
+  if (cmd == NL_CMD_SET_WIFI) {
+    if (stop_latched_) {
+      ++rejected_;
+      return false;
+    }
+    const char *ssid = doc["wifi_ssid"] | static_cast<const char *>(nullptr);
+    const char *psk = doc["wifi_psk"] | static_cast<const char *>(nullptr);
+    if (!wifi_creds_save(ssid, psk ? psk : "")) {
+      ++rejected_;
+      alert_ = NL_ALERT_BAD_CMD;
+      return false;
+    }
+    Serial.println("[wifi] 已写入 STA 凭据（SSID 不在此打印密码）");
+    out = {};
+    out.ts_ms = now_ms;
+    out.cmd = static_cast<uint8_t>(cmd);
+    return true;
   }
 
   // 规则 4：闩锁期间只放 stop 过。

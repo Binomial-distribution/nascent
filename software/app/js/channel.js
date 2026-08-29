@@ -1,6 +1,18 @@
 import { BleUplink, NlConst } from "./protocol.js";
 
 /**
+ * 下行 JSON 去掉 null 字段，避免 BLE MTU 被 `wifi_ssid: null` 这类占位撑满。
+ * `set_wifi` 的密码只在有值时出现在载荷里。
+ */
+export function encodeDownlink(cmd, token) {
+  const body = { ...cmd.toJson(), auth: token };
+  for (const key of Object.keys(body)) {
+    if (body[key] == null) delete body[key];
+  }
+  return body;
+}
+
+/**
  * 两条设备通道（BLE / WiFi WebSocket）的共同部分。
  *
  * 抽出来的理由和固件侧 `downlink_gate` 一样：协议主版本门控和上行解析

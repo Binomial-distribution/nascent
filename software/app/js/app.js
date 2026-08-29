@@ -1307,6 +1307,18 @@ function renderSettings() {
         </small>
       </div>`
     : "";
+  const provisionRow = `<div class="list-row">
+      <strong>让玩具接入 WiFi</strong>
+      <small>
+        <input id="wifi-ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false"
+               placeholder="2.4 GHz 网络名称">
+        <input id="wifi-psk" type="password" maxlength="63" autocomplete="off"
+               placeholder="密码（开放网络可留空）">
+        <button type="button" class="primary" data-act="provision-wifi">写入玩具</button>
+        须先连上设备。密码只走蓝牙或已建立的设备链路，不上云、不进记录。
+        写入后断开蓝牙约 20 秒，再把通道切到 WiFi 并填玩具地址。
+      </small>
+    </div>`;
 
   // —— 入口（Web UI demo 暂隐，保留勿删）——
   // const entrySection = `
@@ -1326,6 +1338,7 @@ function renderSettings() {
       ${statusBar({ connectable: true })}
       ${channelRow}
       ${addressRow}
+      ${provisionRow}
     </div>
     <div class="device-block">
       <p class="device-section-label">健康手环 · 小米手环 7</p>
@@ -2727,6 +2740,7 @@ async function onClick(event) {
     await link.setChannel(t.dataset.channel);
     render();
   }
+  else if (act === "provision-wifi") await provisionWifi();
   else if (act === "install-pwa") installPwa();
   else if (act === "clear-local") {
     go("#/settings/data");
@@ -2894,6 +2908,25 @@ async function installPwa() {
 function readToyAddress() {
   const input = root.querySelector("#toy-address");
   if (input) link.address = input.value;
+}
+
+async function provisionWifi() {
+  const ssid = String(root.querySelector("#wifi-ssid")?.value ?? "").trim();
+  const psk = String(root.querySelector("#wifi-psk")?.value ?? "");
+  if (!getConnected()) {
+    toast("请先连上玩具，再写入 WiFi。");
+    return;
+  }
+  const reason = await emit(new BleDownlink({
+    cmd: NlCmd.SET_WIFI,
+    wifiSsid: ssid,
+    wifiPsk: psk,
+    auth: "",
+  }));
+  if (reason) return;
+  const pskEl = root.querySelector("#wifi-psk");
+  if (pskEl) pskEl.value = "";
+  toast("已写入玩具。断开蓝牙约 20 秒后，把通道切到 WiFi 并填玩具地址。");
 }
 
 async function connectOrDisconnect() {

@@ -1,3 +1,4 @@
+#include "wifi_creds.h"
 #include "wifi_ws.h"
 
 #include <Arduino.h>
@@ -5,20 +6,6 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <string.h>
-
-#if __has_include("local_config.h")
-#include "local_config.h"
-#endif
-
-// 没有 local_config.h 时给出空 SSID，configured() 随之为假。
-// 用宏而不是弱符号，是为了让"没配凭据"在编译期就是个明确的空串，
-// 而不是运行期某个忘了初始化的指针。
-#ifndef NL_WIFI_SSID
-#define NL_WIFI_SSID ""
-#endif
-#ifndef NL_WIFI_PASSWORD
-#define NL_WIFI_PASSWORD ""
-#endif
 
 namespace {
 
@@ -29,12 +16,14 @@ constexpr uint32_t kConnectTimeoutMs = 15000;
 
 }  // namespace
 
-bool WifiWs::configured() { return strlen(NL_WIFI_SSID) > 0; }
+bool WifiWs::configured() { return wifi_creds_configured(); }
 
 bool WifiWs::begin(CommandHandler handler) {
   if (phase_ != Phase::kOff && phase_ != Phase::kFailed) return true;
-  if (!configured()) {
-    Serial.println("[wifi] 未配置 SSID（缺 include/local_config.h），WiFi 通道不启用");
+  char ssid[33] = {0};
+  char psk[64] = {0};
+  if (!wifi_creds_load(ssid, sizeof(ssid), psk, sizeof(psk)) || ssid[0] == '\0') {
+    Serial.println("[wifi] 未配置 SSID（设置页写入或 include/local_config.h），WiFi 通道不启用");
     return false;
   }
 
@@ -43,11 +32,12 @@ bool WifiWs::begin(CommandHandler handler) {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // 12Hz 上行不能被省电模式攒成一批
-  WiFi.begin(NL_WIFI_SSID, NL_WIFI_PASSWORD);
+  WiFi.begin(ssid, psk);
 
   phase_ = Phase::kConnecting;
   connect_started_ms_ = millis();
-  Serial.printf("[wifi] 正在连接 %s\n", NL_WIFI_SSID);
+  last_gen_ = wifi_creds_generation();
+  Serial.printf("[wifi] 正在连接 %s\n", ssid);
   return true;
 }
 
@@ -98,6 +88,16 @@ void WifiWs::end() {
 }
 
 void WifiWs::tick(uint32_t now_ms) {
+  // 设置页改了凭据：当前正在跑 WiFi 时按新 SSID 重连。
+  // 还在 BLE 上时 phase_ 是 kOff，交给切换器在空闲窗口切过来。
+  if (phase_ != Phase::kOff && wifi_creds_generation() != last_gen_) {
+    last_gen_ = wifi_creds_generation();
+    CommandHandler handler = handler_;
+    end();
+    begin(handler);
+    return;
+  }
+
   switch (phase_) {
     case Phase::kConnecting:
       if (WiFi.status() == WL_CONNECTED) {

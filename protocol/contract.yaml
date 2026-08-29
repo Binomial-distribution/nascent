@@ -92,7 +92,9 @@ enums:
   # 固件的 SafetyGovernor::onCommand 不再识别这个值，解除闩锁只能由玩具侧
   # BOOT 键的处理函数直接调用 clearLatch()。保留它是为了让 App 的安全总督
   # 能继续显式拒绝并给出文案，属于纵深防御，不是可用指令。
-  cmd: [stop, set_mode, set_level, set_pattern, set_led, resume]
+  # set_wifi 追加在末尾：把 STA 凭据写入玩具 NVS，不驱动按键、不进总督调档。
+  # 密码不得出现在上行、云端摘要或串口日志。
+  cmd: [stop, set_mode, set_level, set_pattern, set_led, resume, set_wifi]
   pattern: [soft_min, soft, shallow_wave, wave, pulse, strong_pulse, mixed, peak]
   led_state: [mode_default, warming, comfort_reached, cleaning, low_battery, safeword]
   phase: [warming, rising, plateau, calm]
@@ -248,6 +250,8 @@ json_messages:
       - {name: pattern, type: "enum:pattern", nullable: true}
       - {name: mode,    type: "enum:mode", nullable: true}
       - {name: led,     type: "enum:led_state", nullable: true}
+      - {name: wifi_ssid, type: str, nullable: true, doc: "仅 set_wifi；写入玩具 NVS，不上云、不上行"}
+      - {name: wifi_psk,  type: str, nullable: true, doc: "仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志"}
       - {name: auth,    type: str, doc: "session token；缺失或过期整包丢弃"}
 
   - name: CloudSummary

@@ -1,5 +1,6 @@
 import { BleDownlink, BleUplink, NlAlert, NlCmd, NlConst, NlInsertState, NlMode, NlWifi } from "../js/protocol.js";
 import { Governor } from "../js/governor.js";
+import { encodeDownlink } from "../js/channel.js";
 import { HeartState } from "../js/heart.js";
 import { NlMoodTone } from "../js/protocol.js";
 import { toyWsUrl } from "../js/ws.js";
@@ -103,6 +104,41 @@ assert(
   "level above max is rejected",
 );
 
+{
+  const wifiCmd = new BleDownlink({
+    cmd: NlCmd.SET_WIFI,
+    wifiSsid: "lab-24g",
+    wifiPsk: "abcdefgh",
+    auth: "token-placeholder",
+  });
+  assert(wifiCmd.toJson().cmd === "set_wifi", "set_wifi serializes as cmd");
+  assert(wifiCmd.toJson().wifi_ssid === "lab-24g", "ssid stays on the downlink object");
+  assert(wifiCmd.toJson().wifi_psk === "abcdefgh", "psk stays on the downlink object");
+}
+
+{
+  const govWifi = new Governor();
+  govWifi.ingest(uplink());
+  assert(
+    govWifi.reject(new BleDownlink({ cmd: NlCmd.SET_WIFI, wifiSsid: "lab", wifiPsk: "abcdefgh", auth: "" })) == null,
+    "set_wifi allowed when link is healthy",
+  );
+  assert(
+    govWifi.reject(new BleDownlink({ cmd: NlCmd.SET_WIFI, wifiSsid: "lab", wifiPsk: "abcdefgh", auth: "" }), { automatic: true })
+      === "配网只能由你在设置页发起。",
+    "set_wifi is never allowed from automatic / LLM",
+  );
+  assert(
+    govWifi.reject(new BleDownlink({ cmd: NlCmd.SET_WIFI, wifiSsid: "  ", wifiPsk: "", auth: "" })) === "请填写 WiFi 名称。",
+    "empty ssid is rejected before leaving the browser",
+  );
+  assert(
+    govWifi.reject(new BleDownlink({ cmd: NlCmd.SET_WIFI, wifiSsid: "lab", wifiPsk: "short", auth: "" }))
+      === "WiFi 密码须为 8–63 位，或留空（开放网络）。",
+    "short psk is rejected",
+  );
+}
+
 const heart = new HeartState();
 heart.recordMood(NlMoodTone.WARM);
 assert(heart.moodFor(new Date())?.mood === NlMoodTone.WARM, "records today's mood");
@@ -148,6 +184,29 @@ assert(
   let threw = false;
   try { toyWsUrl("  "); } catch { threw = true; }
   assert(threw, "empty address is rejected instead of building ws://:81");
+}
+
+{
+  const packed = encodeDownlink(new BleDownlink({
+    cmd: NlCmd.SET_WIFI,
+    wifiSsid: "lab",
+    wifiPsk: "abcdefgh",
+    auth: "",
+  }), "tokentokentoken");
+  assert(packed.cmd === "set_wifi", "encodeDownlink keeps set_wifi");
+  assert(packed.wifi_ssid === "lab", "encodeDownlink keeps ssid");
+  assert(packed.auth === "tokentokentoken", "encodeDownlink stamps the session token");
+  assert(!("level" in packed), "encodeDownlink drops null level");
+  assert(!("wifi_psk" in packed) === false, "psk is present when provided");
+}
+
+{
+  const packed = encodeDownlink(new BleDownlink({
+    cmd: NlCmd.STOP,
+    auth: "",
+  }), "tokentokentoken");
+  assert(!("wifi_ssid" in packed), "stop does not carry wifi_ssid");
+  assert(!("wifi_psk" in packed), "stop does not carry wifi_psk");
 }
 
 assert(NlInsertState.UNKNOWN === "unknown", "insert_state unknown is the safe default");

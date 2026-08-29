@@ -23,13 +23,13 @@ K10 已删除，手机直连玩具侧，链路少了一跳但过滤层数没少�
 ```
 app/
   main.py                 应用装配
-  config.py               pydantic-settings，密钥只从环境变量读
+  config.py               pydantic-settings；密钥读 secrets/.env（回退 .env）
   protocol.py             由 protocol/tools/gen.py 生成，禁止手改
   routers/session.py      POST /v1/session/summary
   routers/agent.py        B 层对话、模板草稿、记忆删除 API
   routers/persona.py      GET  /v1/persona
   services/llm.py         Chat/Control Prompt、Schema 与安全回退
-  services/providers/     OpenAI 兼容 Chat 与 ASR/TTS，换厂商只改 .env
+  services/providers/     OpenAI 兼容 Chat 与 ASR/TTS，换厂商只改密钥文件
   services/agent.py       Agent 编排与记忆检索
   services/agent_contract.py  Agent、模板和 Skill 的严格 JSON 契约
   services/memory.py      Mem0 兼容语义的可替换记忆适配器
@@ -38,6 +38,9 @@ app/
   services/body_note_contract.py  身体笔记与自我探索严格契约
   services/body_notes.py  记录存储接口和授权范围编排
   services/moderation.py  越界动作兜底（桩）
+secrets/
+  README.md               部署密钥约定
+  .env.example            字段模板。复制为 .env 后填写，不要提交
 ```
 
 ## 模型输出当作不可信输入
@@ -70,7 +73,7 @@ uvicorn app.main:app --reload
 网站在 <http://127.0.0.1:8000>，接口文档在 <http://127.0.0.1:8000/docs>。
 后端同时托管 `software/app/` 里的静态页，不另起前端构建。
 
-配置走环境变量，前缀 `NASCENT_`，也可以写在 `.env`（已被 gitignore）。
+配置走环境变量，前缀 `NASCENT_`。部署把密钥写在 `secrets/.env`（见 [`secrets/README.md`](secrets/README.md)）；本机也可以继续用 `.env`。两处都已被 gitignore。
 
 逻辑别名是 `nascent-chat-9b` / `nascent-control-9b`。发给供应商的 HTTP `model` 必须是供应商认识的 ID，所以 `.env.example` 默认写 `Qwen/Qwen3.5-9B`。两 lane 使用独立 timeout、prompt 和 schema，即使暂时指向同一个快照。
 

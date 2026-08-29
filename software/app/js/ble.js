@@ -1,4 +1,4 @@
-import { ChannelBase } from "./channel.js";
+import { ChannelBase, encodeDownlink } from "./channel.js";
 import { NlBle } from "./protocol.js";
 
 const textDecoder = new TextDecoder();
@@ -62,7 +62,7 @@ export class BleClient extends ChannelBase {
   async send(cmd) {
     const token = this._token;
     if (!token) throw new Error("尚未取得会话令牌");
-    const body = { ...cmd.toJson(), auth: token };
+    const body = encodeDownlink(cmd, token);
     if (this._usingNative) {
       const err = window.NascentNative.send(JSON.stringify(body));
       if (err) throw new Error(err);

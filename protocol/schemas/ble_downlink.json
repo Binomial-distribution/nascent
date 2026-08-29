@@ -146,7 +146,8 @@
         "set_level",
         "set_pattern",
         "set_led",
-        "resume"
+        "resume",
+        "set_wifi"
       ]
     },
     "level": {
@@ -211,6 +212,28 @@
           "type": "null"
         }
       ]
+    },
+    "wifi_ssid": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "仅 set_wifi；写入玩具 NVS，不上云、不上行"
+    },
+    "wifi_psk": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志"
     },
     "auth": {
       "type": "string",

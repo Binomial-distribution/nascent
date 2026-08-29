@@ -48,3 +48,8 @@ software/app-android/app/build/
 software/app-android/local.properties
 secrets.properties
 *.authkey
+
+# 部署密钥：只跟踪 README 与 example
+software/backend/secrets/*
+!software/backend/secrets/README.md
+!software/backend/secrets/.env.example

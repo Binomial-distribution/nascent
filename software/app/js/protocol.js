@@ -104,7 +104,7 @@ export const NlAlert = Object.freeze((() => {
 })());
 
 export const NlCmd = Object.freeze((() => {
-  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "resume"];
+  const values = ["stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi"];
   return {
     STOP: "stop",
     SET_MODE: "set_mode",
@@ -112,6 +112,7 @@ export const NlCmd = Object.freeze((() => {
     SET_PATTERN: "set_pattern",
     SET_LED: "set_led",
     RESUME: "resume",
+    SET_WIFI: "set_wifi",
     values,
     fromWire(i) { return (i >= 0 && i < values.length) ? values[i] : values[0]; },
     fromWireName(n) {
@@ -477,6 +478,8 @@ export class BleDownlink {
     pattern = null,
     mode = null,
     led = null,
+    wifiSsid = null,
+    wifiPsk = null,
     auth,
   }) {
     this.cmd = cmd;
@@ -484,6 +487,8 @@ export class BleDownlink {
     this.pattern = pattern;
     this.mode = mode;
     this.led = led;
+    this.wifiSsid = wifiSsid;
+    this.wifiPsk = wifiPsk;
     this.auth = auth;
   }
 
@@ -494,6 +499,10 @@ export class BleDownlink {
       pattern: j["pattern"] == null ? null : NlPattern.fromWireName(j["pattern"]),
       mode: j["mode"] == null ? null : NlMode.fromWireName(j["mode"]),
       led: j["led"] == null ? null : NlLedState.fromWireName(j["led"]),
+      // 仅 set_wifi；写入玩具 NVS，不上云、不上行
+      wifiSsid: j["wifi_ssid"] == null ? null : String(j["wifi_ssid"]),
+      // 仅 set_wifi；明文只走已鉴权的设备链路，固件不得打日志
+      wifiPsk: j["wifi_psk"] == null ? null : String(j["wifi_psk"]),
       // session token；缺失或过期整包丢弃
       auth: String(j["auth"]),
     });
@@ -506,6 +515,8 @@ export class BleDownlink {
       "pattern": this.pattern,
       "mode": this.mode,
       "led": this.led,
+      "wifi_ssid": this.wifiSsid,
+      "wifi_psk": this.wifiPsk,
       "auth": this.auth,
     };
   }

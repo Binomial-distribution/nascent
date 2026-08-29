@@ -76,6 +76,17 @@ export class Governor {
       return "与设备的连接不可用，此时只能发送停止。";
     }
 
+    if (cmd.cmd === NlCmd.SET_WIFI) {
+      if (automatic) return "配网只能由你在设置页发起。";
+      const ssid = String(cmd.wifiSsid ?? "").trim();
+      if (!ssid) return "请填写 WiFi 名称。";
+      if (ssid.length > 32) return "WiFi 名称过长。";
+      const psk = String(cmd.wifiPsk ?? "");
+      if (psk && (psk.length < 8 || psk.length > 63)) {
+        return "WiFi 密码须为 8–63 位，或留空（开放网络）。";
+      }
+    }
+
     if (cmd.cmd === NlCmd.SET_LEVEL) {
       const lv = cmd.level;
       if (lv == null || lv < NlConst.levelMin || lv > NlConst.levelMax) {

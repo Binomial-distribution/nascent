@@ -7,8 +7,8 @@
 // 这一点是刻意的：两条链路的安全规则一旦抄成两份，只改了一边的修补
 // 就会让另一条变成弱点，而攻击者只需要弱的那条。
 //
-// 凭据不进仓库：写在 gitignored 的 include/local_config.h（见同目录的 .example）。
-// 没有那个文件时 configured() 为假，本通道整个不启用，只有 BLE。
+// 凭据：设置页 `set_wifi` 写入 NVS，或编译期 include/local_config.h。
+// 没有凭据时 configured() 为假，本通道整个不启用，只有 BLE。
 #pragma once
 
 #include <stddef.h>
@@ -59,4 +59,5 @@ class WifiWs : public Transport {
   // 允许多个控制端同时下指令等于让它们互相覆盖档位。
   bool has_client_ = false;
   uint8_t client_num_ = 0;
+  uint32_t last_gen_ = 0;
 };

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  验证期网站和玩具 WebSocket 都是明文：
+  - 电脑上的 FastAPI 默认 http://
+  - 玩具侧 ws://<IP>:81/nl 没有 TLS
+  系统 WebView 默认拦 cleartext。这里显式放开，与 AndroidManifest
+  usesCleartextTraffic 一致。量产上 HTTPS / wss 之后删掉本文件。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

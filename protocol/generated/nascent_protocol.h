@@ -114,11 +114,12 @@ typedef enum {
     NL_CMD_SET_PATTERN = 3,
     NL_CMD_SET_LED = 4,
     NL_CMD_RESUME = 5,
-    NL_CMD_COUNT = 6
+    NL_CMD_SET_WIFI = 6,
+    NL_CMD_COUNT = 7
 } nl_cmd_t;
 
 static const char *const NL_CMD_NAMES[] = {
-    "stop", "set_mode", "set_level", "set_pattern", "set_led", "resume"
+    "stop", "set_mode", "set_level", "set_pattern", "set_led", "resume", "set_wifi"
 };
 
 static inline const char *nl_cmd_name(uint8_t v) {

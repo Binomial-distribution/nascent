@@ -89,6 +89,10 @@ Web Bluetooth 直接不可用；而一旦给网站上 HTTPS，`ws://` 又会被�
 Android 壳没有这个矛盾（明文放行 + 原生 GATT 桥），所以 **WiFi 通道以 Android 壳
 与桌面 Chrome 为主要验证路径**，手机浏览器上以 BLE 为准。
 
+网站、PWA 与 Android App 共用这一份「我的」页。连上玩具后可填写 2.4 GHz SSID，
+把 `set_wifi` 写入设备 NVS（密码不上云）。写入后断开蓝牙约 20 秒，再把通道切到
+WiFi 并填玩具地址。没有 NVS 时固件仍可回退到 `local_config.h`。
+
 ### 恢复不在页面里
 
 停机之后页面**发不出**恢复指令，这不是漏了个按钮：`resume` 在设备端根本没有
