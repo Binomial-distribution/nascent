@@ -29,6 +29,11 @@ export const SWEET_BOYFRIEND = {
     "事后要陪着、放慢，问要不要靠着或歇一会儿，不要再往高潮推。",
   ],
   prologue: "晚上九点半，刚加完班的顾深靠在沙发上发消息。",
+  tts: {
+    minimax: "junlang_nanyou",
+    cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:charles",
+    emotion: "calm",
+  },
 };
 
 export const PERSONA_CARDS = {
@@ -56,6 +61,11 @@ export const PERSONA_CARDS = {
       "事后抚慰收起玩笑，改成陪着。",
     ],
     prologue: "他盘腿坐在床边晃着手机，等她回消息。",
+    tts: {
+      minimax: "male-qn-qingse",
+      cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:david",
+      emotion: "happy",
+    },
   },
   calm: {
     id: "calm",
@@ -80,24 +90,31 @@ export const PERSONA_CARDS = {
       "事后只陪伴、询问要不要被抱着或休息。",
     ],
     prologue: "她把灯调暗，在你旁边坐下。",
+    tts: {
+      minimax: "danya_xuejie",
+      cosyvoice: "FunAudioLLM/CosyVoice2-0.5B:claire",
+      emotion: "whisper",
+    },
   },
 };
+
+const DEFAULT_TTS = SWEET_BOYFRIEND.tts;
 
 export function cardToPromptText(card) {
   if (!card) return "";
   const lines = [
-    `user_name: ${card.user_name || "你"}`,
-    `assistant_name: ${card.assistant_name || card.name || "顾深"}`,
-    `language: ${card.language || "简体中文"}`,
-    "Profile:",
+    `怎么叫她: ${card.user_name || "你"}`,
+    `你是: ${card.assistant_name || card.name || "顾深"}`,
+    "语言: 简体中文",
+    "人设:",
     ...asBullets(card.profile),
-    "Skills:",
+    "说话方式:",
     ...asBullets(card.skills),
-    "Background:",
+    "背景:",
     ...asBullets(card.background),
-    "Rules:",
+    "规则:",
     ...asBullets(card.rules),
-    "Prologue:",
+    "开场:",
     ...asBullets(card.prologue),
   ];
   return lines.filter((line) => line !== undefined).join("\n");
@@ -251,6 +268,7 @@ export function emptyCardDraft() {
     prologue: "",
     spoken: "",
     vibe: "",
+    tts: {},
   };
 }
 
@@ -267,6 +285,7 @@ export function cardToDraft(card) {
     prologue: Array.isArray(card.prologue) ? card.prologue[0] || "" : String(card.prologue || ""),
     spoken: card.spoken || "",
     vibe: card.vibe || card.id || "",
+    tts: normalizeTts(card.tts, card.vibe || card.id),
   };
 }
 
@@ -287,6 +306,7 @@ export function draftToCard(draft) {
     rules: linesToList(draft?.rules),
     prologue: String(draft?.prologue || "").trim(),
     vibe: draft?.vibe || "",
+    tts: normalizeTts(draft?.tts, draft?.vibe),
   };
 }
 
@@ -351,6 +371,7 @@ export function quizAnswersToCard(answers) {
     ],
     prologue: spokenOpt?.prologue || preset.prologue,
     vibe,
+    tts: normalizeTts(preset.tts, vibe),
   };
 }
 
@@ -370,7 +391,7 @@ export function cardForPersona(persona) {
   if (persona.card) return persona.card;
   const byId = PERSONA_CARDS[persona.id];
   if (byId) return byId;
-  if (persona.text && /Profile:|assistant_name:/.test(persona.text)) {
+  if (persona.text && /Profile:|assistant_name:|人设:|你是:/.test(persona.text)) {
     return {
       name: persona.name || SWEET_BOYFRIEND.name,
       user_name: SWEET_BOYFRIEND.user_name,
@@ -402,8 +423,38 @@ export function personaOpeningLine(persona, phase) {
   return card.spoken || SWEET_BOYFRIEND.spoken;
 }
 
+export function personaTts(persona) {
+  const card = cardForPersona(persona);
+  const tts = normalizeTts(card.tts || persona?.tts, card.vibe || persona?.id || card.id);
+  const cloned = String(tts.voice || "").trim();
+  return {
+    minimax: tts.minimax,
+    cosyvoice: tts.cosyvoice,
+    emotion: tts.emotion,
+    voice: cloned || tts.minimax,
+    fallbackVoice: cloned.startsWith("speech:") ? cloned : tts.cosyvoice,
+    cloned,
+  };
+}
+
+export function speakOptionsForPersona(persona) {
+  const tts = personaTts(persona);
+  return {
+    voice: tts.voice,
+    fallbackVoice: tts.fallbackVoice,
+    emotion: tts.emotion === "whisper" ? "whisper" : tts.emotion,
+  };
+}
+
 export function personaPayload(persona) {
   const card = cardForPersona(persona);
+  const tts = personaTts({ ...persona, card });
+  const payloadTts = {
+    minimax: tts.minimax,
+    cosyvoice: tts.cosyvoice,
+    emotion: tts.emotion,
+  };
+  if (tts.cloned) payloadTts.voice = tts.cloned;
   return {
     name: persona?.name || card.name,
     user_name: card.user_name,
@@ -416,6 +467,20 @@ export function personaPayload(persona) {
     prologue: card.prologue || "",
     spoken: card.spoken || "",
     tone: persona?.subtitle || card.subtitle || "",
+    tts: payloadTts,
+    voice: tts.voice,
+  };
+}
+
+function normalizeTts(value, vibe) {
+  const preset = PERSONA_CARDS[vibe]?.tts || DEFAULT_TTS;
+  const raw = value && typeof value === "object" ? value : {};
+  const cloned = String(raw.voice || "").trim().slice(0, 256);
+  return {
+    minimax: String(raw.minimax || preset.minimax).trim() || DEFAULT_TTS.minimax,
+    cosyvoice: String(raw.cosyvoice || preset.cosyvoice).trim() || DEFAULT_TTS.cosyvoice,
+    emotion: String(raw.emotion || preset.emotion).trim() || DEFAULT_TTS.emotion,
+    ...(cloned ? { voice: cloned } : {}),
   };
 }
 

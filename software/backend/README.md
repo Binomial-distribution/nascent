@@ -84,12 +84,12 @@ NASCENT_CHAT_LLM_TIMEOUT_S=8.0
 NASCENT_CONTROL_LLM_TIMEOUT_S=2.5
 NASCENT_ASR_MODEL=FunAudioLLM/SenseVoiceSmall
 NASCENT_TTS_MODEL=speech-02-turbo
-NASCENT_TTS_VOICE=female-tianmei
+NASCENT_TTS_VOICE=junlang_nanyou
 NASCENT_MINIMAX_API_KEY=
 NASCENT_MODERATION_ENABLED=true
 ```
 
-换厂商时改 `NASCENT_LLM_BASE_URL` 和三个模型 ID。语音密钥/地址可空，空则复用 LLM 配置。PCM 只到 `/v1/speech/transcribe`，不会进入 Chat 9B Prompt。TTS 默认走 MiniMax 免费系统音色 `female-tianmei`（甜美女声）+ `speech-02-turbo`；没配 MiniMax 密钥或调用失败时，再降到硅基流动 CosyVoice。
+换厂商时改 `NASCENT_LLM_BASE_URL` 和三个模型 ID。语音密钥/地址可空，空则复用 LLM 配置。PCM 只到 `/v1/speech/transcribe` 和 `/v1/speech/clone`，不会进入 Chat 9B Prompt。TTS 默认走 MiniMax 免费系统音色 `junlang_nanyou`（俊朗男友）+ `speech-02-turbo`；情景通话按人设选声（顾深 / 阿北男声，阿月女声）。没配 MiniMax 密钥或调用失败时，再降到硅基流动 CosyVoice 对应男/女声。
 
 `moderation_enabled` 默认是 `true`。关掉它需要一个明确动作，
 不该因为忘配环境变量而悄悄失效。
@@ -104,7 +104,8 @@ NASCENT_MODERATION_ENABLED=true
 - `DELETE /v1/agent/templates/{template_id}`：删除自定义模板。
 - `POST /v1/agent/turn`：在当前模板范围内生成台词、表现和 Skill 建议。
 - `POST /v1/speech/transcribe`：上传一句音频，只返回转写文本。
-- `POST /v1/speech/speak`：把 Chat 9B 台词交给云端 TTS，返回 `audio/mpeg`。默认 MiniMax `speech-02-turbo` + 系统音色 `female-tianmei`（免费，不克隆）。密钥写 `NASCENT_MINIMAX_API_KEY`。失败且硅基流动可用时降 CosyVoice。前端失败只保留字幕。
+- `POST /v1/speech/speak`：把 Chat 9B 台词交给云端 TTS，返回 `audio/mpeg`。请求可带 `voice`（系统 id 或克隆 id）。默认 MiniMax `speech-02-turbo` + `junlang_nanyou`。密钥写 `NASCENT_MINIMAX_API_KEY`。失败且硅基流动可用时降 CosyVoice 对应声。前端失败只保留字幕。
+- `POST /v1/speech/clone`：上传一段参考音频（mp3/m4a/wav，建议至少 10 秒）。MiniMax `files/upload` + `voice_clone` 优先，只返回 `voice_id`；失败且硅基流动可用时需再填这段音频的台词。PCM 不到 Chat。失败只提示，不挡保存人设。
 - `POST /v1/agent/parallel-turn`：同一回合并行执行 Chat 9B 与 Control 9B，分别降级，并返回可展示的数据走向。
 - `POST /v1/agent/preferences/observe`：计算并记录一次脱敏偏好观察。
 - `GET /v1/agent/preferences`：读取当前用户/人设/模板的偏好快照。

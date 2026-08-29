@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     speech_base_url: str = ""
     asr_model: str = "FunAudioLLM/SenseVoiceSmall"
     tts_model: str = "speech-02-turbo"
-    tts_voice: str = "female-tianmei"
+    tts_voice: str = "junlang_nanyou"
     asr_timeout_s: float = 8.0
     tts_timeout_s: float = 20.0
     minimax_api_key: str = ""

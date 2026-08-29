@@ -1,6 +1,6 @@
 /** 情景漫游会话：头像压缩、通话后的 9B 文字回合。麦克风 PCM 只走 /v1/speech；传感只发脱敏趋势。 */
 
-import { personaPayload } from "./persona-cards.js";
+import { personaPayload, speakOptionsForPersona } from "./persona-cards.js";
 
 const THREAD_KEY = "nascent.scenario.threads";
 const THREAD_KEEP = 40;
@@ -12,9 +12,9 @@ const MAX_AVATAR_CHARS = 120_000;
 export const EXPERIENCE_PHASES = ["approaching", "rising", "climax_window", "aftercare"];
 
 export const PHASE_UI = {
-  approaching: { label: "慢慢靠近", goal: "带他走完前戏：黏着、靠近、听他想快还是慢。前戏落地后就往升温走，不要一直闲聊停在这里。" },
-  rising: { label: "一起往前", goal: "升温、更近，快慢仍听他的。他没说接近或更近之前，不要宣布高潮。" },
-  climax_window: { label: "高潮窗口", goal: "他开口说接近、要到了、更近时才跟着走完，不要替他宣布。" },
+  approaching: { label: "慢慢靠近", goal: "带她走完前戏：黏着、靠近、听她想快还是慢。前戏落地后就往升温走，不要一直闲聊停在这里。" },
+  rising: { label: "一起往前", goal: "升温、更近，快慢仍听她的。她没说接近或更近之前，不要宣布高潮。" },
+  climax_window: { label: "高潮窗口", goal: "她开口说接近、要到了、更近时才跟着走完，不要替她宣布。" },
   aftercare: { label: "事后抚慰", goal: "放慢、陪着、问要不要靠着或歇一会儿。" },
 };
 
@@ -140,13 +140,20 @@ export async function unlockSpeechPlayback() {
   return playbackCtx;
 }
 
-export async function speakUtterance(text, fetchImpl = globalThis.fetch) {
+export async function speakUtterance(text, fetchImpl = globalThis.fetch, tts = {}) {
   const clipped = String(text || "").trim().slice(0, 500);
   if (!clipped) throw new Error("empty tts text");
+  const body = { text: clipped };
+  const voice = String(tts?.voice || "").trim().slice(0, 256);
+  const fallbackVoice = String(tts?.fallbackVoice || "").trim().slice(0, 256);
+  const emotion = String(tts?.emotion || "").trim().slice(0, 32);
+  if (voice) body.voice = voice;
+  if (fallbackVoice) body.fallback_voice = fallbackVoice;
+  if (emotion) body.emotion = emotion;
   const response = await fetchImpl("/v1/speech/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: clipped }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error("speak failed");
   const blob = await response.blob();
@@ -198,13 +205,21 @@ async function playThroughElement(blob, token, onStart) {
   return token === speechToken;
 }
 
-export async function speakDialogue(text, { fetchImpl = globalThis.fetch, onStart } = {}) {
+export async function speakDialogue(text, {
+  fetchImpl = globalThis.fetch,
+  onStart,
+  voice = "",
+  fallbackVoice = "",
+  emotion = "",
+  persona = null,
+} = {}) {
   const clipped = String(text || "").trim();
   if (!clipped) return { played: false, interrupted: false };
   stopSpeech();
   const token = speechToken;
+  const tts = persona ? speakOptionsForPersona(persona) : { voice, fallbackVoice, emotion };
   try {
-    const blob = await speakUtterance(clipped, fetchImpl);
+    const blob = await speakUtterance(clipped, fetchImpl, tts);
     if (token !== speechToken) return { played: false, interrupted: true };
     const ctx = await unlockSpeechPlayback();
     if (ctx) {
@@ -386,7 +401,7 @@ export function experienceSummary(phase, sensor) {
   const meta = PHASE_UI[phase] || PHASE_UI.approaching;
   return [
     `当前阶段：${meta.label}。${meta.goal}`,
-    "带他走过前戏再升温。高潮窗口只能由他自己的话说开。不要念阶段名称，不要根据传感器宣布高潮。",
+    "带她走过前戏再升温。高潮窗口只能由她自己的话说开。不要念阶段名称，不要根据传感器宣布高潮。",
     "传感器只是背景，不要在台词里汇报。",
     `温感 ${sensor.temperature_state || "unknown"}，压力 ${sensor.pressure_rhythm || "unknown"}，心率 ${sensor.hr_trend || "unknown"}。`,
     phase === "aftercare" ? "这一段要事后陪着，不要再往高潮推。" : "",

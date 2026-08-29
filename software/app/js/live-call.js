@@ -150,6 +150,7 @@ export function createLiveCall({
   onError,
   onPlayback,
   fetchImpl = globalThis.fetch,
+  tts = {},
 } = {}) {
   let closed = false;
   let playing = false;
@@ -187,6 +188,7 @@ export function createLiveCall({
       const result = await speakDialogue(text, {
         fetchImpl,
         onStart() { playbackStartedAt = Date.now(); },
+        ...(typeof tts === "function" ? tts() : tts),
       });
       if (!result?.played && !result?.interrupted && !closed) {
         onError?.("这次没播出声音，看字幕就好");

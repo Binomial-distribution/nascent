@@ -8,6 +8,7 @@ import { NAV_TABS, parseHash, legacyNotesTarget, SCENARIO_FLOW } from "../js/rou
 import {
   ScenarioChatState,
   buildSensorContext,
+  experienceSummary,
   ingestUplinkSample,
   nextExperiencePhase,
   resetSensorWindow,
@@ -15,7 +16,9 @@ import {
   speakUtterance,
 } from "../js/scenario-session.js";
 import {
+  cardToPromptText,
   draftToCard,
+  PERSONA_CARDS,
   personaOpeningLine,
   personaPayload,
   quizAnswersToCard,
@@ -277,6 +280,15 @@ assert(opening.includes("收工") || opening.includes("抱一会儿"), "preset o
 assert(!opening.includes("慢慢靠近"), "opening is not the old coaching script");
 const payload = personaPayload({ id: "gentle" });
 assert(payload.assistant_name === "顾深" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");
+assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "顾深 uses the boyfriend MiniMax voice");
+assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "顾深 is a male MiniMax id");
+assert(PERSONA_CARDS.playful.tts.minimax === "male-qn-qingse", "阿北 uses a male MiniMax id");
+assert(PERSONA_CARDS.calm.tts.minimax === "danya_xuejie", "阿月 uses a female MiniMax id");
+assert(!/male-/i.test(PERSONA_CARDS.calm.tts.minimax), "阿月 is not a male MiniMax id");
+assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "顾深 speaks calmly");
+assert(PERSONA_CARDS.playful.tts.emotion === "happy", "阿北 speaks happily");
+assert(PERSONA_CARDS.calm.tts.emotion === "whisper", "阿月 uses a whisper emotion");
 
 const filledCard = draftToCard({
   assistant_name: "小测",
@@ -313,6 +325,14 @@ assert(quizCard.spoken.includes("抱一会儿"), "quiz opening uses the selected
 assert(quizCard.rules.some((line) => line.includes("听她的")), "quiz rules address her");
 const quizPayload = personaPayload({ card: quizCard, name: quizCard.assistant_name });
 assert(quizPayload.assistant_name === "顾深" && quizPayload.spoken.includes("抱一会儿"), "quiz card is sent as the agent prompt");
+assert(quizPayload.tts?.minimax === "junlang_nanyou", "quiz card keeps the vibe MiniMax voice");
+
+const promptText = cardToPromptText(PERSONA_CARDS.gentle);
+assert(promptText.includes("人设:") && promptText.includes("怎么叫她:"), "character card text uses Chinese labels");
+assert(!promptText.includes("Profile:"), "character card text does not use English Profile label");
+const approachingSummary = experienceSummary("approaching", {});
+assert(approachingSummary.includes("带她"), "phase summary talks about her, not him");
+assert(!approachingSummary.includes("带他"), "phase summary does not mix him into a female-oriented scene");
 
 function memoryStore() {
   const data = {};
@@ -395,14 +415,18 @@ const bargeYes = shouldBargeIn(2300, 0.2, { playing: true, playbackStartedAt: 10
 assert(bargeYes.bargeIn, "sustained speech after grace can interrupt playback");
 
 let ttsPath = "";
-await speakUtterance("我在", async (path) => {
+let ttsBody = null;
+await speakUtterance("我在", async (path, options = {}) => {
   ttsPath = path;
+  ttsBody = JSON.parse(options.body || "{}");
   return {
     ok: true,
     blob: async () => new Blob([new Uint8Array(64)], { type: "audio/mpeg" }),
   };
-});
+}, { voice: "junlang_nanyou", fallbackVoice: "FunAudioLLM/CosyVoice2-0.5B:charles", emotion: "calm" });
 assert(ttsPath === "/v1/speech/speak", "assistant lines request cloud TTS");
+assert(ttsBody.voice === "junlang_nanyou", "speak body includes persona voice");
+assert(ttsBody.text === "我在", "speak body still sends the spoken line");
 
 let spokeLocal = false;
 globalThis.speechSynthesis = {

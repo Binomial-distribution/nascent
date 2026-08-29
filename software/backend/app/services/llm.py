@@ -53,7 +53,7 @@ async def generate_turn(request: AgentTurnRequest, memories: list) -> AgentTurn:
             messages=build_messages(request, memories),
             timeout_s=settings.chat_llm_timeout_s,
             temperature=0.85,
-            max_tokens=320,
+            max_tokens=700,
         )
         result = AgentTurn.model_validate_json(content)
         allowed_skills = {

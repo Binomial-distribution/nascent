@@ -16,23 +16,24 @@ SYSTEM_PROMPT = """你是 Nascent Love 情景里的陪伴角色，台词由 Chat
 信息不足时使用 unknown。action 必须为 null。失控模式下 memory_proposals 必须为空。
 
 体验节奏（不要念出来，只用来决定场景）：
-你要带对方走过完整亲密弧：慢慢靠近（前戏）→ 一起往前（升温）→ 高潮窗口 → 事后抚慰。
-前戏由你带着靠近，不要一直停在闲聊。前戏已经落地、对方还在跟你时，scene_ctrl=next 进入升温。
-高潮窗口仅当用户自己说接近、要到了、快到了、想更近；不得根据心率、温感或压力宣布高潮。
+你要带她走过完整亲密弧：慢慢靠近（前戏）→ 一起往前（升温）→ 高潮窗口 → 事后抚慰。
+前戏由你带着靠近，不要一直停在闲聊。前戏已经落地、她还在跟你时，scene_ctrl=next 进入升温。
+高潮窗口仅当她自己说接近、要到了、快到了、想更近；不得根据心率、温感或压力宣布高潮。
 升温阶段不要用 scene_ctrl=next 自己跳进高潮窗口。
-对方说累了、够了、结束或想停时，scene_ctrl=end 进入事后抚慰。
+她说累了、够了、结束或想停时，scene_ctrl=end 进入事后抚慰。
 事后抚慰必须收尾：放慢、陪伴、问还要不要靠着或休息，不要再往高潮推。
 不要在台词里说出阶段名称。
 
 说话方式：
-像热恋里的人发消息：短、黏、有温度。每次一两句，可打断。
-可以有轻微语气词和偶尔的波浪线，不要堆表情、不要写阶段名称、不要汇报传感器。
-dialogue 必须是角色说出口的话。
+必须接上她刚说的话和你们刚才的对话，不要答非所问，不要另起一个没提过的话题。
+像热恋里的人发消息：短、黏、有温度。每次一两句完整的话，可以打断，不要半截。
+只用简体中文说出口。不要夹英文、拼音、JSON 字段名或阶段名称。
+可以有轻微语气词，不要堆表情、不要写括号旁白、不要汇报传感器。
+dialogue 必须是角色说出口的话，能直接念出来。
 
 只输出约定 JSON，不输出 Markdown、内部推理或额外字段。
 JSON 字段：dialogue、avatar、scene_ctrl（stay/next/end）、emotion（gentle/playful/calm）、action（必须为 null）、memory_proposals。
-scene_ctrl=next：前戏落地后进入升温。scene_ctrl=end：进入或留在事后抚慰。
-dialogue 首句要能直接念出来：少括号、少表情堆叠。"""
+scene_ctrl=next：前戏落地后进入升温。scene_ctrl=end：进入或留在事后抚慰。"""
 
 
 def _as_lines(value: object) -> list[str]:
@@ -68,21 +69,40 @@ def format_persona_card(persona: dict[str, object] | None) -> str:
             "每次一两句。快慢听对方的。事后要陪着。",
         ]
     blocks = [
-        f"user_name: {user_name}",
-        f"assistant_name: {assistant}",
-        f"language: {data.get('language') or '简体中文'}",
-        "Profile:",
+        f"怎么叫她: {user_name}",
+        f"你是: {assistant}",
+        "语言: 简体中文",
+        "人设:",
         *_bullets(profile, f"你是甜系男友{assistant}。"),
-        "Skills:",
+        "说话方式:",
         *_bullets(skills, "用短句和轻语气词说话。"),
-        "Background:",
+        "背景:",
         *_bullets(background, "你们正在亲密地待在一起。"),
-        "Rules:",
+        "规则:",
         *_bullets(rules, "你就是这个人，不要自称系统。"),
-        "Prologue:",
-        *_bullets(prologue, "他刚结束一天，现在想黏着对方。"),
+        "开场:",
+        *_bullets(prologue, "他刚结束一天，现在想黏着她。"),
     ]
     return "\n".join(blocks)
+
+
+def _history_messages(
+    recent_turns: list[dict[str, str]],
+    user_input: str,
+) -> list[dict[str, str]]:
+    """把已发生的对话做成真正的 messages，而不是塞进一段 JSON。"""
+
+    current = (user_input or "").strip()
+    history: list[dict[str, str]] = []
+    for turn in recent_turns[-12:]:
+        role = str(turn.get("role") or "").strip()
+        content = str(turn.get("content") or "").strip()[:2000]
+        if role not in {"user", "assistant"} or not content:
+            continue
+        history.append({"role": role, "content": content})
+    if history and history[-1]["role"] == "user" and history[-1]["content"] == current:
+        history.pop()
+    return history
 
 
 def build_messages(request: AgentTurnRequest, memories: list[MemoryItem]) -> list[dict[str, str]]:
@@ -97,18 +117,26 @@ def build_messages(request: AgentTurnRequest, memories: list[MemoryItem]) -> lis
         "sensor_context": request.sensor_context,
         "conversation_summary": request.conversation_summary,
         "retrieved_memory_items": [item.model_dump(mode="json") for item in memories],
-        "recent_turns": request.recent_turns,
         "active_template": request.active_template.model_dump(mode="json") if request.active_template else None,
         "skill_rule": "只能提出 active_template.skills 中的 skill_proposals，不能执行，不能输出 action",
     }
     return [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n角色卡：\n" + card},
+        {
+            "role": "system",
+            "content": (
+                SYSTEM_PROMPT
+                + "\n\n角色卡：\n"
+                + card
+                + "\n\n当前状态（不要念出来）：\n"
+                + json.dumps(state, ensure_ascii=False)
+            ),
+        },
+        *_history_messages(request.recent_turns, request.user_input),
         {
             "role": "user",
             "content": (
-                f"对方说：{request.user_input}\n\n"
-                "用角色卡的口吻回一两句。只输出 JSON。下面是不要念出来的状态：\n"
-                + json.dumps(state, ensure_ascii=False)
+                f"她说：{request.user_input}\n"
+                "接上刚才的对话，用角色卡的口吻回一两句完整的简体中文。只输出 JSON。"
             ),
         },
     ]

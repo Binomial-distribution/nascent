@@ -30,6 +30,7 @@ import {
   personaRejoinLine,
   quizAnswersToCard,
   savedPersonaToDraft,
+  speakOptionsForPersona,
 } from "./persona-cards.js";
 import { getConnected, getUplink, link, sendCommand, subscribe } from "./session.js";
 import { CardCategory, heart, MoodUi } from "./heart.js";
@@ -93,6 +94,8 @@ const ui = {
   scenarioHandoff: false,
   draftAvatar: null,
   draftPersonaCard: null,
+  pendingCloneFile: null,
+  cloneNeedsTranscript: false,
   quizAnswers: emptyQuizAnswers(),
   callTimer: null,
   voiceListening: false,
@@ -300,6 +303,7 @@ function readPersonaCardDraftFromForm() {
     prologue: value("persona-prologue"),
     spoken: value("persona-spoken"),
     vibe,
+    tts: ui.draftPersonaCard?.tts || {},
   };
 }
 
@@ -339,6 +343,7 @@ function persistCustomPersonaRecord({ card, name, source = "free", activate = fa
     spoken: card.spoken,
     subtitle: card.subtitle,
     vibe: card.vibe || "",
+    tts: card.tts || {},
   };
   const text = cardToPromptText(card);
   const model = ui.persona.model || "gpt-4o-mini";
@@ -491,6 +496,7 @@ async function saveCustomPersonaFromQuiz({ activate = true, createdNotice = fals
 
 const ICONS = {
   heart: '<path d="M12 21s-7-4.4-9.5-8.2C.6 9.7 2.2 6 6 6c2 0 3.2 1.1 4 2.2C10.8 7.1 12 6 14 6c3.8 0 5.4 3.7 3.5 6.8C19 16.6 12 21 12 21z"/>',
+  sliders: '<path d="M5 8h8"/><circle cx="16" cy="8" r="2.4"/><path d="M19 8h1"/><path d="M5 16h3"/><circle cx="11" cy="16" r="2.4"/><path d="M14 16h6"/>',
   book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
   person: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.2 3.8-5 7-5s5.8 1.8 7 5"/>',
   back: '<path d="M15 18l-6-6 6-6"/>',
@@ -709,22 +715,23 @@ function knowledgeCard(card, index) {
 
 function renderIntimacy() {
   return `${topbar("亲密时刻")}
-  <main class="page">
+  <main class="page intimacy-home">
     ${statusBar({ clickable: true, trailing: "shield" })}
     <h2 class="lead">选择今天的靠近方式</h2>
     <p class="sub">想有人陪着说话，或快慢都自己来，选下面一种。</p>
-    ${entry("scenario", "book", "情景模式", "选一个人，开始聊天。", "var(--coral)")}
-    ${entry("control", "share", "自我控制", "档位和节奏都自己来。", "var(--fog)")}
+    <div class="entry-stack">
+      ${entry("scenario", "heart", "情景模式", "选一个人，开始聊天。")}
+      ${entry("control", "sliders", "自我控制", "档位和节奏都自己来。")}
+    </div>
     <div class="note">${icon("info")}<span>想停随时能停。用过的记录在「记录」里。</span></div>
   </main>
   ${nav("intimacy")}`;
 }
 
-function entry(page, ico, title, subtitle, color) {
-  return `<button class="entry" data-act="sub" data-page="${page}">
-    <div class="entry-ico" style="background:color-mix(in srgb, ${color} 18%, transparent);color:${color}">${icon(ico)}</div>
-    <div><h3>${title}</h3><p>${subtitle}</p></div>
-    <span class="chev">${icon("chevron")}</span>
+function entry(page, ico, title, subtitle) {
+  return `<button class="entry entry-${page}" data-act="sub" data-page="${page}">
+    <div class="entry-ico">${icon(ico)}</div>
+    <div class="entry-copy"><h3>${title}</h3><p>${subtitle}</p></div>
   </button>`;
 }
 
@@ -1458,6 +1465,7 @@ function renderPersonaCustom(editId = null) {
   const draft = personaFormDraft(editing);
   const name = draft.assistant_name || draft.name || "";
   const avatar = ui.draftAvatar || editing?.avatar || "";
+  const clonedVoice = String(draft.tts?.voice || "").trim();
   const selectedVibe = PERSONA_VIBES.find((item) => item.id === draft.vibe);
   const backTo = ui.scenarioHandoff
     ? "#/intimacy/scenario"
@@ -1484,7 +1492,16 @@ function renderPersonaCustom(editId = null) {
       <label class="ghost avatar-upload">上传头像
         <input id="persona-avatar-file" type="file" accept="image/*" hidden />
       </label>
+      <label class="ghost avatar-upload">他的声音
+        <input id="persona-voice-file" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-m4a,.mp3,.m4a,.wav" hidden />
+      </label>
     </div>
+    <p class="ob-hint">${clonedVoice ? "已经记下他的声音，保存后通话会用这个音色。" : "单人、尽量安静、至少 10 秒，请用自己的声音或已获授权的音频。"}</p>
+    ${ui.cloneNeedsTranscript ? `
+      <label class="ob-label" for="persona-voice-transcript">这段音频在说什么</label>
+      <input id="persona-voice-transcript" class="ob-field" maxlength="500" placeholder="把这段录音里说的话写下来" />
+      <button type="button" class="ghost" data-act="persona-clone-retry" style="margin-bottom:12px">再试一次</button>
+    ` : ""}
     <label class="ob-label" for="persona-assistant-name">他的名字</label>
     <input id="persona-assistant-name" class="ob-field" maxlength="40" value="${escapeHtmlApp(name)}" placeholder="想被怎么叫？比如顾深" />
     <label class="ob-label" for="persona-user-name">他怎么叫你</label>
@@ -1866,6 +1883,7 @@ function startCallSequence() {
 function prepareLiveCall() {
   stopLiveCall();
   liveCall = createLiveCall({
+    tts: () => speakOptionsForPersona(ui.activePersona),
     onUtterance: async (text) => {
       updateCallCaption("user", text);
       const turn = await sendScenarioLine(text, { speak: false, skipRender: true });
@@ -2000,6 +2018,8 @@ function resetPersonaDraft() {
   ui.draftAvatar = null;
   ui.draftPersonaCard = emptyCardDraft();
   ui.quizAnswers = emptyQuizAnswers();
+  ui.pendingCloneFile = null;
+  ui.cloneNeedsTranscript = false;
 }
 
 function render() {
@@ -2107,6 +2127,8 @@ function bind() {
   if (scenarioForm) scenarioForm.addEventListener("submit", onScenarioChatSubmit);
   const avatarInput = root.querySelector("#persona-avatar-file");
   if (avatarInput) avatarInput.addEventListener("change", onPersonaAvatarPicked);
+  const voiceInput = root.querySelector("#persona-voice-file");
+  if (voiceInput) voiceInput.addEventListener("change", onPersonaVoicePicked);
   bindHoldMic();
 }
 
@@ -2148,7 +2170,7 @@ async function sendScenarioLine(text, { speak = true, skipRender = false } = {})
   if (!skipRender) render();
   requestAnimationFrame(() => root.querySelector(".chat-thread")?.scrollTo(0, 99999));
   if (speak && turn?.dialogue) {
-    const result = await speakDialogue(turn.dialogue);
+    const result = await speakDialogue(turn.dialogue, speakOptionsForPersona(persona));
     if (!result?.played && !result?.interrupted) toast("这次没播出声音，看文字就好");
   }
   return turn;
@@ -2164,6 +2186,64 @@ async function onPersonaAvatarPicked(event) {
     toast("头像已更新，保存后才会记下");
   } catch (error) {
     toast(error.message || "头像无法使用");
+  }
+}
+
+async function onPersonaVoicePicked(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  ui.pendingCloneFile = file;
+  ui.cloneNeedsTranscript = false;
+  await clonePendingVoice();
+}
+
+async function clonePendingVoice() {
+  const file = ui.pendingCloneFile;
+  if (!file) return;
+  stashPersonaDraft();
+  const transcript = String(root.querySelector("#persona-voice-transcript")?.value || "").trim();
+  const personaId = ui.persona.editingId
+    || ui.draftPersonaCard?.id
+    || `draft${Date.now().toString(36)}`;
+  try {
+    const body = new FormData();
+    body.append("file", file, file.name || "voice.wav");
+    body.append("persona_id", String(personaId).slice(0, 128));
+    if (transcript) body.append("transcript", transcript.slice(0, 500));
+    const response = await fetch("/v1/speech/clone", { method: "POST", body });
+    if (response.status === 400) {
+      const payload = await response.json().catch(() => ({}));
+      if (String(payload.detail || "").includes("transcript")) {
+        ui.cloneNeedsTranscript = true;
+        render();
+        toast("这段音频在说什么？填一下再试");
+        return;
+      }
+      toast("没能记下这段声音，人设还可以照常保存");
+      return;
+    }
+    if (!response.ok) {
+      toast("没能记下这段声音，人设还可以照常保存");
+      return;
+    }
+    const json = await response.json();
+    const voiceId = String(json?.voice_id || "").trim();
+    if (!voiceId) {
+      toast("没能记下这段声音，人设还可以照常保存");
+      return;
+    }
+    const current = readPersonaCardDraftFromForm();
+    ui.draftPersonaCard = {
+      ...current,
+      tts: { ...(current.tts || {}), voice: voiceId },
+    };
+    ui.pendingCloneFile = null;
+    ui.cloneNeedsTranscript = false;
+    render();
+    toast("已经记下他的声音");
+  } catch {
+    toast("没能记下这段声音，人设还可以照常保存");
   }
 }
 
@@ -2497,12 +2577,18 @@ async function onClick(event) {
     }
     if (keepUser) filled.user_name = keepUser;
     filled.vibe = t.dataset.vibe;
+    if (current.tts?.voice) {
+      filled.tts = { ...(filled.tts || {}), voice: current.tts.voice };
+    }
     ui.draftPersonaCard = filled;
     ui.suppressPersonaStash = true;
     render();
   }
   else if (act === "pick-persona") {
     beginScenarioCall(findScenarioPersona(t.dataset.key));
+  }
+  else if (act === "persona-clone-retry") {
+    await clonePendingVoice();
   }
   else if (act === "end-call") {
     leaveScenarioCall();
