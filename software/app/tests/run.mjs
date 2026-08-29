@@ -513,7 +513,7 @@ assert(folded.startsWith("更早的对话："), "old turns fold into a dialogue 
 assert(folded.includes("她0") && folded.includes("他1"), "the summary keeps lines that fell out of the window");
 assert(!folded.includes(`她${TURN_SEND}`), "the live window is not copied into the folded summary");
 const combinedSummary = buildConversationSummary(overflowItems, "rising", {});
-assert(combinedSummary.includes("更早的对话") && combinedSummary.includes("一起往前"), "summary keeps folded dialogue and phase goals");
+assert(combinedSummary.includes("更早的对话") && combinedSummary.includes("C3 暧昧"), "summary keeps folded dialogue and phase goals");
 assert(combinedSummary.length <= SUMMARY_TOTAL_MAX, "the combined summary stays within the contract limit");
 
 const overflowBodies = [];
