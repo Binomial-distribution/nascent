@@ -14,6 +14,7 @@ from .agent_contract import (
     AgentTurnRequest,
     ControlDecision,
     ControlDecisionRequest,
+    MemoryProposal,
     PersonaTemplate,
     TemplateDraftRequest,
 )
@@ -259,7 +260,17 @@ def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
         emotion=emotion,
         tts_style=tts_style,
         scene_ctrl=scene_ctrl,
+        memory_proposals=_stub_memory_proposals(request),
     )
+
+
+def _stub_memory_proposals(request: AgentTurnRequest) -> list[MemoryProposal]:
+    if request.session_mode == "wild" or request.memory_policy == "off":
+        return []
+    text = (request.user_input or "").strip()
+    if not any(token in text for token in ("记住", "我喜欢", "我不喜欢", "以后别", "下次不要", "以后不要")):
+        return []
+    return [MemoryProposal(text=text[:80], reason="她说了想记住的偏好")]
 
 
 def _body_insight_stub(scope: str, sessions: list[dict[str, object]]) -> tuple[str, str | None]:

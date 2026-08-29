@@ -70,6 +70,9 @@ const DEVICE_KEY = "nascent.devices";
 const root = document.getElementById("app");
 let liveCall = null;
 let holdMic = null;
+let callClock = null;
+let chatFromCallTimer = null;
+let skipAnswerClick = false;
 const SCENES = [
   ["留一点空间", "先不用急着做什么，感受一下此刻的呼吸。"],
   ["靠近一点", "如果感觉合适，就把注意力放回你们之间。"],
@@ -113,6 +116,7 @@ const ui = {
   callTimer: null,
   voiceListening: false,
   pendingScenarioPersona: null,
+  chatFromCall: false,
   scenarioAutomation: {
     active: false,
     authorized: false,
@@ -794,7 +798,7 @@ function renderIntimacy() {
     <h2 class="lead">选择今天的靠近方式</h2>
     <p class="sub">想有人陪着说话，或快慢都自己来，选下面一种。</p>
     <div class="entry-stack">
-      ${entry("scenario", "heart", "情景模式", "选一个人，开始聊天。")}
+      ${entry("scenario", "heart", "情景模式", "选一个人，他会打给你。")}
       ${entry("control", "sliders", "自我控制", "档位和节奏都自己来。")}
     </div>
     <div class="note">${icon("info")}<span>想停随时能停。用过的记录在「记录」里。</span></div>
@@ -921,40 +925,54 @@ function renderPersonaList() {
       <button class="persona-row ${ui.activePersona?.key === item.key ? "selected" : ""}" data-act="pick-persona" data-key="${escapeHtml(item.key)}">
         ${personaAvatarHtml(item)}
         <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.subtitle)}</small></div>
-        <span class="chev">${icon("phone")}</span>
+        <span class="chev">${icon("chevron")}</span>
       </button>
     `).join("")}
-    ${items.length ? "" : `<p class="microcopy">还没有自己的人设时，可以用上面的自定义，或点选预置人设直接拨打。</p>`}
+    ${items.length ? "" : `<p class="microcopy">还没有自己的人设时，可以用上面的自定义，或点选预置人设，他会打给你。</p>`}
   </main>`;
 }
 
 function renderScenarioCall() {
-  const persona = ui.activePersona || { name: "当前人设" };
+  const persona = ui.activePersona || { name: "当前人设", key: "none" };
   return `<main class="call-screen" data-call-stage="ringing">
-    <p class="call-kicker">来电</p>
-    <div class="call-stage">
-      <div class="call-rings" aria-hidden="true"><i></i><i></i><i></i></div>
-      ${personaAvatarHtml(persona, "avatar call-avatar")}
-    </div>
-    <h2>${escapeHtml(persona.name)}</h2>
-    <p class="sub" data-call-status>正在呼叫你…</p>
-    ${ui.scenarioAutomation.authorized ? `<p class="auto-control-badge">本次情景已开启设备自动调节</p>` : ""}
-    <div class="call-captions" data-call-captions hidden>
-      <div class="call-line user" data-call-user-row hidden>
-        <span class="call-who">你</span>
-        <p data-call-user></p>
+    <section class="call-voice-layer" data-call-swipe>
+      <div class="call-header-block">
+        <p class="call-kicker">来电</p>
+        <div class="call-stage">
+          <div class="call-rings" aria-hidden="true"><i></i><i></i><i></i></div>
+          ${personaAvatarHtml(persona, "avatar call-avatar")}
+        </div>
+        <h2>${escapeHtml(persona.name)}</h2>
+        <p class="sub" data-call-status>正在呼叫你…</p>
+        ${ui.scenarioAutomation.authorized ? `<p class="auto-control-badge">本次情景已开启设备自动调节</p>` : ""}
+        <p class="call-duration" data-call-duration hidden>00:00</p>
       </div>
-      <div class="call-line assistant" data-call-assistant-row hidden>
-        <span class="call-who">${escapeHtml(persona.name)}</span>
-        <p data-call-assistant></p>
+      <div class="call-live-block">
+        <div class="call-subtitle-panel" data-call-captions>
+          <div class="call-line assistant" data-call-assistant-row hidden>
+            <span class="call-who">${escapeHtml(persona.name)}</span>
+            <p data-call-assistant></p>
+          </div>
+          <div class="call-line user" data-call-user-row hidden>
+            <span class="call-who">你</span>
+            <p data-call-user></p>
+          </div>
+        </div>
+        <div class="call-waveform" data-call-wave aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       </div>
-    </div>
-    <div class="call-actions" data-call-ring-actions>
-      <button type="button" class="call-decline" data-act="end-call">${icon("stop")}<span>拒绝</span></button>
-      <button type="button" class="call-answer" data-act="answer-call">${icon("phone")}<span>接通</span></button>
-    </div>
-    <button class="ghost call-hangup" data-act="end-call" hidden>${icon("stop")} 挂断</button>
-    <button class="ghost call-text" data-act="call-text" hidden>改用文字</button>
+      <div class="call-connected-controls">
+        <p class="call-up-hint">上滑进入文字聊天</p>
+        <button type="button" class="ghost call-text" data-act="call-text" hidden>改用文字</button>
+        <button type="button" class="call-hangup-btn" data-act="end-call" aria-label="挂断">${icon("stop")}</button>
+      </div>
+      <div class="call-answer-rail">
+        <button type="button" class="call-rail-decline" data-act="end-call">拒绝</button>
+        <div class="call-slider" data-call-slider>
+          <span class="call-slider-hint">左滑接通</span>
+          <button type="button" class="call-slider-knob" data-act="answer-call" data-call-knob aria-label="接通">${icon("phone")}</button>
+        </div>
+      </div>
+    </section>
   </main>`;
 }
 
@@ -964,9 +982,8 @@ function renderScenarioChat() {
   const phase = scenarioChat.phase(persona.key);
   const phaseUi = PHASE_UI[phase] || PHASE_UI.approaching;
   const sensors = buildSensorContext(getUplink(), { bandConnected: ui.devices.bandConnected });
-  const opening = messages.length > 0
-    ? personaRejoinLine(persona)
-    : personaOpeningLine(persona, phase);
+  const opening = personaOpeningLine(persona, phase);
+  const dayLabel = messages.some((message) => message.role === "user") ? "还在聊" : "刚开始";
   return `${topbar(escapeHtml(persona.name), {
     back: true,
     action: personaAvatarHtml(persona, "avatar top-avatar"),
@@ -978,11 +995,15 @@ function renderScenarioChat() {
       <span>压力 ${sensorLabel(sensors.pressure_rhythm)}</span>
       <span>${hrChipText(sensors)}</span>
     </div>
-    <div class="chat-thread">
-      <div class="chat-day">通话已接通 · ${phaseUi.label}</div>
-      <div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(opening)}</div></div>
-      ${messages.map((message) => renderScenarioChatMessage(message, persona)).join("")}
-      ${scenarioChat.sending ? `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble typing">正在听你…</div></div>` : ""}
+    <div class="chat-tools">
+      <button type="button" class="ghost chat-tool" data-act="scenario-voice">语音通话</button>
+      <button type="button" class="ghost chat-tool" data-act="forget-persona-memory">忘掉他记得的事</button>
+    </div>
+    <div class="chat-thread im-thread">
+      <div class="chat-day">${dayLabel} · ${phaseUi.label}</div>
+      ${messages.length ? "" : `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(opening)}</div></div>`}
+      ${messages.map((message, index) => renderScenarioChatMessage(message, persona, index)).join("")}
+      ${scenarioChat.sending ? `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble typing-dots" aria-label="正在输入"><i></i><i></i><i></i></div></div>` : ""}
     </div>
   </main>
   <form class="chat-composer scenario-composer" id="scenario-chat-form">
@@ -1005,11 +1026,32 @@ function sensorLabel(value) {
   }[value] || "未知";
 }
 
-function renderScenarioChatMessage(message, persona) {
+function renderScenarioChatMessage(message, persona, index, { compact = false } = {}) {
   if (message.role === "user") {
     return `<div class="bubble-row user"><div class="bubble">${escapeHtml(message.text)}</div></div>`;
   }
-  return `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble">${formatCaptionHtml(message.text)}</div></div>`;
+  return `<div class="bubble-row assistant">${personaAvatarHtml(persona)}<div class="bubble-stack">
+    <div class="bubble">${formatCaptionHtml(message.text)}</div>
+    ${compact ? "" : renderMemoryOffer(message, index)}
+  </div></div>`;
+}
+
+function renderMemoryOffer(message, messageIndex) {
+  const proposals = Array.isArray(message.proposals) ? message.proposals : [];
+  if (!proposals.length) return "";
+  return proposals.map((proposal, index) => {
+    if (proposal.status === "kept") {
+      return `<p class="memory-offer kept">已记住：${escapeHtml(proposal.text)}</p>`;
+    }
+    if (proposal.status === "skipped") return "";
+    return `<div class="memory-offer">
+      <p>要记住这件事吗？${escapeHtml(proposal.text)}</p>
+      <div class="memory-offer-actions">
+        <button type="button" data-act="remember-memory" data-msg="${messageIndex}" data-idx="${index}">记住</button>
+        <button type="button" data-act="skip-memory" data-msg="${messageIndex}" data-idx="${index}">这次算了</button>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 function renderPersonaForm() {
@@ -1963,6 +2005,27 @@ function maybeRedirectScenario() {
   return false;
 }
 
+function beginScenarioChat(persona) {
+  if (!persona) {
+    toast("请先选择一个人设");
+    return;
+  }
+  ui.activePersona = persona;
+  ui.scenarioHandoff = false;
+  const existing = scenarioChat.messages(persona.key);
+  if (!existing.length) {
+    scenarioChat.setPhase(persona.key, "approaching");
+    scenarioChat.ensureOpening(persona.key, personaOpeningLine(persona, "approaching"));
+  }
+  resetSensorWindow();
+  ingestUplinkSample(getUplink());
+  stopSpeech();
+  stopRingtone();
+  clearTimeout(ui.callTimer);
+  delete root.dataset.sceneCall;
+  go("#/intimacy/scenario/chat");
+}
+
 function beginScenarioCall(persona) {
   if (!persona) {
     toast("请先选择一个人设");
@@ -1983,7 +2046,9 @@ function startScenarioCall(persona, { automationAuthorized = false } = {}) {
   ui.pendingScenarioPersona = null;
   ui.activePersona = persona;
   ui.scenarioHandoff = false;
-  scenarioChat.setPhase(persona.key, "approaching");
+  if (!scenarioChat.messages(persona.key).length) {
+    scenarioChat.setPhase(persona.key, "approaching");
+  }
   resetSensorWindow();
   ingestUplinkSample(getUplink());
   stopSpeech();
@@ -2134,26 +2199,154 @@ function answerIncomingCall() {
   if (!screen || screen.getAttribute("data-call-stage") === "connected") return;
   stopRingtone();
   unlockSpeechPlayback();
+  const persona = ui.activePersona;
+  const hadHistory = Boolean(persona && scenarioChat.messages(persona.key).length);
+  if (persona && !hadHistory) {
+    scenarioChat.setPhase(persona.key, "approaching");
+    scenarioChat.ensureOpening(persona.key, personaOpeningLine(persona, "approaching"));
+  }
+  screen.classList.add("is-answering");
   screen.setAttribute("data-call-stage", "connected");
   const kicker = root.querySelector(".call-kicker");
   const status = root.querySelector("[data-call-status]");
-  const hangup = root.querySelector(".call-hangup");
-  const textBtn = root.querySelector("[data-act=call-text]");
-  const captions = root.querySelector("[data-call-captions]");
-  const ringActions = root.querySelector("[data-call-ring-actions]");
+  const duration = root.querySelector("[data-call-duration]");
+  const knob = root.querySelector("[data-call-knob]");
   if (kicker) kicker.textContent = "通话中";
   if (status) status.textContent = "我在听";
-  if (hangup) hangup.hidden = false;
+  if (duration) duration.hidden = false;
+  if (knob) knob.style.transform = "";
+  startCallClock();
+  bindCallSwipe();
+  const textBtn = root.querySelector("[data-act=call-text]");
   if (textBtn) textBtn.hidden = false;
-  if (captions) captions.hidden = false;
-  if (ringActions) ringActions.hidden = true;
   prepareLiveCall();
-  const history = scenarioChat.messages(ui.activePersona?.key);
-  const greeting = history.length
-    ? personaRejoinLine(ui.activePersona)
-    : personaOpeningLine(ui.activePersona, "approaching");
+  const greeting = hadHistory
+    ? personaRejoinLine(persona)
+    : personaOpeningLine(persona, "approaching");
   updateCallCaption("assistant", greeting);
   liveCall?.playReply(greeting);
+}
+
+function startCallClock() {
+  stopCallClock();
+  const el = root.querySelector("[data-call-duration]");
+  if (!el) return;
+  const started = Date.now();
+  const tick = () => {
+    const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    el.textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  tick();
+  callClock = setInterval(tick, 1000);
+}
+
+function stopCallClock() {
+  if (callClock) clearInterval(callClock);
+  callClock = null;
+}
+
+function declineIncomingCall() {
+  leaveScenarioCall();
+  go("#/intimacy/scenario");
+}
+
+function openScenarioTextFromCall() {
+  const screen = root.querySelector(".call-screen");
+  if (screen?.dataset.leaving === "1") return;
+  stopRingtone();
+  stopLiveCall();
+  stopHoldMic();
+  stopCallClock();
+  ui.chatFromCall = true;
+  if (!screen) {
+    go("#/intimacy/scenario/chat");
+    return;
+  }
+  screen.dataset.leaving = "1";
+  screen.classList.add("call-to-chat");
+  clearTimeout(chatFromCallTimer);
+  chatFromCallTimer = window.setTimeout(() => {
+    chatFromCallTimer = null;
+    go("#/intimacy/scenario/chat");
+  }, 300);
+}
+
+function bindCallSwipe() {
+  bindAnswerSlider();
+  bindConnectedSwipeUp();
+}
+
+function bindAnswerSlider() {
+  const screen = root.querySelector(".call-screen");
+  const slider = root.querySelector("[data-call-slider]");
+  const knob = root.querySelector("[data-call-knob]");
+  if (!screen || !slider || !knob || slider.dataset.boundSwipe === "1") return;
+  slider.dataset.boundSwipe = "1";
+  let startX = null;
+  const travelMax = () => Math.max(1, slider.clientWidth - knob.offsetWidth - 12);
+  slider.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button) return;
+    if (screen.getAttribute("data-call-stage") !== "ringing") return;
+    startX = event.clientX;
+    slider.setPointerCapture(event.pointerId);
+  });
+  slider.addEventListener("pointermove", (event) => {
+    if (startX == null) return;
+    const left = Math.max(0, Math.min(travelMax(), startX - event.clientX));
+    knob.style.transform = `translateX(${-left}px)`;
+  });
+  slider.addEventListener("pointerup", (event) => {
+    if (startX == null) return;
+    const dx = event.clientX - startX;
+    const left = startX - event.clientX;
+    const threshold = travelMax() * 0.4;
+    startX = null;
+    if (left >= threshold || Math.abs(dx) < 12) {
+      skipAnswerClick = true;
+      answerIncomingCall();
+      window.setTimeout(() => { skipAnswerClick = false; }, 0);
+      return;
+    }
+    skipAnswerClick = false;
+    if (dx >= 64) {
+      declineIncomingCall();
+      return;
+    }
+    knob.style.transform = "";
+  });
+  slider.addEventListener("pointercancel", () => {
+    startX = null;
+    knob.style.transform = "";
+  });
+}
+
+function bindConnectedSwipeUp() {
+  const layer = root.querySelector("[data-call-swipe]");
+  if (!layer || layer.dataset.boundUp === "1") return;
+  layer.dataset.boundUp = "1";
+  let startY = null;
+  let startX = null;
+  layer.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button) return;
+    if (event.target.closest(".call-hangup-btn, [data-act=end-call], [data-call-slider], [data-act=call-text]")) return;
+    if (event.target.closest("[data-call-captions]")) return;
+    if (root.querySelector(".call-screen")?.getAttribute("data-call-stage") !== "connected") return;
+    startY = event.clientY;
+    startX = event.clientX;
+  });
+  layer.addEventListener("pointerup", (event) => {
+    if (startY == null) return;
+    const dy = event.clientY - startY;
+    const dx = event.clientX - startX;
+    startY = null;
+    startX = null;
+    if (Math.abs(dx) > Math.abs(dy)) return;
+    if (dy < -64) openScenarioTextFromCall();
+  });
+  layer.addEventListener("pointercancel", () => {
+    startY = null;
+    startX = null;
+  });
 }
 
 function prepareLiveCall() {
@@ -2177,6 +2370,8 @@ function prepareLiveCall() {
       };
       const el = root.querySelector("[data-call-status]");
       if (el) el.textContent = labels[status] || "我在听";
+      const wave = root.querySelector("[data-call-wave]");
+      if (wave) wave.dataset.wave = status || "listening";
       if (status === "hearing") updateCallCaption("user", "……", { pending: true });
       if (status === "thinking") updateCallCaption("user", "正在转成文字…", { pending: true });
     },
@@ -2257,6 +2452,7 @@ function updateCallCaption(role, text, { pending = false } = {}) {
     if (pending) el.dataset.pending = "1";
     else delete el.dataset.pending;
   }
+  if (captions) captions.scrollTop = captions.scrollHeight;
 }
 
 function leaveScenarioCall() {
@@ -2264,7 +2460,10 @@ function leaveScenarioCall() {
   stopRingtone();
   stopLiveCall();
   stopHoldMic();
+  stopCallClock();
   clearTimeout(ui.callTimer);
+  clearTimeout(chatFromCallTimer);
+  chatFromCallTimer = null;
   delete root.dataset.sceneCall;
   ui.voiceListening = false;
   stopScenarioAutomation();
@@ -2330,16 +2529,29 @@ function render() {
     || tab === "lab";
   const onCall = tab === "intimacy" && page === "scenario" && sessionId === "call";
   const onChat = tab === "intimacy" && page === "scenario" && sessionId === "chat";
+  const fromCall = Boolean(ui.chatFromCall && onChat);
+  if (onChat) ui.chatFromCall = false;
   root.classList.toggle("subpage", nested);
   root.classList.toggle("chat-view", view === "insight" || onChat);
   root.classList.toggle("call-view", onCall);
   root.classList.remove("onboarding");
+  if (!fromCall) root.classList.remove("from-call");
   if (onCall && root.dataset.sceneCall === "1") return;
   if (onChat && ui.voiceListening) return;
   if (!onCall) {
-    delete root.dataset.sceneCall;
-    clearTimeout(ui.callTimer);
     stopRingtone();
+    stopLiveCall();
+    stopCallClock();
+    clearTimeout(ui.callTimer);
+    delete root.dataset.sceneCall;
+    if (!onChat) {
+      clearTimeout(chatFromCallTimer);
+      chatFromCallTimer = null;
+      stopHoldMic();
+      stopSpeech();
+      ui.voiceListening = false;
+      stopScenarioAutomation();
+    }
   }
 
   if (tab === "lab") {
@@ -2384,6 +2596,7 @@ function render() {
     root.dataset.sceneCall = "1";
     startCallSequence();
   }
+  if (fromCall) requestAnimationFrame(() => root.classList.add("from-call"));
 }
 
 function restoreCardScroll() {
@@ -2425,6 +2638,7 @@ function bind() {
   const voiceInput = root.querySelector("#persona-voice-file");
   if (voiceInput) voiceInput.addEventListener("change", onPersonaVoicePicked);
   bindHoldMic();
+  bindCallSwipe();
   root.querySelectorAll("[data-act=lab-check]").forEach((el) => {
     el.addEventListener("change", () => saveCheck(el.dataset.id, el.checked));
   });
@@ -2456,7 +2670,7 @@ async function onScenarioChatSubmit(event) {
   await sendScenarioLine(text);
 }
 
-async function sendScenarioLine(text, { speak = true, skipRender = false } = {}) {
+async function sendScenarioLine(text, { speak = false, skipRender = false } = {}) {
   const persona = ui.activePersona;
   if (!persona || scenarioChat.sending) return;
   stopSpeech();
@@ -2701,7 +2915,7 @@ async function onClick(event) {
   else if (act === "persona-use-custom" || act === "persona-start-chat") {
     const result = await saveCustomPersonaFromForm({ activate: true, createdNotice: false });
     if (!result.ok) return;
-    if (act === "persona-start-chat" || ui.scenarioHandoff) {
+    if (act === "persona-start-chat") {
       beginScenarioCall(findScenarioPersona(`custom:${result.id}`));
       return;
     }
@@ -2882,19 +3096,45 @@ async function onClick(event) {
     beginScenarioCall(findScenarioPersona(t.dataset.key));
   }
   else if (act === "answer-call") {
+    if (skipAnswerClick) {
+      skipAnswerClick = false;
+      return;
+    }
     answerIncomingCall();
   }
   else if (act === "persona-clone-retry") {
     await clonePendingVoice();
   }
   else if (act === "end-call") {
-    leaveScenarioCall();
-    go("#/intimacy/scenario");
+    declineIncomingCall();
   }
   else if (act === "call-text") {
-    stopRingtone();
-    stopLiveCall();
-    go("#/intimacy/scenario/chat");
+    openScenarioTextFromCall();
+  }
+  else if (act === "scenario-voice") {
+    beginScenarioCall(ui.activePersona);
+  }
+  else if (act === "remember-memory") {
+    try {
+      await scenarioChat.confirmMemory(ui.activePersona, Number(t.dataset.msg), Number(t.dataset.idx));
+      toast("记下了");
+      render();
+    } catch {
+      toast("这次没记下，等会儿再试");
+    }
+  }
+  else if (act === "skip-memory") {
+    scenarioChat.skipMemory(ui.activePersona, Number(t.dataset.msg), Number(t.dataset.idx));
+    render();
+  }
+  else if (act === "forget-persona-memory") {
+    try {
+      await scenarioChat.forgetMemories(ui.activePersona);
+      toast("已忘掉这个人设记得的事");
+      render();
+    } catch {
+      toast("这次没忘掉，等会儿再试");
+    }
   }
   else if (act === "toggle-tag" || act === "toggle-skill") t.classList.toggle("on");
   else if (act === "talk-freq") {

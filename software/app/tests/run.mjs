@@ -14,8 +14,10 @@ import { BodyNotesState } from "../js/body-notes.js";
 import { NAV_TABS, parseHash, legacyNotesTarget, SCENARIO_FLOW } from "../js/routes.js";
 import {
   ScenarioChatState,
+  buildConversationSummary,
   buildSensorContext,
   experienceSummary,
+  foldOldTurns,
   formatCaptionHtml,
   ingestUplinkSample,
   nextExperiencePhase,
@@ -23,6 +25,8 @@ import {
   speakDialogue,
   speakUtterance,
   stopRingtone,
+  SUMMARY_TOTAL_MAX,
+  TURN_SEND,
 } from "../js/scenario-session.js";
 import {
   cardToPromptText,
@@ -309,9 +313,9 @@ assert(parseHash("#/intimacy").page === "root", "intimacy root is the two-entry 
 assert(parseHash("#/intimacy/scenario").page === "scenario", "scenario list lives under intimacy");
 assert(parseHash("#/intimacy/scenario/new").sessionId === "new", "persona form uses scenario/new");
 assert(parseHash("#/intimacy/scenario/play").sessionId === "play", "legacy play hash still parses");
-assert(parseHash("#/intimacy/scenario/call").sessionId === "call", "existing persona dials into the call screen");
-assert(parseHash("#/intimacy/scenario/chat").sessionId === "chat", "text chat remains available as a backup");
-assert(SCENARIO_FLOW.includes("call") && SCENARIO_FLOW.includes("chat"), "scenario flow includes call then chat");
+assert(parseHash("#/intimacy/scenario/call").sessionId === "call", "persona pick opens the incoming call");
+assert(parseHash("#/intimacy/scenario/chat").sessionId === "chat", "text chat is the swipe-up page after the call");
+assert(SCENARIO_FLOW.includes("call") && SCENARIO_FLOW.includes("chat"), "scenario flow includes call and chat");
 assert(parseHash("#/intimacy/control").page === "control", "self-control is a nested intimacy page");
 assert(parseHash("#/records").tab === "records" && parseHash("#/records").view == null, "records long page is a root tab");
 assert(
@@ -452,7 +456,7 @@ assert(
     && recent.some((item) => item.role === "assistant" && item.content === "我在。"),
   "the second send includes the previous user and assistant turn in recent_turns",
 );
-assert(turnBodies[1]?.memory_policy === "off", "resumed turns keep memory_policy off");
+assert(turnBodies[1]?.memory_policy === "ask_each_time", "resumed turns ask before writing memory");
 
 const styleStore = memoryStore();
 const styleChat = new ScenarioChatState({
@@ -471,6 +475,103 @@ const offlineAgain = new ScenarioChatState({ fetchImpl: null, storage: offlineSt
 assert(
   offlineAgain.messages("persona:calm").length >= 2,
   "offline threads still keep prior turns after reconstructing from storage",
+);
+
+const overflowItems = Array.from({ length: TURN_SEND + 2 }, (_, index) => ({
+  role: index % 2 === 0 ? "user" : "assistant",
+  text: index % 2 === 0 ? `她${index}` : `他${index}`,
+}));
+const folded = foldOldTurns(overflowItems, TURN_SEND);
+assert(folded.startsWith("更早的对话："), "old turns fold into a dialogue summary");
+assert(folded.includes("她0") && folded.includes("他1"), "the summary keeps lines that fell out of the window");
+assert(!folded.includes(`她${TURN_SEND}`), "the live window is not copied into the folded summary");
+const combinedSummary = buildConversationSummary(overflowItems, "rising", {});
+assert(combinedSummary.includes("更早的对话") && combinedSummary.includes("一起往前"), "summary keeps folded dialogue and phase goals");
+assert(combinedSummary.length <= SUMMARY_TOTAL_MAX, "the combined summary stays within the contract limit");
+
+const overflowBodies = [];
+const overflowChat = new ScenarioChatState({
+  fetchImpl: async (_url, options = {}) => {
+    overflowBodies.push(JSON.parse(options.body || "{}"));
+    return jsonResponse({ dialogue: "我在。", scene_ctrl: "stay" });
+  },
+  storage: memoryStore(),
+});
+for (let i = 0; i < 7; i += 1) {
+  await overflowChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, `第${i}句`);
+}
+const overflowPayload = overflowBodies.at(-1);
+assert((overflowPayload?.recent_turns || []).length <= TURN_SEND, "requests still send at most 12 recent turns");
+assert(
+  String(overflowPayload?.conversation_summary || "").includes("更早的对话")
+    && String(overflowPayload?.conversation_summary || "").includes("第0句"),
+  "turns outside the window are compressed into conversation_summary",
+);
+
+const memBodies = [];
+const memStore = memoryStore();
+const memFetch = async (url, options = {}) => {
+  const path = String(url);
+  if (path.includes("/v1/agent/memory") && options.method === "POST") {
+    memBodies.push(JSON.parse(options.body || "{}"));
+    return jsonResponse({
+      id: "mem_1",
+      user_id: "local-demo",
+      persona_id: "gentle",
+      text: memBodies.at(-1).text,
+      created_at: 1,
+    });
+  }
+  if (path.includes("/v1/agent/memory") && options.method === "DELETE") {
+    return jsonResponse({ deleted_count: 1 });
+  }
+  return jsonResponse({
+    dialogue: "记下了。",
+    scene_ctrl: "stay",
+    memory_proposals: [{ text: "喜欢慢慢来", reason: "她说了" }],
+  });
+};
+const memChat = new ScenarioChatState({ fetchImpl: memFetch, storage: memStore });
+await memChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "记住，我喜欢慢慢来");
+const offered = memChat.messages("persona:gentle")[1];
+assert(offered?.proposals?.[0]?.text === "喜欢慢慢来", "assistant turns keep pending memory proposals");
+assert(offered.proposals[0].status === "pending", "new proposals wait for confirm");
+await memChat.confirmMemory({ key: "persona:gentle", id: "gentle" }, 1, 0);
+assert(memBodies[0]?.text === "喜欢慢慢来", "confirm posts the proposal to the memory API");
+assert(memChat.messages("persona:gentle")[1].proposals[0].status === "kept", "confirmed proposals stay marked kept");
+const hydratedMem = new ScenarioChatState({ fetchImpl: memFetch, storage: memStore });
+assert(
+  hydratedMem.messages("persona:gentle")[1].proposals[0].status === "kept",
+  "confirmed proposals survive localStorage hydrate",
+);
+await memChat.forgetMemories({ key: "persona:gentle", id: "gentle" });
+assert(
+  memChat.messages("persona:gentle")[1].proposals[0].status === "skipped",
+  "forgetting a persona marks local proposals skipped",
+);
+const forgottenHydrated = new ScenarioChatState({ fetchImpl: memFetch, storage: memStore });
+assert(
+  forgottenHydrated.messages("persona:gentle")[1].proposals[0].status === "skipped",
+  "forgotten local proposals survive hydrate",
+);
+
+const skipChat = new ScenarioChatState({
+  fetchImpl: async () => jsonResponse({
+    dialogue: "好。",
+    scene_ctrl: "stay",
+    memory_proposals: [{ text: "下次不要突然加快", reason: "她说了" }],
+  }),
+  storage: memoryStore(),
+});
+await skipChat.send({ key: "persona:playful", id: "playful", name: "阿北" }, "下次不要突然加快");
+skipChat.skipMemory({ key: "persona:playful", id: "playful" }, 1, 0);
+assert(skipChat.messages("persona:playful")[1].proposals[0].status === "skipped", "rejecting a proposal does not write memory");
+
+const stubMem = new ScenarioChatState({ fetchImpl: null, storage: memoryStore() });
+await stubMem.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "记住，我喜欢被慢慢抱");
+assert(
+  stubMem.messages("persona:gentle")[1].proposals?.length >= 1,
+  "offline stub still offers a confirmable memory when she asks to remember",
 );
 
 resetSensorWindow();

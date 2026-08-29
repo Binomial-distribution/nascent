@@ -4,8 +4,11 @@ import { personaPayload, speakOptionsForPersona, TTS_STYLE_TO_EMOTION, normalize
 import { heartRate as defaultHeartRate } from "./hr.js";
 
 export const THREAD_KEY = "nascent.scenario.threads";
+export const DEMO_USER_ID = "local-demo";
 const THREAD_KEEP = 40;
-const TURN_SEND = 12;
+export const TURN_SEND = 12;
+export const SUMMARY_DIALOGUE_MAX = 1600;
+export const SUMMARY_TOTAL_MAX = 2000;
 
 const MAX_AVATAR_PX = 192;
 const MAX_AVATAR_CHARS = 120_000;
@@ -338,6 +341,72 @@ export class ScenarioChatState {
     return [...(this._threads.get(personaKey) || [])];
   }
 
+  ensureOpening(personaKey, text) {
+    const items = this._threads.get(personaKey) || [];
+    const opening = String(text || "").trim();
+    if (items.length || !opening) return false;
+    this._threads.set(personaKey, [{
+      role: "assistant",
+      text: opening,
+      phase: this.phase(personaKey),
+    }]);
+    this._persist();
+    return true;
+  }
+
+  async confirmMemory(persona, messageIndex, proposalIndex) {
+    const items = this._threads.get(persona.key) || [];
+    const proposal = items[messageIndex]?.proposals?.[proposalIndex];
+    if (!proposal || proposal.status !== "pending") return false;
+    const personaId = String(persona.id || persona.key || "scenario").slice(0, 128);
+    if (this._fetch) {
+      const response = await this._fetch("/v1/agent/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: DEMO_USER_ID,
+          persona_id: personaId,
+          text: String(proposal.text || "").slice(0, 240),
+        }),
+      });
+      if (!response.ok) throw new Error("memory write failed");
+    }
+    proposal.status = "kept";
+    this._persist();
+    return true;
+  }
+
+  skipMemory(persona, messageIndex, proposalIndex) {
+    const items = this._threads.get(persona.key) || [];
+    const proposal = items[messageIndex]?.proposals?.[proposalIndex];
+    if (!proposal || proposal.status !== "pending") return false;
+    proposal.status = "skipped";
+    this._persist();
+    return true;
+  }
+
+  async forgetMemories(persona) {
+    const personaId = String(persona.id || persona.key || "scenario").slice(0, 128);
+    if (this._fetch) {
+      const response = await this._fetch(
+        `/v1/agent/memory?user_id=${encodeURIComponent(DEMO_USER_ID)}&persona_id=${encodeURIComponent(personaId)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error("memory delete failed");
+    }
+    const key = persona.key;
+    const items = this._threads.get(key) || [];
+    this._threads.set(key, items.map((item) => {
+      if (item?.role !== "assistant" || !item.proposals?.length) return item;
+      return {
+        ...item,
+        proposals: item.proposals.map((proposal) => ({ ...proposal, status: "skipped" })),
+      };
+    }));
+    this._persist();
+    return true;
+  }
+
   clear(personaKey) {
     this._threads.delete(personaKey);
     this._phases.delete(personaKey);
@@ -372,6 +441,7 @@ export class ScenarioChatState {
         text: turn.dialogue,
         sceneCtrl: turn.scene_ctrl,
         phase: next,
+        proposals: turn.memory_proposals || [],
       });
       this._threads.set(key, thread.slice(-THREAD_KEEP));
       this._persist();
@@ -380,6 +450,7 @@ export class ScenarioChatState {
         sceneCtrl: turn.scene_ctrl,
         phase: next,
         tts_style: turn.tts_style || stubTtsStyle(trimmed, next),
+        memory_proposals: turn.memory_proposals || [],
       };
     } finally {
       this.sending = false;
@@ -393,25 +464,21 @@ export class ScenarioChatState {
     }));
     const sensor = extras.sensor_context || {};
     const payload = {
-      user_id: "local-demo",
+      user_id: DEMO_USER_ID,
       persona_id: String(persona.id || persona.key || "scenario").slice(0, 128),
       persona: personaPayload(persona),
       session_mode: "scenario",
       scene_id: phase,
       session_state: phase === "aftercare" ? "running" : "running",
-      memory_policy: "off",
+      memory_policy: "ask_each_time",
       consent_state: "confirmed",
       sensor_context: sensor,
-      conversation_summary: experienceSummary(phase, sensor),
+      conversation_summary: buildConversationSummary(items, phase, sensor),
       user_input: text.slice(0, 2000),
       recent_turns: recent,
     };
     if (!this._fetch) {
-      return {
-        dialogue: stubDialogue(persona, text, phase),
-        scene_ctrl: stubSceneCtrl(text, phase),
-        tts_style: stubTtsStyle(text, phase),
-      };
+      return stubTurn(persona, text, phase);
     }
     try {
       const response = await this._fetch("/v1/agent/turn", {
@@ -420,25 +487,19 @@ export class ScenarioChatState {
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        return {
-          dialogue: stubDialogue(persona, text, phase),
-          scene_ctrl: stubSceneCtrl(text, phase),
-          tts_style: stubTtsStyle(text, phase),
-        };
+        return stubTurn(persona, text, phase);
       }
       const body = await response.json();
       const dialogue = String(body?.dialogue || "").trim();
+      const proposals = normalizeMemoryProposals(body?.memory_proposals);
       return {
         dialogue: dialogue || stubDialogue(persona, text, phase),
         scene_ctrl: ["stay", "next", "end"].includes(body?.scene_ctrl) ? body.scene_ctrl : "stay",
         tts_style: body?.tts_style ? normalizeTtsStyle(body.tts_style) : stubTtsStyle(text, phase),
+        memory_proposals: proposals,
       };
     } catch {
-      return {
-        dialogue: stubDialogue(persona, text, phase),
-        scene_ctrl: stubSceneCtrl(text, phase),
-        tts_style: stubTtsStyle(text, phase),
-      };
+      return stubTurn(persona, text, phase);
     }
   }
 
@@ -447,7 +508,11 @@ export class ScenarioChatState {
     const threads = raw.threads || {};
     const phases = raw.phases || {};
     for (const [key, items] of Object.entries(threads)) {
-      if (Array.isArray(items)) this._threads.set(key, items.slice(-THREAD_KEEP));
+      if (!Array.isArray(items)) continue;
+      this._threads.set(key, items.slice(-THREAD_KEEP).map((item) => {
+        if (!item || item.role !== "assistant" || !item.proposals) return item;
+        return { ...item, proposals: normalizeMemoryProposals(item.proposals) };
+      }));
     }
     for (const [key, phase] of Object.entries(phases)) {
       if (EXPERIENCE_PHASES.includes(phase)) this._phases.set(key, phase);
@@ -507,6 +572,58 @@ export function experienceSummary(phase, sensor) {
     `温感 ${sensor.temperature_state || "unknown"}，压力 ${sensor.pressure_rhythm || "unknown"}，心率 ${sensor.hr_trend || "unknown"}。`,
     phase === "aftercare" ? "这一段要事后陪着，不要再往高潮推。" : "",
   ].filter(Boolean).join(" ");
+}
+
+export function foldOldTurns(items, keep = TURN_SEND) {
+  const older = Array.isArray(items) ? items.slice(0, Math.max(0, items.length - keep)) : [];
+  if (!older.length) return "";
+  const lines = older.map((item) => {
+    const who = item?.role === "assistant" ? "他" : "她";
+    const text = String(item?.text || "").replace(/\s+/g, " ").trim();
+    return text ? `${who}：${text}` : "";
+  }).filter(Boolean);
+  if (!lines.length) return "";
+  let text = `更早的对话：${lines.join(" / ")}`;
+  if (text.length > SUMMARY_DIALOGUE_MAX) {
+    text = `${text.slice(0, SUMMARY_DIALOGUE_MAX - 1)}…`;
+  }
+  return text;
+}
+
+export function buildConversationSummary(items, phase, sensor) {
+  const folded = foldOldTurns(items, TURN_SEND);
+  const experience = experienceSummary(phase, sensor);
+  return [folded, experience].filter(Boolean).join("\n").slice(0, SUMMARY_TOTAL_MAX);
+}
+
+export function normalizeMemoryProposals(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => ({
+      text: String(item?.text || "").trim().slice(0, 240),
+      reason: String(item?.reason || "").trim().slice(0, 120),
+      status: item?.status === "kept" || item?.status === "skipped" ? item.status : "pending",
+    }))
+    .filter((item) => item.text);
+}
+
+function stubMemoryProposals(text) {
+  const clipped = String(text || "").replace(/\s+/g, " ").trim();
+  if (!/(记住|我喜欢|我不喜欢|以后别|下次不要|以后不要)/.test(clipped)) return [];
+  return [{
+    text: clipped.slice(0, 80) || "她说的这件事",
+    reason: "她说了想记住的偏好",
+    status: "pending",
+  }];
+}
+
+function stubTurn(persona, text, phase) {
+  return {
+    dialogue: stubDialogue(persona, text, phase),
+    scene_ctrl: stubSceneCtrl(text, phase),
+    tts_style: stubTtsStyle(text, phase),
+    memory_proposals: stubMemoryProposals(text),
+  };
 }
 
 function stubDialogue(persona, text, phase) {
