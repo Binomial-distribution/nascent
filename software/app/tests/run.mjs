@@ -8,17 +8,30 @@ import { NAV_TABS, parseHash, legacyNotesTarget, SCENARIO_FLOW } from "../js/rou
 import {
   ScenarioChatState,
   buildSensorContext,
+  experienceSummary,
+  formatCaptionHtml,
   ingestUplinkSample,
   nextExperiencePhase,
   resetSensorWindow,
+  speakDialogue,
   speakUtterance,
+  stopRingtone,
 } from "../js/scenario-session.js";
+import {
+  cardToPromptText,
+  draftToCard,
+  PERSONA_CARDS,
+  personaOpeningLine,
+  personaPayload,
+  quizAnswersToCard,
+} from "../js/persona-cards.js";
 import {
   VAD_DEFAULTS,
   createVadState,
   encodeWav,
   frameRms,
   pushVadFrame,
+  shouldBargeIn,
 } from "../js/live-call.js";
 
 let failed = 0;
@@ -252,11 +265,135 @@ const scenarioTurns = new ScenarioChatState({ fetchImpl: null });
 const reply = await scenarioTurns.send({ key: "persona:gentle", name: "温和", text: "缓慢、克制" }, "你好");
 assert(Boolean(reply?.dialogue), "scenario chat falls back locally when the agent is offline");
 assert(scenarioTurns.messages("persona:gentle").length === 2, "a scenario turn stores user and assistant lines");
-assert(scenarioTurns.phase("persona:gentle") === "approaching", "a plain hello stays in approaching");
+assert(scenarioTurns.phase("persona:gentle") === "rising", "a first user line in approaching moves into rising");
+
+const climaxChat = new ScenarioChatState({ fetchImpl: null });
+await climaxChat.send({ key: "persona:playful", name: "阿北" }, "你好");
+assert(climaxChat.phase("persona:playful") === "rising", "stub next during approaching enters rising");
+await climaxChat.send({ key: "persona:playful", name: "阿北" }, "要到了");
+assert(climaxChat.phase("persona:playful") === "climax_window", "要到了 still opens the climax window");
 
 const aftercare = await scenarioTurns.send({ key: "persona:gentle", name: "温和" }, "累了，想被抱一会儿");
 assert(scenarioTurns.phase("persona:gentle") === "aftercare", "user asking to rest enters aftercare");
 assert(aftercare.dialogue.includes("陪"), "aftercare fallback stays with the user");
+
+const opening = personaOpeningLine({ id: "gentle" }, "approaching");
+assert(opening.includes("收工") || opening.includes("抱一会儿"), "preset opening uses the boyfriend greeting");
+assert(opening.includes("（") && opening.includes("）"), "opening keeps an unread stage aside");
+assert(!opening.includes("慢慢靠近"), "opening is not the old coaching script");
+const caption = formatCaptionHtml("过来。（轻声）抱你");
+assert(caption.includes("class=\"aside\"") && caption.includes("（轻声）"), "captions keep asides visible");
+assert(caption.startsWith("过来。"), "spoken words stay outside the aside span");
+assert(!formatCaptionHtml("<img>").includes("<img>"), "caption html escapes markup");
+stopRingtone();
+const payload = personaPayload({ id: "gentle" });
+assert(payload.assistant_name === "顾深" && payload.profile.length > 0, "turn payload sends a Waifu-style character card");
+assert(payload.tts?.minimax === "junlang_nanyou" && payload.voice === "junlang_nanyou", "personaPayload includes tts voice");
+assert(PERSONA_CARDS.gentle.tts.minimax === "junlang_nanyou", "顾深 uses the boyfriend MiniMax voice");
+assert(/nanyou|male-/i.test(PERSONA_CARDS.gentle.tts.minimax), "顾深 is a male MiniMax id");
+assert(PERSONA_CARDS.playful.tts.minimax === "male-qn-qingse", "阿北 uses a male MiniMax id");
+assert(PERSONA_CARDS.calm.tts.minimax === "danya_xuejie", "阿月 uses a female MiniMax id");
+assert(!/male-/i.test(PERSONA_CARDS.calm.tts.minimax), "阿月 is not a male MiniMax id");
+assert(PERSONA_CARDS.gentle.tts.emotion === "calm", "顾深 speaks calmly");
+assert(PERSONA_CARDS.playful.tts.emotion === "happy", "阿北 speaks happily");
+assert(PERSONA_CARDS.calm.tts.emotion === "whisper", "阿月 uses a whisper emotion");
+assert(PERSONA_CARDS.gentle.tts.mimo === "Milo", "顾深 maps to MiMo Milo");
+assert(PERSONA_CARDS.playful.tts.mimo === "Dean", "阿北 maps to MiMo Dean");
+assert(PERSONA_CARDS.calm.tts.mimo === "茉莉", "阿月 maps to MiMo 茉莉");
+
+const filledCard = draftToCard({
+  assistant_name: "小测",
+  user_name: "阿杰",
+  profile: "她是温柔的女友\n会做饭",
+  skills: "会撒娇\n会损你",
+  background: "正在谈恋爱",
+  rules: "不要自称 AI",
+  prologue: "晚上九点",
+  spoken: "我回来了。",
+});
+assert(filledCard.assistant_name === "小测", "draftToCard keeps the companion name");
+assert(Array.isArray(filledCard.profile) && filledCard.profile[0].includes("温柔"), "draftToCard turns profile into a list");
+assert(filledCard.spoken === "我回来了。", "draftToCard keeps the spoken opening");
+const filledPayload = personaPayload({ card: filledCard, name: filledCard.assistant_name });
+assert(
+  filledPayload.assistant_name === "小测" && filledPayload.profile.length > 0 && filledPayload.spoken === "我回来了。",
+  "draftToCard produces a personaPayload-compatible card",
+);
+
+const quizCard = quizAnswersToCard({
+  vibe: "gentle",
+  name: "gushen",
+  user_name: "baobei",
+  profile: "sweet",
+  skills: ["soft", "daily"],
+  background: "dating",
+  spoken: "hug",
+});
+assert(quizCard.assistant_name === "顾深", "quiz answers pick a boyfriend name");
+assert(quizCard.user_name === "宝贝", "quiz answers pick how he calls her");
+assert(quizCard.profile[0].includes("甜系男友"), "quiz profile is written as a boyfriend");
+assert(quizCard.spoken.includes("抱一会儿"), "quiz opening uses the selected line");
+assert(quizCard.rules.some((line) => line.includes("听她的")), "quiz rules address her");
+const quizPayload = personaPayload({ card: quizCard, name: quizCard.assistant_name });
+assert(quizPayload.assistant_name === "顾深" && quizPayload.spoken.includes("抱一会儿"), "quiz card is sent as the agent prompt");
+assert(quizPayload.tts?.minimax === "junlang_nanyou", "quiz card keeps the vibe MiniMax voice");
+
+const promptText = cardToPromptText(PERSONA_CARDS.gentle);
+assert(promptText.includes("人设:") && promptText.includes("怎么叫她:"), "character card text uses Chinese labels");
+assert(!promptText.includes("Profile:"), "character card text does not use English Profile label");
+const approachingSummary = experienceSummary("approaching", {});
+assert(approachingSummary.includes("带她"), "phase summary talks about her, not him");
+assert(!approachingSummary.includes("带他"), "phase summary does not mix him into a female-oriented scene");
+
+function memoryStore() {
+  const data = {};
+  return {
+    getItem: (key) => (key in data ? data[key] : null),
+    setItem: (key, value) => { data[key] = String(value); },
+  };
+}
+
+const threadStore = memoryStore();
+const turnBodies = [];
+const threadFetch = async (_url, options = {}) => {
+  turnBodies.push(JSON.parse(options.body || "{}"));
+  return jsonResponse({ dialogue: "我在。", scene_ctrl: "stay" });
+};
+const firstThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
+await firstThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "今天过得怎么样");
+assert(firstThread.messages("persona:gentle").length === 2, "first send stores the opening turn");
+const resumedThread = new ScenarioChatState({ fetchImpl: threadFetch, storage: threadStore });
+assert(
+  resumedThread.messages("persona:gentle").length === 2,
+  "a new ScenarioChatState hydrates prior turns from storage",
+);
+await resumedThread.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "过来陪我");
+const recent = turnBodies[1]?.recent_turns || [];
+assert(
+  recent.some((item) => item.role === "user" && item.content === "今天过得怎么样")
+    && recent.some((item) => item.role === "assistant" && item.content === "我在。"),
+  "the second send includes the previous user and assistant turn in recent_turns",
+);
+assert(turnBodies[1]?.memory_policy === "off", "resumed turns keep memory_policy off");
+
+const styleStore = memoryStore();
+const styleChat = new ScenarioChatState({
+  fetchImpl: async () => jsonResponse({ dialogue: "过来。", scene_ctrl: "stay", tts_style: "低语" }),
+  storage: styleStore,
+});
+const styled = await styleChat.send({ key: "persona:gentle", id: "gentle", name: "顾深" }, "在吗");
+assert(styled.tts_style === "低语", "send returns this turn's tts_style for TTS");
+styleChat.clearAll();
+assert(styleChat.messages("persona:gentle").length === 0, "clearAll drops in-memory scenario threads");
+
+const offlineStore = memoryStore();
+const offlineFirst = new ScenarioChatState({ fetchImpl: null, storage: offlineStore });
+await offlineFirst.send({ key: "persona:calm", id: "calm", name: "阿月" }, "我在这儿");
+const offlineAgain = new ScenarioChatState({ fetchImpl: null, storage: offlineStore });
+assert(
+  offlineAgain.messages("persona:calm").length >= 2,
+  "offline threads still keep prior turns after reconstructing from storage",
+);
 
 resetSensorWindow();
 const risingPress = { pressL: 0.2, pressR: 0.2, envTemp: 26, insertState: "inserted", level: 2, ts: 1 };
@@ -267,9 +404,15 @@ const sensors = buildSensorContext({ ...risingPress, pressL: 0.7, pressR: 0.7 },
 assert(sensors.pressure_rhythm === "increasing", "pressure trend is derived locally");
 assert(!("press_l" in sensors) && !("pressL" in sensors), "raw pressure is not sent to the 9B context");
 assert(sensors.hr_trend === "unknown", "heart-rate trend stays unknown without Health Connect");
+assert(nextExperiencePhase("approaching", { sceneCtrl: "next", userText: "你好" }) === "rising", "a first reply in approaching can move into rising");
+assert(nextExperiencePhase("approaching", { sceneCtrl: "stay", userText: "你好" }) === "rising", "talking in approaching still leads into rising");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "" }) === "rising", "sensors or silence do not auto-declare climax");
+assert(nextExperiencePhase("rising", { sceneCtrl: "next", userText: "" }) === "rising", "model next during rising does not open the climax window");
 assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "要到了" }) === "climax_window", "user language can open the climax window");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "不想更近" }) === "rising", "saying they do not want closer does not open climax");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "我到了" }) === "rising", "arriving home does not open climax");
 assert(nextExperiencePhase("climax_window", { sceneCtrl: "end", userText: "" }) === "aftercare", "ending the scene always aftercares");
+assert(nextExperiencePhase("rising", { sceneCtrl: "stay", userText: "累了" }) === "aftercare", "saying they are tired enters aftercare");
 
 const quiet = new Float32Array(32);
 const loud = new Float32Array(32).fill(0.2);
@@ -287,15 +430,37 @@ assert(!step.speaking, "the vad returns to idle after a completed sentence");
 const wav = encodeWav(step.utterance, 16000);
 assert(wav.type === "audio/wav" && wav.size > 44, "an utterance is encoded as wav for ASR only");
 
+const bargeQuiet = shouldBargeIn(1000, 0.2, { playing: true, playbackStartedAt: 900 });
+assert(!bargeQuiet.bargeIn, "speaker echo during the opening grace does not stop TTS");
+const bargeHold = shouldBargeIn(2000, 0.2, { playing: true, playbackStartedAt: 1000, loudSince: 1850 });
+assert(!bargeHold.bargeIn, "a single loud frame is not enough to barge in");
+const bargeYes = shouldBargeIn(2300, 0.2, { playing: true, playbackStartedAt: 1000, loudSince: 2000 });
+assert(bargeYes.bargeIn, "sustained speech after grace can interrupt playback");
+
 let ttsPath = "";
-await speakUtterance("我在", async (path) => {
+let ttsBody = null;
+await speakUtterance("我在", async (path, options = {}) => {
   ttsPath = path;
+  ttsBody = JSON.parse(options.body || "{}");
   return {
     ok: true,
     blob: async () => new Blob([new Uint8Array(64)], { type: "audio/mpeg" }),
   };
-});
+}, { voice: "junlang_nanyou", fallbackVoice: "FunAudioLLM/CosyVoice2-0.5B:charles", emotion: "calm", tts_style: "俏皮", provider: "mimo" });
 assert(ttsPath === "/v1/speech/speak", "assistant lines request cloud TTS");
+assert(ttsBody.voice === "junlang_nanyou", "speak body includes persona voice");
+assert(ttsBody.text === "我在", "speak body still sends the spoken line");
+assert(ttsBody.tts_style === "俏皮", "speak body includes this turn's tts_style");
+assert(ttsBody.provider === "mimo", "speak body can select the MiMo provider");
+
+let spokeLocal = false;
+globalThis.speechSynthesis = {
+  cancel() {},
+  speak() { spokeLocal = true; },
+};
+const failedSpeech = await speakDialogue("我在", { fetchImpl: async () => ({ ok: false }) });
+assert(!spokeLocal, "cloud TTS failure does not fake a browser voice");
+assert(failedSpeech.played === false && failedSpeech.interrupted === false, "failed cloud TTS reports not played");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

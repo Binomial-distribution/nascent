@@ -52,8 +52,8 @@ async def generate_turn(request: AgentTurnRequest, memories: list) -> AgentTurn:
             model=settings.chat_llm_model or settings.llm_model,
             messages=build_messages(request, memories),
             timeout_s=settings.chat_llm_timeout_s,
-            temperature=0.7,
-            max_tokens=220,
+            temperature=0.85,
+            max_tokens=700,
         )
         result = AgentTurn.model_validate_json(content)
         allowed_skills = {
@@ -225,20 +225,29 @@ async def generate_body_insight(
 
 
 def _agent_stub(request: AgentTurnRequest) -> AgentTurn:
+    persona = request.persona if isinstance(request.persona, dict) else {}
+    name = str(persona.get("assistant_name") or persona.get("name") or "顾深").strip() or "顾深"
+    spoken = str(persona.get("spoken") or "").strip()
     phase = request.scene_id
     if request.session_mode == "wild":
-        dialogue = "我在这里，按设备的计时和安全规则来。"
+        dialogue = "我在。设备那边的计时你看着就好，我陪着你。"
     elif phase == "aftercare" or "事后" in request.user_input:
-        dialogue = "我还在。先慢慢停下来，我陪着你。要不要喝一口水，或者让我抱一会儿？"
+        dialogue = "我还在沙发这边陪着。过来靠一会儿，还是先歇着，你说。"
     elif phase == "climax_window":
-        dialogue = "我跟着你。快或慢都说一声，结束后我会陪你缓一缓。"
+        dialogue = "我跟着你。想快就快，想慢就慢，结束了我还在。"
     elif phase == "rising":
-        dialogue = "如果还想再近一点就告诉我；不想也完全可以。"
+        dialogue = "还想再近一点就拉我一下。不想的话，抱着也行。"
     else:
-        dialogue = "我在这里，按你的节奏来。温感、压力和心率只是趋势，你说的才算。"
-    emotion = "gentle" if phase in {"climax_window", "aftercare"} else "calm"
+        dialogue = spoken or f"{name}在。过来，今天想被哄，还是想被抱？"
+    emotion = "gentle" if phase in {"climax_window", "aftercare"} else "playful"
+    tts_style = "温柔" if phase in {"climax_window", "aftercare"} else "俏皮"
     scene_ctrl = "end" if phase == "aftercare" else "stay"
-    return AgentTurn(dialogue=dialogue, emotion=emotion, scene_ctrl=scene_ctrl)
+    return AgentTurn(
+        dialogue=dialogue,
+        emotion=emotion,
+        tts_style=tts_style,
+        scene_ctrl=scene_ctrl,
+    )
 
 
 def _body_insight_stub(scope: str, sessions: list[dict[str, object]]) -> tuple[str, str | None]:

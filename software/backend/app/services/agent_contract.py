@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .tts_style import TtsStyle, normalize_tts_style
 
 
 class AvatarState(BaseModel):
@@ -44,10 +46,16 @@ class AgentTurn(BaseModel):
     avatar: AvatarState = AvatarState()
     scene_ctrl: Literal["stay", "next", "end"] = "stay"
     emotion: Literal["gentle", "playful", "calm"] = "calm"
+    tts_style: TtsStyle = "平静"
     # Agent 只能给建议，绝不能产出设备命令。
     action: None = None
     memory_proposals: list[MemoryProposal] = Field(default_factory=list)
     skill_proposals: list[SkillProposal] = Field(default_factory=list, max_length=4)
+
+    @field_validator("tts_style", mode="before")
+    @classmethod
+    def _coerce_tts_style(cls, value: object) -> str:
+        return normalize_tts_style(value)
 
 
 class AgentTurnRequest(BaseModel):
@@ -63,7 +71,7 @@ class AgentTurnRequest(BaseModel):
     consent_state: Literal["unknown", "confirmed", "withdrawn"] = "confirmed"
     memory_policy: Literal["ask_each_time", "off"] = "ask_each_time"
     sensor_context: dict[str, object] = Field(default_factory=dict)
-    recent_turns: list[dict[str, str]] = Field(default_factory=list, max_length=6)
+    recent_turns: list[dict[str, str]] = Field(default_factory=list, max_length=12)
     conversation_summary: str = Field(default="", max_length=2000)
     user_input: str = Field(min_length=1, max_length=2000)
     active_template: PersonaTemplate | None = None
