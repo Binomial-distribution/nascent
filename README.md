@@ -4,6 +4,8 @@
 
 产品架构（仓库内权威副本）：[`docs/architecture/产品架构.md`](docs/architecture/产品架构.md)。飞书讨论稿：<https://my.feishu.cn/docx/FggRdEmySofDoGx2WzFc77MznCd>（改架构必须同步回仓库）。
 
+2026-11 产品方向与优先级（不改安全不变量）：[`docs/product-decisions-2026-11.md`](docs/product-decisions-2026-11.md)。
+
 **如果你上一次拉代码是在 `0.2.0-demo`，先读 [`docs/0.3.0 单板改造交接.md`](docs/0.3.0%20单板改造交接.md)。** 那次改造删掉了行空板 K10 与摇杆，协议是破坏性变更，文档里逐条写了你那一侧要不要跟。
 
 ## 三层运行架构
